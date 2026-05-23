@@ -46,6 +46,7 @@ def dcf_valuation(
     cost_of_debt: float = DEFAULT_COD,
     debt_bn: float = 0.0,
     equity_bn: float = 1.0,
+    wacc_override: float | None = None,
 ) -> dict:
     """Full FCFF DCF returning a results dict.
 
@@ -65,7 +66,7 @@ def dcf_valuation(
     if not shares_millions or shares_millions <= 0:
         return _empty_result()
 
-    w = calc_wacc(beta, cost_of_debt, debt_bn, equity_bn)
+    w = wacc_override if wacc_override is not None else calc_wacc(beta, cost_of_debt, debt_bn, equity_bn)
 
     if w <= terminal_growth:
         return _empty_result()
@@ -126,9 +127,7 @@ def sensitivity_grid(
                 net_debt_bn=net_debt_bn,
                 shares_millions=shares_millions,
                 fcff_growth_rate=g,
-                beta=DEFAULT_BETA,
-                debt_bn=net_debt_bn if net_debt_bn > 0 else 0,
-                equity_bn=1.0,
+                wacc_override=w,          # directly vary the discount rate
             )
             results.append({
                 "wacc": w,
