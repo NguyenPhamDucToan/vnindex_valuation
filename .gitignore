@@ -1,0 +1,13 @@
+.env
+*.db
+*.db-shm
+*.db-wal
+data/raw/
+data/vnindex.db
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+.streamlit/secrets.toml
