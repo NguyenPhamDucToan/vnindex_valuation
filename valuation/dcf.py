@@ -1,53 +1,147 @@
-"""Simple 5-year DCF model using FCF projections."""
+"""FCFF-based DCF valuation model.
+
+FCFF = NOPAT + D&A − CapEx − ΔNWC
+     where NOPAT = EBIT × (1 − tax_rate)
+
+Enterprise Value = Σ PV(FCFF_1..n) + PV(Terminal Value)
+Equity Value     = EV − Net Debt
+Intrinsic Price  = Equity Value / Shares Outstanding
+"""
 from __future__ import annotations
 
 from typing import Optional
 
-from config import DCF_DISCOUNT_RATE, DCF_PROJECTION_YEARS, DCF_TERMINAL_GROWTH
+from config import DCF_PROJECTION_YEARS, DCF_TERMINAL_GROWTH, TAX_RATE
+from valuation.wacc import wacc as calc_wacc, DEFAULT_BETA, DEFAULT_COD
 
 
-def dcf_per_share(
-    fcf_bn: float,
+def nopat(ebit: float, tax_rate: float = TAX_RATE) -> float:
+    """Net Operating Profit After Tax = EBIT × (1 - T)."""
+    return ebit * (1 - tax_rate)
+
+
+def fcff_from_components(
+    ebit: float,
+    depreciation: float,
+    capex: float,
+    delta_nwc: float,
+    tax_rate: float = TAX_RATE,
+) -> float:
+    """FCFF = NOPAT + D&A − CapEx − ΔNWC.
+
+    delta_nwc: positive = WC increased (cash consumed), negative = WC released.
+    All values in VND billions.
+    """
+    return nopat(ebit, tax_rate) + depreciation - capex - delta_nwc
+
+
+def dcf_valuation(
+    fcff_base: float,
+    net_debt_bn: float,
     shares_millions: float,
-    fcf_growth_rate: float = 0.08,
-    discount_rate: float = DCF_DISCOUNT_RATE,
+    fcff_growth_rate: float = 0.12,
     terminal_growth: float = DCF_TERMINAL_GROWTH,
     projection_years: int = DCF_PROJECTION_YEARS,
-) -> Optional[float]:
-    """5-year DCF → intrinsic value per share in VND.
+    beta: float = DEFAULT_BETA,
+    cost_of_debt: float = DEFAULT_COD,
+    debt_bn: float = 0.0,
+    equity_bn: float = 1.0,
+) -> dict:
+    """Full FCFF DCF returning a results dict.
 
-    fcf_bn: trailing FCF in VND billions (use last 4-quarter sum for TTM)
-    shares_millions: shares outstanding in millions
-    fcf_growth_rate: projected annual FCF growth rate (default 8%)
-    discount_rate: WACC proxy — VN 10Y bond ~4.5% + ERP ~4% = 8.5%
-    terminal_growth: long-run perpetuity growth (default 3%)
+    Args:
+        fcff_base:        TTM FCFF in VND billions (starting point for projection)
+        net_debt_bn:      Total debt − Cash in VND billions
+        shares_millions:  Shares outstanding in millions
+        fcff_growth_rate: Projected annual FCFF growth rate (default 12%)
+        terminal_growth:  Long-run perpetuity growth (default 3% = VN GDP)
+        projection_years: Explicit forecast horizon (default 5)
+        beta / cost_of_debt / debt_bn / equity_bn: WACC inputs
 
-    Returns None if FCF is non-positive or shares are zero.
+    Returns dict with keys:
+        wacc, pv_fcffs, terminal_value, pv_terminal,
+        enterprise_value, equity_value, price_per_share, fcff_projections
     """
-    if not fcf_bn or fcf_bn <= 0 or not shares_millions or shares_millions <= 0:
-        return None
-    if discount_rate <= terminal_growth:
-        return None
+    if not shares_millions or shares_millions <= 0:
+        return _empty_result()
 
-    # Project FCF for each year and discount to PV
-    pv_fcfs = 0.0
-    fcf = fcf_bn
+    w = calc_wacc(beta, cost_of_debt, debt_bn, equity_bn)
+
+    if w <= terminal_growth:
+        return _empty_result()
+
+    # Project and discount FCFF
+    pv_fcffs = 0.0
+    fcff_projections = []
+    fcff = fcff_base
     for year in range(1, projection_years + 1):
-        fcf *= (1 + fcf_growth_rate)
-        pv_fcfs += fcf / (1 + discount_rate) ** year
+        fcff *= (1 + fcff_growth_rate)
+        pv = fcff / (1 + w) ** year
+        pv_fcffs += pv
+        fcff_projections.append({"year": year, "fcff": round(fcff, 2), "pv": round(pv, 2)})
 
-    # Terminal value (Gordon Growth Model) discounted back
-    terminal_fcf = fcf * (1 + terminal_growth)
-    terminal_value = terminal_fcf / (discount_rate - terminal_growth)
-    pv_terminal = terminal_value / (1 + discount_rate) ** projection_years
+    # Terminal value (Gordon Growth Model)
+    terminal_fcff = fcff * (1 + terminal_growth)
+    tv = terminal_fcff / (w - terminal_growth)
+    pv_tv = tv / (1 + w) ** projection_years
 
-    total_value_bn = pv_fcfs + pv_terminal
-    # VND billions / millions shares = VND thousands per share → × 1000
-    return (total_value_bn / shares_millions) * 1_000
+    ev = pv_fcffs + pv_tv
+    equity_val = ev - net_debt_bn
+    price = (equity_val / shares_millions) * 1_000  # billions/millions → VND per share
+
+    return {
+        "wacc": round(w, 4),
+        "pv_fcffs": round(pv_fcffs, 2),
+        "terminal_value": round(tv, 2),
+        "pv_terminal": round(pv_tv, 2),
+        "enterprise_value": round(ev, 2),
+        "equity_value": round(equity_val, 2),
+        "price_per_share": round(price, 0),
+        "fcff_projections": fcff_projections,
+    }
 
 
-def upside_pct(intrinsic_value: float, current_price: float) -> Optional[float]:
-    """(intrinsic_value - price) / price. Returns None if price is zero."""
+def upside_pct(intrinsic_price: float, current_price: float) -> Optional[float]:
+    """(intrinsic_price - current_price) / current_price."""
     if not current_price or current_price <= 0:
         return None
-    return (intrinsic_value - current_price) / current_price
+    return (intrinsic_price - current_price) / current_price
+
+
+def sensitivity_grid(
+    fcff_base: float,
+    net_debt_bn: float,
+    shares_millions: float,
+    wacc_range: list[float] = (0.12, 0.146, 0.16),
+    growth_range: list[float] = (0.08, 0.12, 0.18),
+) -> list[dict]:
+    """3×3 sensitivity table varying WACC and revenue/FCFF growth rate."""
+    results = []
+    for w in wacc_range:
+        for g in growth_range:
+            if w <= DCF_TERMINAL_GROWTH:
+                continue
+            res = dcf_valuation(
+                fcff_base=fcff_base,
+                net_debt_bn=net_debt_bn,
+                shares_millions=shares_millions,
+                fcff_growth_rate=g,
+                beta=DEFAULT_BETA,
+                debt_bn=net_debt_bn if net_debt_bn > 0 else 0,
+                equity_bn=1.0,
+            )
+            results.append({
+                "wacc": w,
+                "growth": g,
+                "price": res.get("price_per_share"),
+            })
+    return results
+
+
+def _empty_result() -> dict:
+    return {
+        "wacc": None, "pv_fcffs": None, "terminal_value": None,
+        "pv_terminal": None, "enterprise_value": None,
+        "equity_value": None, "price_per_share": None,
+        "fcff_projections": [],
+    }

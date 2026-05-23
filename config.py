@@ -30,9 +30,17 @@ FIREANT_API_KEY = os.getenv("FIREANT_API_KEY", "")
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "vnindex.db")
 DB_URL = f"sqlite:///{DB_PATH}"
 
-# --- DCF parameters ---
-DCF_DISCOUNT_RATE = 0.085   # VN 10Y bond ~4.5% + ERP ~4%
-DCF_TERMINAL_GROWTH = 0.03  # conservative long-run GDP growth
+# --- Valuation / WACC parameters ---
+# CAPM inputs for Vietnamese market
+RF = 0.05                  # Risk-free rate: VN 10-year government bond
+ERP = 0.08                 # Vietnam equity risk premium
+DEFAULT_BETA = 1.2         # Market-average beta for HOSE
+DEFAULT_COD = 0.08         # Average cost of debt on HOSE
+TAX_RATE = 0.20            # Standard Vietnamese corporate income tax rate
+
+# DCF model settings
+DCF_DISCOUNT_RATE = RF + DEFAULT_BETA * ERP  # 14.6% — CAPM-derived WACC baseline
+DCF_TERMINAL_GROWTH = 0.03   # VN long-run GDP growth
 DCF_PROJECTION_YEARS = 5
 
 # --- Screening thresholds (Undervalued Watchlist) ---
