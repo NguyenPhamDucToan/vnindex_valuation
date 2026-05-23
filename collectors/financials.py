@@ -21,7 +21,8 @@ from models.database import get_session
 from models.schema import Financial
 
 
-_PERIOD_RE = re.compile(r'^\d{4}-Q[1-4]$')
+_QUARTER_RE = re.compile(r'^\d{4}-Q[1-4]$')
+_ANNUAL_RE  = re.compile(r'^\d{4}$')
 
 
 def _safe_float(val) -> float | None:
@@ -44,10 +45,15 @@ def _normalize(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-def _period_cols(df: pd.DataFrame) -> list[str]:
-    """Return period columns sorted newest-first ('2026-Q1', '2025-Q4', ...)."""
+def _period_cols(df: pd.DataFrame, freq: str = "quarter") -> list[str]:
+    """Return period columns sorted newest-first.
+
+    freq='quarter' → '2026-Q1', '2025-Q4', ...
+    freq='year'    → '2025', '2024', ...
+    """
+    pattern = _QUARTER_RE if freq == "quarter" else _ANNUAL_RE
     return sorted(
-        [c for c in df.columns if _PERIOD_RE.match(str(c))],
+        [c for c in df.columns if pattern.match(str(c))],
         reverse=True,
     )
 
@@ -67,20 +73,24 @@ def _get(df: pd.DataFrame, item_id: str, period_col: str, scale: float = 1e9) ->
         return None
 
 
-def fetch_financials(ticker: str, n_quarters: int = 8) -> pd.DataFrame:
-    """Return last n_quarters of consolidated financials as a DataFrame.
+def fetch_financials(ticker: str, n_periods: int = 8, freq: str = "quarter") -> pd.DataFrame:
+    """Return last n_periods of consolidated financials as a DataFrame.
 
+    freq='quarter' fetches quarterly data (period_type='Q').
+    freq='year'    fetches annual data   (period_type='Y').
+
+    Community vnstock is limited to 4 quarters / 4 years.
     Columns match all fields in the Financial ORM model.
     All monetary amounts in VND billions; EPS in VND per share.
     """
     stock = Vnstock().stock(symbol=ticker, source=VNSTOCK_SOURCE)
 
     try:
-        income   = stock.finance.income_statement(period="quarter", lang="en")
-        balance  = stock.finance.balance_sheet(period="quarter", lang="en")
-        cashflow = stock.finance.cash_flow(period="quarter", lang="en")
+        income   = stock.finance.income_statement(period=freq, lang="en")
+        balance  = stock.finance.balance_sheet(period=freq, lang="en")
+        cashflow = stock.finance.cash_flow(period=freq, lang="en")
     except Exception as e:
-        logger.warning(f"{ticker}: API error — {e}")
+        logger.warning(f"{ticker}: API error ({freq}) — {e}")
         return pd.DataFrame()
 
     if income is None or income.empty:
@@ -90,7 +100,8 @@ def fetch_financials(ticker: str, n_quarters: int = 8) -> pd.DataFrame:
     balance  = _normalize(balance,  ticker)
     cashflow = _normalize(cashflow, ticker)
 
-    periods = _period_cols(income)[:n_quarters]
+    period_type = "Q" if freq == "quarter" else "Y"
+    periods = _period_cols(income, freq)[:n_periods]
     if not periods:
         return pd.DataFrame()
 
@@ -155,7 +166,7 @@ def fetch_financials(ticker: str, n_quarters: int = 8) -> pd.DataFrame:
 
         rows.append({
             "period":              p,
-            "period_type":         "Q",
+            "period_type":         period_type,
             "revenue":             revenue,
             "cogs":                cogs,
             "gross_profit":        gross_profit,
@@ -226,13 +237,15 @@ def upsert_financials(ticker: str, df: pd.DataFrame) -> int:
 
 
 def run(tickers: list[str]) -> None:
+    """Fetch quarterly (4 periods, community limit) + annual (4 years) for each ticker."""
     for ticker in tickers:
-        try:
-            df = fetch_financials(ticker)
-            count = upsert_financials(ticker, df)
-            logger.info(f"{ticker}: upserted {count} financial rows")
-        except Exception as e:
-            logger.error(f"{ticker}: failed — {e}")
+        for freq, n in [("quarter", 4), ("year", 4)]:
+            try:
+                df = fetch_financials(ticker, n_periods=n, freq=freq)
+                count = upsert_financials(ticker, df)
+                logger.info(f"{ticker}/{freq}: upserted {count} rows")
+            except Exception as e:
+                logger.error(f"{ticker}/{freq}: failed — {e}")
 
 
 if __name__ == "__main__":
