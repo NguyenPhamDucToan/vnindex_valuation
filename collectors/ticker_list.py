@@ -28,11 +28,12 @@ def upsert_companies(df: pd.DataFrame) -> int:
     upserted = 0
     with get_session() as session:
         for _, row in df.iterrows():
-            company = session.get(Company, row["ticker"])
+            ticker = row["symbol"]  # vnstock uses 'symbol', not 'ticker'
+            company = session.get(Company, ticker)
             if company is None:
-                company = Company(ticker=row["ticker"])
+                company = Company(ticker=ticker)
                 session.add(company)
-            company.name = row.get("organ_name", row.get("short_name", ""))
+            company.name = row.get("organ_name") or row.get("short_name") or ticker
             company.exchange = row.get("exchange", EXCHANGE)
             company.sector = row.get("sector", None)
             company.industry = row.get("industry", None)
