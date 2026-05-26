@@ -43,6 +43,9 @@ DCF_DISCOUNT_RATE = RF + DEFAULT_BETA * ERP  # 14.6% — CAPM-derived WACC basel
 DCF_TERMINAL_GROWTH = 0.03   # VN long-run GDP growth
 DCF_PROJECTION_YEARS = 5
 
+# Market P/E reference for implied-price calculation (HOSE historical average)
+MARKET_PE = 15
+
 # --- Screening thresholds (Undervalued Watchlist) ---
 SCREEN_MIN_DCF_UPSIDE = 0.20   # DCF upside > 20%
 SCREEN_MAX_PB = 2.0            # P/B < 2

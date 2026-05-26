@@ -185,3 +185,95 @@ def prepare_dcf_inputs(ticker: str) -> dict | None:
         "growth_source":   growth_source,
         "n_quarters_used": ttm.get("n_quarters"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Quarter-history builder  (combines real Q rows + annual-derived estimates)
+# ---------------------------------------------------------------------------
+
+_CHART_COLS = ["revenue", "net_income", "ebit", "gross_profit",
+               "operating_cf", "capex", "fcf", "depreciation"]
+
+
+def build_quarter_history(ticker: str, n: int = 8) -> "pd.DataFrame":
+    """Return up to n quarterly data points for charting.
+
+    Priority (newest first):
+      1. Real Q rows from DB.
+      2. Derived quarters: if exactly 1 quarter is missing for a year that has
+         annual data AND 3 known quarters, compute it as annual − sum(known).
+      3. Estimated quarters: annual ÷ 4 for years with no quarterly DB rows,
+         labeled is_estimated=True.
+
+    Returns DataFrame sorted oldest → newest with columns:
+        period, is_estimated, revenue, net_income, ebit,
+        gross_profit, operating_cf, capex, fcf, depreciation
+    """
+    import pandas as pd
+
+    _cols = [c.key for c in Financial.__table__.columns]
+
+    with get_session() as session:
+        q_orm = session.execute(
+            select(Financial)
+            .where(Financial.ticker == ticker, Financial.period_type == "Q")
+            .order_by(Financial.period.desc())
+        ).scalars().all()
+        y_orm = session.execute(
+            select(Financial)
+            .where(Financial.ticker == ticker, Financial.period_type == "Y")
+            .order_by(Financial.period.desc())
+        ).scalars().all()
+        q_rows = [{c: getattr(r, c) for c in _cols} for r in q_orm]
+        y_rows = [{c: getattr(r, c) for c in _cols} for r in y_orm]
+
+    if not q_rows and not y_rows:
+        return pd.DataFrame()
+
+    records = []
+
+    # 1. Real quarterly rows
+    known_by_year: dict[str, dict[int, dict]] = {}
+    for row in q_rows:
+        year = row["period"][:4]        # "2025" from "2025-Q3"
+        qnum = int(row["period"][6])    # 3   from "2025-Q3"
+        known_by_year.setdefault(year, {})[qnum] = row
+        records.append({**{c: row.get(c) for c in _CHART_COLS},
+                        "period": row["period"], "is_estimated": False})
+
+    # 2 & 3. Fill from annual rows
+    for y_row in y_rows:
+        year = y_row["period"]          # "2025"
+        known = known_by_year.get(year, {})
+        missing = [q for q in [1, 2, 3, 4] if q not in known]
+
+        if not missing:
+            continue
+
+        if len(missing) == 1:
+            # Derive exactly: annual − sum of 3 known quarters
+            qnum = missing[0]
+            derived = {}
+            for col in _CHART_COLS:
+                annual_val = y_row.get(col) or 0
+                known_sum  = sum((known[q].get(col) or 0) for q in known)
+                derived[col] = annual_val - known_sum
+            records.append({**derived, "period": f"{year}-Q{qnum}",
+                             "is_estimated": False})
+
+        else:
+            # Estimate: annual ÷ 4 per quarter
+            for qnum in missing:
+                estimated = {col: (y_row.get(col) or 0) / 4 for col in _CHART_COLS}
+                records.append({**estimated, "period": f"{year}-Q{qnum}",
+                                 "is_estimated": True})
+
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+    df = (df.sort_values("period", ascending=False)
+            .head(n)
+            .sort_values("period", ascending=True)
+            .reset_index(drop=True))
+    return df
