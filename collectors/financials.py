@@ -8,6 +8,20 @@ vnstock v4 format:
   - Wide DataFrame: rows = line items, columns = periods ('2026-Q1', '2025-Q4', ...)
   - item_id column identifies each line item
   - Raw values in VND; divide by 1e9 to get VND billions
+
+Banking stocks use completely different item_ids (detected by presence of
+'net_interest_income' in income statement). Field mapping for banks:
+  revenue        ← total_operating_income  (NII + fee + trading + other)
+  gross_profit   ← net_interest_income     (core spread income)
+  cogs           ← provision_for_credit_losses
+  ga_expense     ← general_and_admin_expenses
+  ebit           ← net_operating_profit_before_allowance_for_credit_loss (PPOP)
+  interest_expense ← interest_and_similar_expenses
+  receivables    ← loans_and_advances_to_customers_net  (loan book)
+  payables       ← deposits_from_customers
+  cash           ← cash_and_precious_metals
+  shares_outstanding ← charter_capital / 10  (same 10,000 VND par formula)
+  debt           ← interbank borrowings + SBV loans
 """
 from __future__ import annotations
 
@@ -24,7 +38,6 @@ from models.schema import Financial
 _QUARTER_RE = re.compile(r'^\d{4}-Q[1-4]$')
 _ANNUAL_RE  = re.compile(r'^\d{4}$')
 
-# How many periods to request from the API (server returns all; we take newest n_periods)
 _API_LIMIT = 50
 
 
@@ -37,7 +50,6 @@ def _safe_float(val) -> float | None:
 
 
 def _period_cols(df: pd.DataFrame, freq: str = "quarter") -> list[str]:
-    """Return period columns sorted newest-first."""
     pattern = _QUARTER_RE if freq == "quarter" else _ANNUAL_RE
     return sorted(
         [c for c in df.columns if pattern.match(str(c))],
@@ -46,7 +58,6 @@ def _period_cols(df: pd.DataFrame, freq: str = "quarter") -> list[str]:
 
 
 def _get(df: pd.DataFrame, item_id: str, period_col: str, scale: float = 1e9) -> float | None:
-    """Extract value for item_id at period_col, divide by scale (default: 1e9 → VND billions)."""
     if df is None or df.empty or "item_id" not in df.columns or period_col not in df.columns:
         return None
     mask = df["item_id"] == item_id
@@ -61,7 +72,6 @@ def _get(df: pd.DataFrame, item_id: str, period_col: str, scale: float = 1e9) ->
 
 
 def _fetch_vci(ticker: str, freq: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Fetch income, balance, cashflow from VCI bypassing the community 4-period cap."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         from vnstock.explorer.vci.financial import Finance
@@ -72,14 +82,162 @@ def _fetch_vci(ticker: str, freq: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.D
     return income, balance, cashflow
 
 
+def _is_bank(income: pd.DataFrame) -> bool:
+    """True if ticker is a bank/credit institution (income statement has NII instead of net_sales)."""
+    if income is None or income.empty or "item_id" not in income.columns:
+        return False
+    ids = set(income["item_id"].tolist())
+    return "net_interest_income" in ids and "net_sales" not in ids
+
+
+def _extract_regular(income, balance, cashflow, p: str) -> dict:
+    def gi(iid, s=1e9): return _get(income,   iid, p, s)
+    def gb(iid, s=1e9): return _get(balance,  iid, p, s)
+    def gc(iid, s=1e9): return _get(cashflow, iid, p, s)
+
+    revenue          = gi("net_sales")
+    cogs_raw         = gi("cost_of_sales")
+    cogs             = abs(cogs_raw) if cogs_raw is not None else None
+    gross_profit     = gi("gross_profit")
+    selling_expense  = gi("selling_expenses")
+    ga_expense       = gi("general_and_admin_expenses")
+    op_profit        = gi("operating_profit_loss")
+    interest_raw     = gi("interest_expenses")
+    interest_expense = abs(interest_raw) if interest_raw is not None else None
+    ebit             = (op_profit + interest_expense) if (
+                           op_profit is not None and interest_expense is not None
+                       ) else op_profit
+    depreciation     = gc("depreciation_and_amortization")
+    ebitda_val       = ((ebit or 0) + (depreciation or 0)) if (
+                           ebit is not None and depreciation is not None
+                       ) else None
+    tax_raw          = gi("corporate_income_tax_expenses")
+    tax_expense      = abs(tax_raw) if tax_raw is not None else None
+    net_income       = gi("net_profit_loss_after_tax")
+    eps              = gi("eps_basic_vnd", 1.0)
+
+    total_assets        = gb("total_assets")
+    current_assets      = gb("current_assets")
+    current_liabilities = gb("current_liabilities")
+    inventory           = gb("inventories_net")
+    receivables         = gb("trade_accounts_receivable")
+    payables            = gb("trade_accounts_payable")
+    equity              = gb("owners_equity")
+    cash                = gb("cash_and_cash_equivalents")
+    retained_earnings   = gb("undistributed_earnings")
+    st_debt             = gb("short_term_borrowings")
+    lt_debt             = gb("long_term_borrowings")
+    debt                = (st_debt or 0) + (lt_debt or 0) if (
+                              st_debt is not None or lt_debt is not None
+                          ) else None
+    common_shares_bn    = gb("common_shares")
+    shares_outstanding  = common_shares_bn / 10 if common_shares_bn is not None else None
+
+    operating_cf = gc("net_cash_inflows_outflows_from_operating_activities")
+    capex_raw    = gc("purchases_of_fixed_assets_and_other_long_term_assets")
+    capex        = abs(capex_raw) if capex_raw is not None else None
+    investing_cf = gc("net_cash_inflows_outflows_from_investing_activities")
+    financing_cf = gc("net_cash_inflows_outflows_from_financing_activities")
+    fcf          = (operating_cf - capex) if (
+                       operating_cf is not None and capex is not None
+                   ) else None
+
+    return {
+        "revenue": revenue, "cogs": cogs, "gross_profit": gross_profit,
+        "selling_expense": selling_expense, "ga_expense": ga_expense,
+        "ebit": ebit, "ebitda": ebitda_val, "depreciation": depreciation,
+        "interest_expense": interest_expense, "tax_expense": tax_expense,
+        "net_income": net_income, "eps": eps,
+        "total_assets": total_assets, "current_assets": current_assets,
+        "current_liabilities": current_liabilities, "inventory": inventory,
+        "receivables": receivables, "payables": payables, "equity": equity,
+        "debt": debt, "cash": cash, "retained_earnings": retained_earnings,
+        "shares_outstanding": shares_outstanding,
+        "operating_cf": operating_cf, "capex": capex, "fcf": fcf,
+        "investing_cf": investing_cf, "financing_cf": financing_cf,
+    }
+
+
+def _extract_bank(income, balance, cashflow, p: str) -> dict:
+    """Map bank VAS item_ids to the standard Financial schema fields."""
+    def gi(iid, s=1e9): return _get(income,   iid, p, s)
+    def gb(iid, s=1e9): return _get(balance,  iid, p, s)
+    def gc(iid, s=1e9): return _get(cashflow, iid, p, s)
+
+    # Income — map to nearest semantic equivalent
+    revenue          = gi("total_operating_income")           # NII + fee + trading + other
+    nii              = gi("net_interest_income")              # core spread income
+    fee_raw          = gi("net_fee_and_commission_income")
+    provision_raw    = gi("provision_for_credit_losses")
+    cogs             = abs(provision_raw) if provision_raw is not None else None  # credit cost
+    gross_profit     = nii                                    # NII ≈ gross profit
+    ga_expense_raw   = gi("general_and_admin_expenses")
+    ga_expense       = abs(ga_expense_raw) if ga_expense_raw is not None else None
+    ppop             = gi("net_operating_profit_before_allowance_for_credit_loss")
+    ebit             = ppop                                   # PPOP = EBIT analog
+    interest_raw     = gi("interest_and_similar_expenses")
+    interest_expense = abs(interest_raw) if interest_raw is not None else None
+    tax_raw          = gi("business_income_tax_expenses")
+    tax_expense      = abs(tax_raw) if tax_raw is not None else None
+    net_income       = gi("net_profit_loss_after_tax")
+    eps              = gi("eps_basic_vnd", 1.0)
+
+    # Depreciation not separately reported; set None (banks have minimal D&A)
+    depreciation     = None
+    ebitda_val       = None
+
+    # Balance sheet
+    total_assets        = gb("total_assets")
+    equity              = gb("owners_equity")
+    cash                = gb("cash_and_precious_metals")
+    retained_earnings   = gb("retained_earnings")
+    loans_net           = gb("loans_and_advances_to_customers_net")  # loan book
+    deposits            = gb("deposits_from_customers")
+    interbank_borrow    = gb("deposits_and_loans_from_other_credit_institutions")
+    sbv_loans           = gb("due_to_gov_and_loans_from_sbv")
+    debt                = (interbank_borrow or 0) + (sbv_loans or 0) if (
+                              interbank_borrow is not None or sbv_loans is not None
+                          ) else None
+    # charter_capital has same par-value formula as common_shares for regular cos
+    charter_cap_bn      = gb("charter_capital")
+    shares_outstanding  = charter_cap_bn / 10 if charter_cap_bn is not None else None
+
+    # Banks have no inventory, current assets/liabilities not meaningful
+    current_assets      = None
+    current_liabilities = None
+    inventory           = None
+    selling_expense     = None
+
+    # Cash flow
+    operating_cf = gc("net_cash_from_operating_activities")
+    capex_raw    = gc("purchases_of_fixed_assets_and_other_long_term_assets")
+    capex        = abs(capex_raw) if capex_raw is not None else None
+    investing_cf = gc("net_cash_from_investing_activities")
+    financing_cf = None  # bank CF doesn't split financing separately
+    fcf          = (operating_cf - capex) if (
+                       operating_cf is not None and capex is not None
+                   ) else None
+
+    return {
+        "revenue": revenue, "cogs": cogs, "gross_profit": gross_profit,
+        "selling_expense": selling_expense, "ga_expense": ga_expense,
+        "ebit": ebit, "ebitda": ebitda_val, "depreciation": depreciation,
+        "interest_expense": interest_expense, "tax_expense": tax_expense,
+        "net_income": net_income, "eps": eps,
+        "total_assets": total_assets, "current_assets": current_assets,
+        "current_liabilities": current_liabilities, "inventory": inventory,
+        "receivables": loans_net, "payables": deposits, "equity": equity,
+        "debt": debt, "cash": cash, "retained_earnings": retained_earnings,
+        "shares_outstanding": shares_outstanding,
+        "operating_cf": operating_cf, "capex": capex, "fcf": fcf,
+        "investing_cf": investing_cf, "financing_cf": financing_cf,
+    }
+
+
 def fetch_financials(ticker: str, n_periods: int = 8, freq: str = "quarter") -> pd.DataFrame:
     """Return last n_periods of consolidated financials as a DataFrame.
 
-    freq='quarter' fetches quarterly data (period_type='Q').
-    freq='year'    fetches annual data   (period_type='Y').
-
-    Uses VCI direct API to get full history (bypasses community 4-quarter cap).
-    Columns match all fields in the Financial ORM model.
+    Automatically detects banking vs regular company and uses the correct item_id mapping.
     All monetary amounts in VND billions; EPS in VND per share.
     """
     try:
@@ -96,97 +254,17 @@ def fetch_financials(ticker: str, n_periods: int = 8, freq: str = "quarter") -> 
     if not periods:
         return pd.DataFrame()
 
+    bank = _is_bank(income)
+    if bank:
+        logger.info(f"{ticker}: detected as bank — using banking item_id mapping")
+
     rows = []
     for p in periods:
-        def gi(iid, s=1e9, _p=p): return _get(income,   iid, _p, s)
-        def gb(iid, s=1e9, _p=p): return _get(balance,  iid, _p, s)
-        def gc(iid, s=1e9, _p=p): return _get(cashflow, iid, _p, s)
-
-        # --- Income statement ---
-        revenue          = gi("net_sales")
-        cogs_raw         = gi("cost_of_sales")
-        cogs             = abs(cogs_raw) if cogs_raw is not None else None
-        gross_profit     = gi("gross_profit")
-        selling_expense  = gi("selling_expenses")
-        ga_expense       = gi("general_and_admin_expenses")
-        op_profit        = gi("operating_profit_loss")
-        interest_raw     = gi("interest_expenses")
-        interest_expense = abs(interest_raw) if interest_raw is not None else None
-        # VAS line 30 (operating_profit_loss) already nets out interest; add it back for EBIT
-        ebit             = (op_profit + interest_expense) if (
-                               op_profit is not None and interest_expense is not None
-                           ) else op_profit
-        depreciation     = gc("depreciation_and_amortization")
-        ebitda_val       = ((ebit or 0) + (depreciation or 0)) if (
-                               ebit is not None and depreciation is not None
-                           ) else None
-        tax_raw          = gi("corporate_income_tax_expenses")
-        tax_expense      = abs(tax_raw) if tax_raw is not None else None
-        net_income       = gi("net_profit_loss_after_tax")
-        eps              = gi("eps_basic_vnd", 1.0)  # already in VND/share, no scaling
-
-        # --- Balance sheet ---
-        total_assets        = gb("total_assets")
-        current_assets      = gb("current_assets")
-        current_liabilities = gb("current_liabilities")
-        inventory           = gb("inventories_net")
-        receivables         = gb("trade_accounts_receivable")
-        payables            = gb("trade_accounts_payable")
-        equity              = gb("owners_equity")
-        cash                = gb("cash_and_cash_equivalents")
-        retained_earnings   = gb("undistributed_earnings")
-        st_debt             = gb("short_term_borrowings")
-        lt_debt             = gb("long_term_borrowings")
-        debt                = (st_debt or 0) + (lt_debt or 0) if (
-                                  st_debt is not None or lt_debt is not None
-                              ) else None
-        # common_shares = total par value (10,000 VND/share)
-        # after /1e9 → VND billions; billions / 10 → millions of shares
-        common_shares_bn    = gb("common_shares")
-        shares_outstanding  = common_shares_bn / 10 if common_shares_bn is not None else None
-
-        # --- Cash flow ---
-        operating_cf = gc("net_cash_inflows_outflows_from_operating_activities")
-        capex_raw    = gc("purchases_of_fixed_assets_and_other_long_term_assets")
-        capex        = abs(capex_raw) if capex_raw is not None else None
-        investing_cf = gc("net_cash_inflows_outflows_from_investing_activities")
-        financing_cf = gc("net_cash_inflows_outflows_from_financing_activities")
-        fcf          = (operating_cf - capex) if (
-                           operating_cf is not None and capex is not None
-                       ) else None
-
-        rows.append({
-            "period":              p,
-            "period_type":         period_type,
-            "revenue":             revenue,
-            "cogs":                cogs,
-            "gross_profit":        gross_profit,
-            "selling_expense":     selling_expense,
-            "ga_expense":          ga_expense,
-            "ebit":                ebit,
-            "ebitda":              ebitda_val,
-            "depreciation":        depreciation,
-            "interest_expense":    interest_expense,
-            "tax_expense":         tax_expense,
-            "net_income":          net_income,
-            "eps":                 eps,
-            "total_assets":        total_assets,
-            "current_assets":      current_assets,
-            "current_liabilities": current_liabilities,
-            "inventory":           inventory,
-            "receivables":         receivables,
-            "payables":            payables,
-            "equity":              equity,
-            "debt":                debt,
-            "cash":                cash,
-            "retained_earnings":   retained_earnings,
-            "shares_outstanding":  shares_outstanding,
-            "operating_cf":        operating_cf,
-            "capex":               capex,
-            "fcf":                 fcf,
-            "investing_cf":        investing_cf,
-            "financing_cf":        financing_cf,
-        })
+        if bank:
+            fields = _extract_bank(income, balance, cashflow, p)
+        else:
+            fields = _extract_regular(income, balance, cashflow, p)
+        rows.append({"period": p, "period_type": period_type, **fields})
 
     return pd.DataFrame(rows)
 
@@ -228,7 +306,7 @@ def upsert_financials(ticker: str, df: pd.DataFrame) -> int:
 
 
 def run(tickers: list[str]) -> None:
-    """Fetch quarterly (20 real periods from VCI) + annual (8 years) for each ticker."""
+    """Fetch quarterly (20 periods) + annual (8 years) for each ticker."""
     for ticker in tickers:
         for freq, n in [("quarter", 20), ("year", 8)]:
             try:
@@ -240,4 +318,4 @@ def run(tickers: list[str]) -> None:
 
 
 if __name__ == "__main__":
-    run(["VNM", "FPT", "VIC"])
+    run(["VNM", "FPT", "VIC", "VCB", "TCB"])
