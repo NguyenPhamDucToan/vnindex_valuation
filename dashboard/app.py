@@ -84,7 +84,7 @@ import streamlit as st
 from sqlalchemy import select, func as sqlfunc
 
 from models.database import get_session
-from models.schema import Financial, Price, Company, Valuation
+from models.schema import Financial, Price, Company, Valuation, PinnedTicker
 from valuation.inputs import compute_ttm, compute_fcff_ttm, prepare_dcf_inputs, build_quarter_history
 from valuation.dcf import dcf_valuation, sensitivity_grid
 from valuation.graham import graham_number, bvps_from_financials
@@ -476,6 +476,10 @@ def load_valuation_screen_data() -> pd.DataFrame:
             if v.dcf_estimate and cur_price and cur_price > 0:
                 upside = (v.dcf_estimate - cur_price) / cur_price
 
+            # Avg Estimate = pre-computed average of all 10 valuation methods
+            avg_est = v.avg_intrinsic_value if hasattr(v, "avg_intrinsic_value") else None
+            avg_upside = ((avg_est - cur_price) / cur_price) if (avg_est and cur_price and cur_price > 0) else None
+
             qs = compute_quality_score(
                 v.roe, v.net_margin, v.profit_quality,
                 v.fcf_margin, v.current_ratio, v.debt_to_equity
@@ -485,6 +489,8 @@ def load_valuation_screen_data() -> pd.DataFrame:
                 "Ticker":        v.ticker,
                 "Sector":        sector_map.get(v.ticker, "Unknown"),
                 "Price (VND)":   f"{cur_price:,.0f}" if cur_price else "—",
+                "Avg Estimate":  f"{avg_est:,.0f}" if avg_est else "—",
+                "Avg Upside":    f"{avg_upside*100:+.1f}%" if avg_upside is not None else "—",
                 "DCF Estimate":  f"{v.dcf_estimate:,.0f}" if v.dcf_estimate else "—",
                 "Upside":        f"{upside*100:+.1f}%" if upside is not None else "—",
                 "Quality":       f"{qs:.0f}",
@@ -499,11 +505,12 @@ def load_valuation_screen_data() -> pd.DataFrame:
                 # Raw values for filtering and sorting
                 "_upside_raw":   upside if upside is not None else -999,
                 "_roe_raw":      v.roe if v.roe is not None else -999,
-                "_nm_raw":       v.net_margin if v.net_margin is not None else -999,
-                "_de_raw":       v.debt_to_equity if v.debt_to_equity is not None else 999,
-                "_fcfm_raw":     v.fcf_margin if v.fcf_margin is not None else -999,
-                "_cr_raw":       v.current_ratio if v.current_ratio is not None else 0,
-                "_qs_raw":       qs,
+                "_nm_raw":        v.net_margin if v.net_margin is not None else -999,
+                "_de_raw":        v.debt_to_equity if v.debt_to_equity is not None else 999,
+                "_fcfm_raw":      v.fcf_margin if v.fcf_margin is not None else -999,
+                "_cr_raw":        v.current_ratio if v.current_ratio is not None else 0,
+                "_qs_raw":        qs,
+                "_avg_upside_raw": avg_upside if avg_upside is not None else -999,
             })
 
     return pd.DataFrame(records)
@@ -726,6 +733,36 @@ def load_watchlist_data(min_upside: float = 0.20) -> pd.DataFrame:
     if not df.empty:
         df = df.sort_values("_upside_raw", ascending=False)
     return df
+
+
+def get_pinned_tickers() -> list[str]:
+    """Return list of pinned ticker symbols from DB."""
+    from models.database import engine
+    from models.schema import Base
+    Base.metadata.create_all(engine, checkfirst=True)  # ensure table exists
+    with get_session() as s:
+        rows = s.execute(select(PinnedTicker.ticker)).scalars().all()
+        return list(rows)
+
+
+def pin_ticker(ticker: str) -> None:
+    from datetime import date as _date
+    from models.database import engine
+    from models.schema import Base
+    Base.metadata.create_all(engine, checkfirst=True)
+    with get_session() as s:
+        existing = s.execute(
+            select(PinnedTicker).where(PinnedTicker.ticker == ticker)
+        ).scalar_one_or_none()
+        if not existing:
+            s.add(PinnedTicker(ticker=ticker, added_date=_date.today(), note=""))
+
+
+def unpin_ticker(ticker: str) -> None:
+    with get_session() as s:
+        s.execute(
+            PinnedTicker.__table__.delete().where(PinnedTicker.ticker == ticker)
+        )
 
 
 @st.cache_data(ttl=300)
@@ -2693,6 +2730,7 @@ elif view == "Valuation Screen":
         st.warning("No pre-computed valuation data. Run: `python -m collectors.compute_valuations`")
         st.info("If you haven't loaded tickers yet, run `python -m collectors.bulk_load` first.")
     else:
+
         # ── Sidebar filters ────────────────────────────────────
         st.sidebar.markdown("### Filters")
 
@@ -2705,13 +2743,22 @@ elif view == "Valuation Screen":
 
         min_roe = st.sidebar.slider("Min ROE (%)", -50, 50, 0, step=5)
         max_de  = st.sidebar.slider("Max D/E (x)", 0.0, 10.0, 10.0, step=0.5)
-        min_upside_pct = st.sidebar.slider("Min DCF upside (%)", -100, 200, -100, step=10)
+        min_upside_pct = st.sidebar.slider("Min Avg upside (%)", -500, 200, -500, step=10)
         min_quality = st.sidebar.slider("Min Quality score", 0, 100, 0, step=5)
 
         sort_col = st.sidebar.selectbox(
             "Sort by",
-            ["Upside (best first)", "Quality (best first)", "ROE (best first)",
-             "Net Margin (best first)", "Ticker (A-Z)"],
+            ["Signal (Strong Buy first)", "Signal (Strong Sell first)",
+             "Upside (best first)", "Quality (best first)",
+             "ROE (best first)", "Net Margin (best first)", "Ticker (A-Z)"],
+            index=0,
+        )
+        _WJ2 = "⁠"
+        _ALL_SIGNALS_V2 = [_WJ2*1+"Strong Buy", _WJ2*2+"Buy", _WJ2*3+"Watch",
+                           _WJ2*4+"Neutral", _WJ2*5+"Reduce", _WJ2*6+"Sell", _WJ2*7+"Strong Sell"]
+        f_signals = st.sidebar.multiselect(
+            "Filter Signal", _ALL_SIGNALS_V2, default=[],
+            placeholder="All signals",
         )
 
         # ── Apply filters ──────────────────────────────────────
@@ -2720,7 +2767,7 @@ elif view == "Valuation Screen":
             filtered = filtered[filtered["Sector"].isin(sel_sectors)]
         filtered = filtered[filtered["_roe_raw"] >= min_roe / 100]
         filtered = filtered[filtered["_de_raw"] <= max_de]
-        filtered = filtered[filtered["_upside_raw"] >= min_upside_pct / 100]
+        filtered = filtered[filtered["_avg_upside_raw"] >= min_upside_pct / 100]
         filtered = filtered[filtered["_qs_raw"] >= min_quality]
 
         # ── Sort ───────────────────────────────────────────────
@@ -2732,6 +2779,8 @@ elif view == "Valuation Screen":
             filtered = filtered.sort_values("_nm_raw", ascending=False)
         elif sort_col == "Quality (best first)":
             filtered = filtered.sort_values("_qs_raw", ascending=False)
+        elif sort_col in ("Signal (Strong Buy first)", "Signal (Strong Sell first)"):
+            pass  # applied after signal column is built (needs _sig_rank)
         else:
             filtered = filtered.sort_values("_upside_raw", ascending=False)
 
@@ -2742,6 +2791,29 @@ elif view == "Valuation Screen":
             + (" (filters applied)" if n_filtered < n_total else "")
         )
 
+        # ── Ticker multiselect — just above table ───────────────
+        # Use ALL tickers from the full dataset (not filtered) so nothing is hidden
+        st.markdown("""
+<style>
+div[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+    background-color: #1e40af !important;
+    color: #bfdbfe !important;
+}
+div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
+    color: #93c5fd !important;
+}
+</style>""", unsafe_allow_html=True)
+        _all_tickers = sorted(screen_df["Ticker"].tolist())
+        _sel_tickers = st.multiselect(
+            "Ticker", _all_tickers, default=[],
+            placeholder="Filter by ticker...",
+            key="screen_ticker_ms",
+            label_visibility="collapsed",
+        )
+        if _sel_tickers:
+            # When specific tickers are selected, bypass other filters for those tickers
+            filtered = screen_df[screen_df["Ticker"].isin(_sel_tickers)]
+
         # ── Build display table ────────────────────────────────
         raw_cols = [c for c in filtered.columns if c.startswith("_")]
         display = filtered.drop(columns=raw_cols).copy()
@@ -2751,24 +2823,53 @@ elif view == "Valuation Screen":
             lambda s: "-" if s == "Unknown" else s
         ).values
 
-        # Signal: highlight good investment candidates
+        # 7-level signal — prefixed with number so column-header click sorts correctly
+        # "1-Strong Buy" < "2-Buy" < ... alphabetically = our intended order
+        # Invisible Word Joiner (U+2060) prefix: more = sorts later
+        # → click ascending = Strong Buy first, descending = Strong Sell first
+        _WJ = "⁠"
+        _SIG_LABELS = {
+            "Strong Buy":  _WJ * 1 + "Strong Buy",
+            "Buy":         _WJ * 2 + "Buy",
+            "Watch":       _WJ * 3 + "Watch",
+            "Neutral":     _WJ * 4 + "Neutral",
+            "Reduce":      _WJ * 5 + "Reduce",
+            "Sell":        _WJ * 6 + "Sell",
+            "Strong Sell": _WJ * 7 + "Strong Sell",
+        }
         signals = []
-        for u, q in zip(filtered["_upside_raw"], filtered["_qs_raw"]):
-            if u >= 0.20 and q >= 60:
-                signals.append("Strong Buy")
-            elif u >= 0.10 and q >= 45:
-                signals.append("Watch")
-            else:
-                signals.append("-")
+        for u, q in zip(filtered["_avg_upside_raw"], filtered["_qs_raw"]):
+            if   u >=  0.20 and q >= 60: signals.append(_SIG_LABELS["Strong Buy"])
+            elif u >=  0.10 and q >= 45: signals.append(_SIG_LABELS["Buy"])
+            elif u >=  0.00:             signals.append(_SIG_LABELS["Watch"])
+            elif u >= -0.10:             signals.append(_SIG_LABELS["Neutral"])
+            elif u >= -0.30:             signals.append(_SIG_LABELS["Reduce"])
+            elif u >= -0.50:             signals.append(_SIG_LABELS["Sell"])
+            else:                        signals.append(_SIG_LABELS["Strong Sell"])
         display["Signal"] = signals
+        _signal_rank = {v: 6 - i for i, v in enumerate(_SIG_LABELS.values())}
+        display["_sig_rank"] = [_signal_rank.get(s, 3) for s in signals]
 
-        # Quality as integer for progress bar
+        # Quality as integer for color bar
         display["Quality"] = [int(round(q)) for q in filtered["_qs_raw"]]
 
-        # Column order
-        ordered = ["Signal", "Sector", "Price (VND)", "DCF Estimate", "Upside",
+        # Column order — Avg Estimate first, then DCF
+        ordered = ["Signal", "Sector", "Price (VND)",
+                   "Avg Estimate", "Avg Upside",
+                   "DCF Estimate", "Upside",
                    "Quality", "Graham Number", "P/E", "P/B",
                    "Net Margin", "ROE", "FCF Margin", "D/E", "Current Ratio"]
+        ordered = [c for c in ordered if c in display.columns]
+
+        # Apply signal filter
+        if f_signals:
+            display = display[display["Signal"].isin(f_signals)]
+
+        # Apply signal sort after display is built (needs _sig_rank)
+        if sort_col == "Signal (Strong Buy first)":
+            display = display.sort_values("_sig_rank", ascending=False)
+        elif sort_col == "Signal (Strong Sell first)":
+            display = display.sort_values("_sig_rank", ascending=True)
 
         # ── CSV export ─────────────────────────────────────────
         csv_bytes = display[["Ticker"] + ordered].to_csv(index=False).encode("utf-8-sig")
@@ -2779,33 +2880,51 @@ elif view == "Valuation Screen":
             mime="text/csv",
         )
 
-        # ── Legend ─────────────────────────────────────────────
-        st.caption("Strong Buy = DCF upside >= 20% AND quality >= 60   -   Watch = upside >= 10% AND quality >= 45")
-
         # ── Table ──────────────────────────────────────────────
         def _signal_color(val):
-            if val == "Strong Buy":
-                return "background-color: rgba(0,200,80,0.25); color: #00c850"
-            elif val == "Watch":
-                return "background-color: rgba(255,200,0,0.25); color: #ffc800"
-            return ""
+            # strip invisible prefix for lookup
+            _v = val.lstrip("⁠") if val else val
+            return {
+                "Strong Buy":  "background-color:#14532d; color:#86efac; font-weight:700",
+                "Buy":         "background-color:#166534; color:#bbf7d0; font-weight:600",
+                "Watch":       "background-color:#713f12; color:#fde68a; font-weight:600",
+                "Neutral":     "background-color:#1e293b; color:#94a3b8",
+                "Reduce":      "background-color:#7c2d12; color:#fdba74",
+                "Sell":        "background-color:#7f1d1d; color:#fca5a5; font-weight:600",
+                "Strong Sell": "background-color:#450a0a; color:#f87171; font-weight:700",
+            }.get(_v, "")
+
+        def _quality_color(val):
+            try:
+                q = int(val)
+                if q >= 70:   return "background-color:#166534; color:#86efac"
+                elif q >= 50: return "background-color:#713f12; color:#fde047"
+                elif q >= 30: return "background-color:#7c2d12; color:#fdba74"
+                else:         return "background-color:#7f1d1d; color:#fca5a5"
+            except Exception:
+                return ""
 
         styled = (
             display.set_index("Ticker")[ordered]
-            .style.map(_signal_color, subset=["Signal"])
+            .style
+            .map(_signal_color, subset=["Signal"])
+            .map(_quality_color, subset=["Quality"])
         )
-        st.dataframe(
-            styled,
-            column_config={
-                "Quality": st.column_config.ProgressColumn(
-                    "Quality",
-                    min_value=0,
-                    max_value=100,
-                    format="%d",
-                ),
-            },
-            width="stretch",
-        )
+        st.dataframe(styled, width="stretch")
+
+        # ── Colored legend below table ─────────────────────────
+        st.markdown("""
+<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;padding:8px 0 4px 0;justify-content:flex-end;">
+  <span style="color:#6b7280;font-size:11px;align-self:center;">Avg of 10 valuation methods vs market price · Quality Score 0–100 (ROE, margin, FCF, liquidity) · click Signal to sort ·</span>
+  <span style="background:#14532d;color:#86efac;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Buy: upside ≥+20% &amp; quality ≥60</span>
+  <span style="background:#166534;color:#bbf7d0;padding:2px 8px;border-radius:4px;font-weight:600;">Buy: upside ≥+10% &amp; quality ≥45</span>
+  <span style="background:#713f12;color:#fde68a;padding:2px 8px;border-radius:4px;">Watch: upside ≥0%</span>
+  <span style="background:#1e293b;color:#94a3b8;padding:2px 8px;border-radius:4px;">Neutral: -10% to 0%</span>
+  <span style="background:#7c2d12;color:#fdba74;padding:2px 8px;border-radius:4px;">Reduce: -30% to -10%</span>
+  <span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:4px;font-weight:600;">Sell: -50% to -30%</span>
+  <span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Sell: &lt;-50%</span>
+</div>
+""", unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -2824,26 +2943,24 @@ elif view == "Sector Analysis":
         st.caption(f"{n_sectors} sectors · Metrics are medians across tickers · "
                    f"{len(ticker_df)} tickers with valuation data")
 
-        # ── 1. SECTOR HEATMAP ─────────────────────────────────────
-        st.subheader("Sector Heatmap")
-
+        # ── Global metric selector — used by heatmap AND top-5 ────
         _METRIC_OPTIONS = {
-            "Avg Estimates vs Market":  ("avg_upside",  -80, 150,  "Avg Est Upside %"),
-            "DCF vs Market":            ("upside_pct",  -80, 150,  "DCF Upside %"),
-            "P/E (lower = cheaper)":    ("pe",           0,   50,  "P/E"),
-            "P/B (lower = cheaper)":    ("pb",           0,    5,  "P/B"),
-            "ROE (higher = better)":    ("roe",        -20,   40,  "ROE %"),
+            "Avg Estimates vs Market":  ("avg_upside",  -80, 150,  "Avg Est Upside %",   "upside", False),
+            "DCF vs Market":            ("upside_pct",  -80, 150,  "DCF Upside %",        "upside", False),
+            "P/E (lower = cheaper)":    ("pe",           0,   50,  "P/E",                 "pe",     True),
+            "P/B (lower = cheaper)":    ("pb",           0,    5,  "P/B",                 "pb",     True),
+            "ROE (higher = better)":    ("roe",        -20,   40,  "ROE %",               "roe",    False),
         }
         _metric_sel = st.radio(
-            "Color by:", list(_METRIC_OPTIONS.keys()),
-            horizontal=True, index=0,
-            key="heatmap_metric",
+            "Color / Sort by:", list(_METRIC_OPTIONS.keys()),
+            horizontal=True, index=0, key="heatmap_metric",
             label_visibility="collapsed",
         )
-        _metric_col, _cmin_m, _cmax_m, _metric_label = _METRIC_OPTIONS[_metric_sel]
-
-        # For P/E and P/B: invert color (lower = greener)
+        _metric_col, _cmin_m, _cmax_m, _metric_label, _sort_col, _sort_asc = _METRIC_OPTIONS[_metric_sel]
         _invert = _metric_sel.startswith("P/")
+
+        # ── 1. SECTOR HEATMAP ─────────────────────────────────────
+        st.subheader("Sector Heatmap")
 
         if not ticker_df.empty and _metric_col in ticker_df.columns:
             hm_df = ticker_df.dropna(subset=[_metric_col, "sector"]).copy()
@@ -3099,12 +3216,21 @@ elif view == "Sector Analysis":
 
         st.divider()
 
-        # ── 4. TOP 5 UNDERVALUED PER SECTOR ─────────────────────
-        st.subheader("Top 5 Undervalued Tickers per Sector")
+        # ── 4. TOP 5 PER SECTOR (sorted by selected metric) ────────
+        _top5_label = {
+            "Avg Estimates vs Market": "Avg Est Upside",
+            "DCF vs Market":           "DCF Upside",
+            "P/E (lower = cheaper)":   "Lowest P/E",
+            "P/B (lower = cheaper)":   "Lowest P/B",
+            "ROE (higher = better)":   "Highest ROE",
+        }.get(_metric_sel, "DCF Upside")
+        st.subheader(f"Top 5 per Sector — by {_top5_label}")
         if not ticker_df.empty:
+            _top_sort_col = _metric_col if _metric_col in ticker_df.columns else "upside_pct"
+            _top_asc      = _sort_asc  # True for P/E, P/B (lower = better); False otherwise
             _top_df = (
-                ticker_df.dropna(subset=["upside_pct"])
-                .sort_values("upside_pct", ascending=False)
+                ticker_df.dropna(subset=[_top_sort_col])
+                .sort_values(_top_sort_col, ascending=_top_asc)
             )
             _sectors_sorted = (
                 sector_df.dropna(subset=["dcf_upside_pct"])
@@ -3115,31 +3241,72 @@ elif view == "Sector Analysis":
                 _sec_top = _top_df[_top_df["sector"] == _sec].head(5)
                 if _sec_top.empty:
                     continue
-                with st.expander(f"**{_sec}** — top {len(_sec_top)} undervalued", expanded=False):
-                    _t = _sec_top[["ticker","name","price","dcf","upside_pct","pe","pb","roe"]].copy()
-                    _t["price"]     = _t["price"].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "—")
-                    _t["dcf"]       = _t["dcf"].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "—")
-                    _t["upside_pct"]= _t["upside_pct"].apply(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
-                    _t["pe"]        = _t["pe"].apply(lambda x: f"{x:.1f}×" if pd.notna(x) else "—")
-                    _t["pb"]        = _t["pb"].apply(lambda x: f"{x:.2f}×" if pd.notna(x) else "—")
-                    _t["roe"]       = _t["roe"].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "—")
-                    _t = _t.rename(columns={
+                _exp_label = f"**{_sec}** — top {len(_sec_top)} by {_top5_label}"
+                with st.expander(_exp_label, expanded=False):
+                    # Always show price + selected metric first, then the rest
+                    _base_cols = ["ticker","name","price"]
+                    _metric_display = {
+                        "avg_upside": ("avg_upside", "Avg Est Upside", lambda x: f"{x:+.1f}%" if pd.notna(x) else "—"),
+                        "upside_pct": ("upside_pct", "DCF Upside",     lambda x: f"{x:+.1f}%" if pd.notna(x) else "—"),
+                        "pe":         ("pe",          "P/E",            lambda x: f"{x:.1f}×"  if pd.notna(x) else "—"),
+                        "pb":         ("pb",          "P/B",            lambda x: f"{x:.2f}×"  if pd.notna(x) else "—"),
+                        "roe":        ("roe",         "ROE",            lambda x: f"{x:.1f}%"  if pd.notna(x) else "—"),
+                    }
+                    _mcol, _mlabel, _mfmt = _metric_display.get(_metric_col, _metric_display["upside_pct"])
+                    # Extra cols (exclude selected metric to avoid duplicate)
+                    _extra = [c for c in ["avg_upside","upside_pct","pe","pb","roe"] if c != _mcol]
+
+                    _all_cols = _base_cols + [_mcol] + _extra
+                    _avail = [c for c in _all_cols if c in _sec_top.columns]
+                    _t = _sec_top[_avail].copy()
+
+                    _t["price"] = _t["price"].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "—")
+                    _t[_mcol]   = _t[_mcol].apply(_mfmt)
+                    _fmt_map = {
+                        "avg_upside": lambda x: f"{x:+.1f}%" if pd.notna(x) else "—",
+                        "upside_pct": lambda x: f"{x:+.1f}%" if pd.notna(x) else "—",
+                        "pe":         lambda x: f"{x:.1f}×"  if pd.notna(x) else "—",
+                        "pb":         lambda x: f"{x:.2f}×"  if pd.notna(x) else "—",
+                        "roe":        lambda x: f"{x:.1f}%"  if pd.notna(x) else "—",
+                    }
+                    for ec in _extra:
+                        if ec in _t.columns:
+                            _t[ec] = _t[ec].apply(_fmt_map[ec])
+
+                    _rename = {
                         "ticker":"Ticker","name":"Company","price":"Price (VND)",
-                        "dcf":"DCF Value","upside_pct":"Upside","pe":"P/E","pb":"P/B","roe":"ROE",
-                    })
+                        _mcol: _mlabel,
+                        "avg_upside":"Avg Est Upside","upside_pct":"DCF Upside",
+                        "pe":"P/E","pb":"P/B","roe":"ROE",
+                    }
+                    _t = _t.rename(columns=_rename)
                     st.dataframe(_t.set_index("Ticker"), width="stretch")
 
         st.divider()
 
-        # ── 5. QUALITY vs UPSIDE SCATTER ───────────────────────
-        st.subheader("Quality Score vs DCF Upside")
-        scatter_df = sector_df.dropna(subset=["dcf_upside_pct", "quality"])
+        # ── 5. QUALITY vs X SCATTER ────────────────────────────
+        _SC_METRICS = {
+            "DCF Upside %":  ("dcf_upside_pct", "Median DCF Upside (%)"),
+            "P/E (median)":  ("pe",              "Median P/E (×)"),
+            "P/B (median)":  ("pb",              "Median P/B (×)"),
+            "ROE %":         ("roe_pct",         "Median ROE (%)"),
+            "Net Margin %":  ("net_margin_pct",  "Median Net Margin (%)"),
+        }
+        _sc_sel = st.radio(
+            "X axis:", list(_SC_METRICS.keys()),
+            horizontal=True, index=0, key="scatter_x",
+            label_visibility="collapsed",
+        )
+        _sc_col, _sc_label = _SC_METRICS[_sc_sel]
+        st.subheader(f"Quality Score vs {_sc_sel}")
+
+        scatter_df = sector_df.dropna(subset=[_sc_col, "quality"])
         fig_sc = px.scatter(
-            scatter_df, x="dcf_upside_pct", y="quality",
+            scatter_df, x=_sc_col, y="quality",
             size="tickers", text="sector", color="roe_pct",
             color_continuous_scale="RdYlGn",
-            labels={"dcf_upside_pct":"Median DCF Upside (%)","quality":"Median Quality Score",
-                    "tickers":"# Tickers","roe_pct":"ROE (%)"},
+            labels={_sc_col: _sc_label, "quality": "Median Quality Score",
+                    "tickers": "# Tickers", "roe_pct": "ROE (%)"},
         )
         fig_sc.update_traces(textposition="top center")
         fig_sc.add_vline(x=0, line_dash="dash", line_color="gray", opacity=0.5)
@@ -3148,29 +3315,153 @@ elif view == "Sector Analysis":
 
 
 # ═══════════════════════════════════════════════════════════════
-# VIEW 4 — UNDERVALUED WATCHLIST
+# VIEW 4 — SCREENING & WATCHLIST
 # ═══════════════════════════════════════════════════════════════
 elif view == "Undervalued Watchlist":
-    st.title("Undervalued Watchlist")
+    st.title("Screening & Watchlist")
 
-    min_upside_pct = st.sidebar.slider("Min DCF upside (%)", 10, 100, 20, step=5)
-    min_upside = min_upside_pct / 100
+    screen_df = load_valuation_screen_data()
+    pinned    = get_pinned_tickers()
 
-    watchlist = load_watchlist_data(min_upside=min_upside)
+    if screen_df.empty:
+        st.warning("No pre-computed valuation data. Run: `python -m collectors.compute_valuations`")
+        st.stop()
 
-    st.caption(f"Screen: DCF upside > {min_upside_pct}%  -  positive FCFF")
+    # ── Sidebar filters ─────────────────────────────────────────
+    st.sidebar.subheader("Filters")
 
-    if watchlist.empty:
-        if load_valuation_screen_data().empty:
-            st.warning("No pre-computed valuation data. Run: `python -m collectors.compute_valuations`")
+    # Preset buttons
+    preset_col1, preset_col2, preset_col3 = st.sidebar.columns(3)
+    _apply_bank   = preset_col1.button("Bank",    use_container_width=True)
+    _apply_value  = preset_col2.button("Value",   use_container_width=True)
+    _apply_growth = preset_col3.button("Growth",  use_container_width=True)
+
+    # Preset defaults
+    if _apply_bank:
+        st.session_state.update({
+            "f_sectors": ["Ngân hàng"], "f_min_upside": -50,
+            "f_max_pe": 20, "f_max_pb": 1.5, "f_min_roe": 12, "f_min_nm": 10,
+        })
+    elif _apply_value:
+        st.session_state.update({
+            "f_sectors": [], "f_min_upside": 20,
+            "f_max_pe": 15, "f_max_pb": 2.0, "f_min_roe": 10, "f_min_nm": 5,
+        })
+    elif _apply_growth:
+        st.session_state.update({
+            "f_sectors": [], "f_min_upside": 10,
+            "f_max_pe": 40, "f_max_pb": 5.0, "f_min_roe": 15, "f_min_nm": 8,
+        })
+
+    all_sectors = sorted(screen_df["Sector"].dropna().unique().tolist()) if "Sector" in screen_df.columns else []
+    _saved_sectors = [s for s in st.session_state.get("f_sectors", []) if s in all_sectors]
+    f_sectors  = st.sidebar.multiselect("Sectors", all_sectors, default=_saved_sectors)
+    f_min_upside = st.sidebar.slider("Min DCF Upside (%)", -100, 200,
+                     st.session_state.get("f_min_upside", 0), step=5)
+    f_max_pe  = st.sidebar.slider("Max P/E (×)",   0, 100,
+                     st.session_state.get("f_max_pe", 50))
+    f_max_pb  = st.sidebar.slider("Max P/B (×)",   0.0, 10.0,
+                     float(st.session_state.get("f_max_pb", 5.0)), step=0.1)
+    f_min_roe = st.sidebar.slider("Min ROE (%)",  -30, 50,
+                     st.session_state.get("f_min_roe", 0))
+    f_min_nm  = st.sidebar.slider("Min Net Margin (%)", -50, 50,
+                     st.session_state.get("f_min_nm", 0))
+    f_min_qs  = st.sidebar.slider("Min Quality Score", 0, 100,
+                     st.session_state.get("f_min_qs", 0), step=5)
+    f_pinned_only = st.sidebar.checkbox("Saved watchlist only", value=False)
+
+    # Save current filter state
+    st.session_state.update({
+        "f_sectors": f_sectors, "f_min_upside": f_min_upside,
+        "f_max_pe": f_max_pe, "f_max_pb": f_max_pb,
+        "f_min_roe": f_min_roe, "f_min_nm": f_min_nm, "f_min_qs": f_min_qs,
+    })
+
+    # ── Apply filters ───────────────────────────────────────────
+    res = screen_df.copy()
+    if f_sectors:
+        res = res[res["Sector"].isin(f_sectors)]
+    res = res[res["_upside_raw"]   >= f_min_upside / 100]
+    res = res[res["_roe_raw"]      >= f_min_roe / 100]
+    res = res[res["_nm_raw"]       >= f_min_nm  / 100]
+    if f_max_pe < 100:
+        res = res[(res["_upside_raw"] > -999)]  # ensure column exists
+        # parse P/E from display col
+        def _pe_raw(s):
+            try: return float(str(s).replace("x","").replace("—","999"))
+            except: return 999
+        res = res[res["P/E"].apply(_pe_raw) <= f_max_pe]
+    if f_max_pb < 10:
+        def _pb_raw(s):
+            try: return float(str(s).replace("x","").replace("—","999"))
+            except: return 999
+        res = res[res["P/B"].apply(_pb_raw) <= f_max_pb]
+    if f_min_qs > 0:
+        res = res[res["_qs_raw"] >= f_min_qs]
+    if f_pinned_only:
+        res = res[res["Ticker"].isin(pinned)]
+
+    res = res.sort_values("_upside_raw", ascending=False)
+
+    # ── Results ─────────────────────────────────────────────────
+    tab_screen, tab_saved = st.tabs([
+        f"Screen Results ({len(res)})",
+        f"Saved Watchlist ({len(pinned)})",
+    ])
+
+    with tab_screen:
+        if res.empty:
+            st.info("No tickers match the current filters. Adjust filters in the sidebar.")
         else:
-            st.info(f"No tickers meet DCF upside > {min_upside_pct}% with positive FCFF.")
-            st.caption("Try lowering the minimum upside threshold in the sidebar.")
-    else:
-        display = watchlist.drop(columns=["_upside_raw"])
-        st.dataframe(display.set_index("Ticker"), width="stretch")
-        st.success(f"Found {len(watchlist)} candidate{'s' if len(watchlist) != 1 else ''} "
-                   f"with DCF upside > {min_upside_pct}% and positive FCFF.")
+            st.caption(f"{len(res)} tickers match · Click a row then use buttons below to save/remove")
+
+            # Add pin status column
+            res_disp = res.copy()
+            res_disp["Saved"] = res_disp["Ticker"].apply(lambda t: "★" if t in pinned else "")
+
+            display_cols = ["Saved","Sector","Price (VND)","DCF Estimate","Upside",
+                            "P/E","P/B","ROE","Net Margin","Quality Score"]
+            display_cols = [c for c in display_cols if c in res_disp.columns]
+
+            st.dataframe(res_disp[["Ticker"] + display_cols].set_index("Ticker"),
+                         width="stretch")
+
+            # Save/remove buttons
+            save_col, rem_col, _ = st.columns([2, 2, 6])
+            _ticker_input = st.text_input("Ticker to save/remove", placeholder="e.g. VNM",
+                                          key="wl_ticker_input").upper().strip()
+            if save_col.button("★ Save to watchlist", use_container_width=True):
+                if _ticker_input:
+                    pin_ticker(_ticker_input)
+                    st.success(f"Saved {_ticker_input}")
+                    st.cache_data.clear()
+                    st.rerun()
+            if rem_col.button("✕ Remove from watchlist", use_container_width=True):
+                if _ticker_input:
+                    unpin_ticker(_ticker_input)
+                    st.info(f"Removed {_ticker_input}")
+                    st.cache_data.clear()
+                    st.rerun()
+
+    with tab_saved:
+        if not pinned:
+            st.info("No tickers saved yet. Use the Screen tab to find and save tickers.")
+        else:
+            saved_df = screen_df[screen_df["Ticker"].isin(pinned)].copy()
+            saved_df = saved_df.sort_values("_upside_raw", ascending=False)
+            display_cols2 = ["Sector","Price (VND)","DCF Estimate","Upside",
+                             "P/E","P/B","ROE","Net Margin","Quality Score"]
+            display_cols2 = [c for c in display_cols2 if c in saved_df.columns]
+            st.dataframe(saved_df[["Ticker"] + display_cols2].set_index("Ticker"),
+                         width="stretch")
+            st.caption(f"{len(pinned)} tickers saved")
+            _rem2 = st.text_input("Remove ticker", placeholder="e.g. VNM",
+                                  key="wl_rem2_input").upper().strip()
+            if st.button("✕ Remove", key="wl_rem2_btn"):
+                if _rem2:
+                    unpin_ticker(_rem2)
+                    st.cache_data.clear()
+                    st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════

@@ -36,6 +36,10 @@ from valuation.ratios import (
     pe_ratio, pb_ratio, ev_ebitda,
 )
 from valuation.wacc import cost_of_equity, DEFAULT_BETA, DEFAULT_COD
+from valuation.multiples import (
+    pb_implied, ev_ebitda_implied, epv_implied,
+    ps_implied, residual_income_implied, pocf_implied,
+)
 
 
 def _latest_price(ticker: str) -> float | None:
@@ -121,6 +125,38 @@ def compute_valuation_row(ticker: str, calc_date: date) -> dict | None:
     pe_val = pe_ratio(price_vnd, eps_vnd) if (price_vnd and eps_vnd) else None
     pb_val = pb_ratio(price_vnd, equity_bn, shares_millions) if price_vnd else None
 
+    # --- All 10 implied prices (for avg_intrinsic_value) ---
+    # FCFE (FCF discounted at CoE) — use ttm directly (fcf_v assigned later)
+    _fcf_now = ttm.get("fcf")
+    fcfe_price = None
+    if _fcf_now and _fcf_now > 0 and shares_millions > 0:
+        try:
+            fcfe_res = dcf_valuation(
+                fcff_base=_fcf_now, net_debt_bn=0,
+                shares_millions=shares_millions, fcff_growth_rate=growth_rate,
+                wacc_override=cost_of_equity(DEFAULT_BETA),
+            )
+            fcfe_price = fcfe_res.get("price_per_share")
+        except Exception:
+            pass
+    pb_imp   = pb_implied(equity_bn, shares_millions)
+    _ebitda_now = ttm.get("ebitda")
+    ev_imp   = ev_ebitda_implied(_ebitda_now, net_debt_bn, shares_millions) if _ebitda_now else None
+    wacc_val  = dcf_result.get("wacc")
+    _ebit_now = ttm.get("ebit")
+    epv_imp   = epv_implied(_ebit_now, net_debt_bn, shares_millions, wacc=wacc_val)
+    _rev_now = ttm.get("revenue")
+    ps_imp   = ps_implied(_rev_now, shares_millions) if _rev_now else None
+    _ni_now  = ttm.get("net_income")
+    ri_imp   = residual_income_implied(equity_bn, shares_millions, _ni_now, g=growth_rate)
+    _ocf_now = ttm.get("operating_cf")
+    pocf_imp = pocf_implied(_ocf_now, shares_millions) if _ocf_now else None
+    all_ests = [e for e in [
+        dcf_price, fcfe_price, graham_price, pe_implied,
+        pb_imp, ev_imp, epv_imp, ps_imp, ri_imp, pocf_imp
+    ] if e and e > 0]
+    avg_iv = round(sum(all_ests) / len(all_ests), 0) if all_ests else None
+
     # --- EV/EBITDA ---
     ebitda_bn = ttm.get("ebitda")
     ev_eb = None
@@ -169,7 +205,7 @@ def compute_valuation_row(ticker: str, calc_date: date) -> dict | None:
     # --- Balance sheet ---
     ca = ttm.get("current_assets")
     cr = current_ratio(ca, cl)
-    qr = quick_ratio(ca, inv or 0, cl)
+    qr = quick_ratio(ca, inv or 0, cl) if ca is not None else None
     dta = debt_to_assets(debt_bn, ta)
     dte = debt_to_equity(debt_bn, eq)
     fl = financial_leverage(ta, eq)
@@ -191,6 +227,7 @@ def compute_valuation_row(ticker: str, calc_date: date) -> dict | None:
         "equity_value": dcf_result.get("equity_value"),
         "dcf_estimate": dcf_price,
         "upside_pct": round(upside, 4) if upside is not None else None,
+        "avg_intrinsic_value": avg_iv,
         # Multiples
         "pe": pe_val,
         "pb": pb_val,

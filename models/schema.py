@@ -115,6 +115,7 @@ class Valuation(Base):
     pb = Column(Float)               # Price / BVPS
     ev_ebitda = Column(Float)        # (Market cap + Debt - Cash) / EBITDA
     graham_number = Column(Float)    # sqrt(22.5 × EPS × BVPS)
+    avg_intrinsic_value = Column(Float)  # simple avg of all valid method estimates
 
     # --- DCF (FCFF-based) ---
     nopat = Column(Float)            # EBIT × (1 - tax_rate) — VND billions TTM
@@ -164,3 +165,13 @@ class Valuation(Base):
         UniqueConstraint("ticker", "calc_date", name="uq_val_ticker_date"),
         Index("ix_val_ticker_date", "ticker", "calc_date"),
     )
+
+
+class PinnedTicker(Base):
+    """User-saved watchlist entries persisted in the local SQLite DB."""
+    __tablename__ = "pinned_tickers"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    ticker      = Column(String(10), ForeignKey("companies.ticker"), nullable=False, unique=True)
+    note        = Column(String(200), default="")
+    added_date  = Column(Date, nullable=False)
