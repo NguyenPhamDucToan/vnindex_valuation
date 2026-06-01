@@ -510,6 +510,83 @@ def load_valuation_screen_data() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def load_sector_ticker_data() -> pd.DataFrame:
+    """Return ticker-level valuation data with sector — for heatmap and top-N per sector."""
+    with get_session() as s:
+        subq = (
+            select(Valuation.ticker, sqlfunc.max(Valuation.calc_date).label("max_date"))
+            .group_by(Valuation.ticker).subquery()
+        )
+        val_rows = s.execute(
+            select(Valuation)
+            .join(subq, (Valuation.ticker == subq.c.ticker) &
+                         (Valuation.calc_date == subq.c.max_date))
+        ).scalars().all()
+        price_subq = (
+            select(Price.ticker, sqlfunc.max(Price.date).label("max_date"))
+            .group_by(Price.ticker).subquery()
+        )
+        price_rows = s.execute(
+            select(Price.ticker, Price.close)
+            .join(price_subq, (Price.ticker == price_subq.c.ticker) &
+                               (Price.date == price_subq.c.max_date))
+        ).all()
+        price_map = {r[0]: r[1] * 1000 for r in price_rows if r[1]}
+        comp_rows = s.execute(
+            select(Company.ticker, Company.sector, Company.name)
+        ).all()
+        sector_map = {r[0]: (r[1] or "Unknown") for r in comp_rows}
+        name_map   = {r[0]: (r[2] or r[0])       for r in comp_rows}
+
+        # Get latest shares_outstanding per ticker for market cap
+        fin_subq = (
+            select(Financial.ticker, sqlfunc.max(Financial.period).label("max_period"))
+            .where(Financial.period_type == "Q")
+            .group_by(Financial.ticker).subquery()
+        )
+        shares_rows = s.execute(
+            select(Financial.ticker, Financial.shares_outstanding)
+            .join(fin_subq, (Financial.ticker == fin_subq.c.ticker) &
+                             (Financial.period == fin_subq.c.max_period))
+            .where(Financial.period_type == "Q")
+        ).all()
+        shares_map = {r[0]: r[1] for r in shares_rows if r[1]}
+
+        rows = []
+        for v in val_rows:
+            sec = sector_map.get(v.ticker, "Unknown")
+            if sec == "Unknown":
+                continue
+            cur = price_map.get(v.ticker)
+            upside = ((v.dcf_estimate - cur) / cur * 100) if (v.dcf_estimate and cur and cur > 0) else None
+            shares_m = shares_map.get(v.ticker)
+            # market cap in VND billions (price_vnd × shares_M × 1e6 / 1e9)
+            mcap = (cur * shares_m * 1e6 / 1e9) if (cur and shares_m) else 1.0
+            # Avg estimate = mean of available intrinsic value methods
+            _estimates = [e for e in [v.dcf_estimate, v.graham_number] if e and e > 0]
+            avg_est   = sum(_estimates) / len(_estimates) if _estimates else None
+            avg_upside = ((avg_est - cur) / cur * 100) if (avg_est and cur and cur > 0) else None
+
+            rows.append({
+                "ticker":     v.ticker,
+                "name":       name_map.get(v.ticker, v.ticker),
+                "sector":     sec,
+                "price":      cur,
+                "dcf":        v.dcf_estimate,
+                "graham":     v.graham_number,
+                "avg_est":    avg_est,
+                "upside_pct": upside,
+                "avg_upside": avg_upside,
+                "pe":         v.pe,
+                "pb":         v.pb,
+                "roe":        v.roe * 100 if v.roe else None,
+                "net_margin": v.net_margin * 100 if v.net_margin else None,
+                "mcap":       max(mcap, 1.0),
+            })
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=300)
 def load_sector_data() -> pd.DataFrame:
     """Return sector-level summary: median metrics per sector from valuations table."""
     with get_session() as s:
@@ -561,6 +638,7 @@ def load_sector_data() -> pd.DataFrame:
                 "de":           v.debt_to_equity,
                 "current_ratio": v.current_ratio,
                 "pe":           v.pe,
+                "pb":           v.pb,
                 "quality":      qs,
             })
 
@@ -584,6 +662,7 @@ def load_sector_data() -> pd.DataFrame:
             de=("de", _med),
             current_ratio=("current_ratio", _med),
             pe=("pe", _med),
+            pb=("pb", lambda s: _med(s)),
             quality=("quality", _med),
         )
         .reset_index()
@@ -2735,115 +2814,337 @@ elif view == "Valuation Screen":
 elif view == "Sector Analysis":
     st.title("Sector Analysis")
 
-    sector_df = load_sector_data()
+    sector_df  = load_sector_data()
+    ticker_df  = load_sector_ticker_data()
 
     if sector_df.empty:
         st.warning("No valuation data. Run: `python -m collectors.compute_valuations`")
     else:
         n_sectors = len(sector_df)
-        st.caption(f"{n_sectors} sectors - Metrics are medians across tickers in each sector")
+        st.caption(f"{n_sectors} sectors · Metrics are medians across tickers · "
+                   f"{len(ticker_df)} tickers with valuation data")
 
-        # ── Summary table ──────────────────────────────────────
+        # ── 1. SECTOR HEATMAP ─────────────────────────────────────
+        st.subheader("Sector Heatmap")
+
+        _METRIC_OPTIONS = {
+            "Avg Estimates vs Market":  ("avg_upside",  -80, 150,  "Avg Est Upside %"),
+            "DCF vs Market":            ("upside_pct",  -80, 150,  "DCF Upside %"),
+            "P/E (lower = cheaper)":    ("pe",           0,   50,  "P/E"),
+            "P/B (lower = cheaper)":    ("pb",           0,    5,  "P/B"),
+            "ROE (higher = better)":    ("roe",        -20,   40,  "ROE %"),
+        }
+        _metric_sel = st.radio(
+            "Color by:", list(_METRIC_OPTIONS.keys()),
+            horizontal=True, index=0,
+            key="heatmap_metric",
+            label_visibility="collapsed",
+        )
+        _metric_col, _cmin_m, _cmax_m, _metric_label = _METRIC_OPTIONS[_metric_sel]
+
+        # For P/E and P/B: invert color (lower = greener)
+        _invert = _metric_sel.startswith("P/")
+
+        if not ticker_df.empty and _metric_col in ticker_df.columns:
+            hm_df = ticker_df.dropna(subset=[_metric_col, "sector"]).copy()
+            hm_df["_val"] = hm_df[_metric_col].clip(_cmin_m, _cmax_m)
+
+            # Normalize each metric to the -80..+150 range used by _upside_to_hex
+            if _metric_sel.endswith("Market"):      # upside % already in range
+                hm_df["color_norm"] = hm_df["_val"]
+            elif _metric_sel.startswith("P/E"):     # 0→+150 (green), 50→-80 (red)
+                hm_df["color_norm"] = 150 - (hm_df["_val"] / 50) * 230
+            elif _metric_sel.startswith("P/B"):     # 0→+150 (green), 5→-80 (red)
+                hm_df["color_norm"] = 150 - (hm_df["_val"] / 5) * 230
+            elif _metric_sel.startswith("ROE"):     # -20→-80 (red), 40→+150 (green)
+                hm_df["color_norm"] = (hm_df["_val"] + 20) / 60 * 230 - 80
+            else:
+                hm_df["color_norm"] = hm_df["_val"]
+            hm_df["upside_clipped"] = hm_df["color_norm"]
+
+            # Size: log-compress + add floor so small companies get minimum visible space
+            hm_df["mcap_log"] = np.log1p(hm_df["mcap"])
+            # floor = 40% of the sector median → no cell is too tiny
+            _sec_med = hm_df.groupby("sector")["mcap_log"].transform("median")
+            hm_df["mcap_sized"] = hm_df["mcap_log"] + _sec_med * 0.4
+            _sec_total_sized = hm_df.groupby("sector")["mcap_sized"].transform("sum")
+            hm_df["mcap_norm"] = hm_df["mcap_sized"] / _sec_total_sized
+
+            # Pre-compute hex colors manually so sector headers can be fixed dark gray
+            def _upside_to_hex(val):
+                # Red (#dc2626) → Amber (#d97706) → Green (#16a34a)
+                # No white — neutral is amber/orange
+                t = np.clip((val + 80) / 230, 0, 1)  # -80..+150 → 0..1
+                if t <= 0.5:
+                    # dark red → amber
+                    r = int(127 + (217 - 127) * t * 2)
+                    g = int(29  + (119 - 29)  * t * 2)
+                    b = int(29  + (6   - 29)  * t * 2)
+                else:
+                    # amber → dark green
+                    r = int(217 + (20  - 217) * (t - 0.5) * 2)
+                    g = int(119 + (83  - 119) * (t - 0.5) * 2)
+                    b = int(6   + (45  - 6)   * (t - 0.5) * 2)
+                return f"#{r:02x}{g:02x}{b:02x}"
+
+            _SECTOR_HDR = "#1e293b"   # fixed dark slate for sector header bars
+
+            # Build ids / labels / parents / values / hex_colors / text
+            ids, labels, parents, values, hex_colors, texts, customs = [], [], [], [], [], [], []
+
+            # Sector nodes — fixed dark color, equal size (1.0 = sum of children)
+            for sec in hm_df["sector"].unique():
+                ids.append(sec)
+                labels.append(sec)
+                parents.append("")
+                values.append(1.0)
+                hex_colors.append(_SECTOR_HDR)
+                texts.append(sec)
+                sec_up = hm_df.loc[hm_df["sector"] == sec, "upside_pct"].median()
+                customs.append([sec, round(sec_up, 1) if pd.notna(sec_up) else 0, 0, 0, 0])
+
+            # Ticker nodes — sized by relative market cap, colored by upside
+            for _, row in hm_df.iterrows():
+                ids.append(f"{row['sector']}_{row['ticker']}")
+                labels.append(row["ticker"])
+                parents.append(row["sector"])
+                values.append(row["mcap_norm"])
+                hex_colors.append(_upside_to_hex(row["upside_clipped"]))
+                _mv = row[_metric_col]
+                _mv_str = f"{_mv:+.1f}%" if _metric_sel.endswith("Market") else f"{_mv:.1f}"
+                texts.append(f"{row['ticker']}<br>{_mv_str}" if pd.notna(_mv) else row["ticker"])
+                customs.append([
+                    row["ticker"],
+                    round(row.get(_metric_col) or 0, 2),  # [1] pre-rounded
+                    row["pe"] or 0, row["pb"] or 0, row["roe"] or 0,
+                ])
+
+            fig_hm = go.Figure(go.Treemap(
+                ids=ids,
+                labels=labels,
+                parents=parents,
+                values=values,
+                customdata=customs,
+                text=texts,
+                texttemplate="%{text}",
+                textposition="middle center",
+                textfont=dict(size=13, color="white"),
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    + (_metric_label + ": %{customdata[1]:.2f}%<br>"
+                       if _metric_sel.endswith("Market") else
+                       _metric_label + ": %{customdata[1]:.2f}<br>")
+                    + "P/E: %{customdata[2]:.1f}×<br>"
+                      "P/B: %{customdata[3]:.2f}×<br>"
+                      "ROE: %{customdata[4]:.1f}%"
+                      "<extra></extra>"
+                ),
+                marker=dict(
+                    colors=hex_colors,
+                    showscale=False,
+                    pad=dict(t=22, l=2, r=2, b=2),
+                    line=dict(width=1, color="#0f172a"),
+                ),
+                branchvalues="total",
+                tiling=dict(squarifyratio=1),
+            ))
+            fig_hm.update_layout(
+                height=900,
+                margin=dict(l=0, r=0, t=0, b=0),
+                dragmode=False,
+            )
+            st.plotly_chart(fig_hm, width="stretch")
+
+            # Dynamic color legend
+            _legend_configs = {
+                "Avg Estimates vs Market": [
+                    ("#7f1d1d","-80%+"), ("#dc2626","-40%"), ("#b45309","-10%"),
+                    ("#d97706","0% (fair)"), ("#4ade80","+40%"), ("#16a34a","+100%"), ("#14532d","+150%+"),
+                ],
+                "DCF vs Market": [
+                    ("#7f1d1d","-80%+"), ("#dc2626","-40%"), ("#b45309","-10%"),
+                    ("#d97706","0% (fair)"), ("#4ade80","+40%"), ("#16a34a","+100%"), ("#14532d","+150%+"),
+                ],
+                "P/E (lower = cheaper)": [
+                    ("#14532d","<5×"), ("#16a34a","10×"), ("#4ade80","15×"),
+                    ("#d97706","20×"), ("#b45309","30×"), ("#dc2626","40×"), ("#7f1d1d","50×+"),
+                ],
+                "P/B (lower = cheaper)": [
+                    ("#14532d","<0.5×"), ("#16a34a","1×"), ("#4ade80","1.5×"),
+                    ("#d97706","2.5×"), ("#b45309","3.5×"), ("#dc2626","4.5×"), ("#7f1d1d","5×+"),
+                ],
+                "ROE (higher = better)": [
+                    ("#7f1d1d","<-20%"), ("#dc2626","-10%"), ("#b45309","0%"),
+                    ("#d97706","5%"), ("#4ade80","15%"), ("#16a34a","25%"), ("#14532d","40%+"),
+                ],
+            }
+            _swatches = _legend_configs.get(_metric_sel, _legend_configs["DCF vs Market"])
+            _swatch_html = "".join(
+                f'<div style="display:flex;align-items:center;gap:4px;">'
+                f'<div style="width:18px;height:14px;background:{c};border-radius:2px;"></div>'
+                f'<span>{lbl}</span></div>'
+                for c, lbl in _swatches
+            )
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:8px;font-size:12px;'
+                f'color:#9ca3af;padding:4px 0 12px 0;">'
+                f'<span>{_metric_label}:</span>{_swatch_html}'
+                f'<span style="margin-left:8px;">· Cell size = relative market cap within sector</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("No ticker-level upside data available.")
+
+        st.divider()
+
+        # ── 2. P/E · P/B · ROE comparison across sectors ──
+        st.subheader("Valuation Multiples by Sector")
+        mult_col1, mult_col2 = st.columns(2)
+
+        with mult_col1:
+            _pe_df = sector_df.dropna(subset=["pe"]).sort_values("pe", ascending=True)
+            _pb_df = sector_df.dropna(subset=["pb"]).sort_values("pb", ascending=True)
+
+            fig_pe = go.Figure()
+            fig_pe.add_trace(go.Bar(
+                x=_pe_df["pe"], y=_pe_df["sector"], orientation="h",
+                name="P/E (×)", marker_color="#5b9bd5",
+                text=[f"{x:.1f}×" for x in _pe_df["pe"]], textposition="outside",
+                hovertemplate="%{y}: %{x:.1f}×<extra></extra>",
+            ))
+            fig_pe.update_layout(
+                title="Median P/E by Sector",
+                height=max(300, n_sectors * 26), margin=dict(l=0, r=50, t=36, b=0),
+                showlegend=False, dragmode=False,
+            )
+            st.plotly_chart(fig_pe, width="stretch")
+
+        with mult_col2:
+            fig_pb = go.Figure()
+            fig_pb.add_trace(go.Bar(
+                x=_pb_df["pb"], y=_pb_df["sector"], orientation="h",
+                name="P/B (×)", marker_color="#70ad47",
+                text=[f"{x:.2f}×" for x in _pb_df["pb"]], textposition="outside",
+                hovertemplate="%{y}: %{x:.2f}×<extra></extra>",
+            ))
+            fig_pb.update_layout(
+                title="Median P/B by Sector",
+                height=max(300, n_sectors * 26), margin=dict(l=0, r=50, t=36, b=0),
+                showlegend=False, dragmode=False,
+            )
+            st.plotly_chart(fig_pb, width="stretch")
+
+        # ROE + Net Margin side by side
+        roe_col, nm_col = st.columns(2)
+        with roe_col:
+            _roe_df = sector_df.dropna(subset=["roe_pct"]).sort_values("roe_pct", ascending=True)
+            fig_roe = go.Figure(go.Bar(
+                x=_roe_df["roe_pct"], y=_roe_df["sector"], orientation="h",
+                marker_color="#f59e0b",
+                text=[f"{x:.1f}%" for x in _roe_df["roe_pct"]], textposition="outside",
+                hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
+            ))
+            fig_roe.update_layout(
+                title="Median ROE by Sector",
+                height=max(300, n_sectors * 26), margin=dict(l=0, r=60, t=36, b=0),
+                showlegend=False, dragmode=False,
+            )
+            st.plotly_chart(fig_roe, width="stretch")
+
+        with nm_col:
+            _nm_df = sector_df.dropna(subset=["net_margin_pct"]).sort_values("net_margin_pct", ascending=True)
+            fig_nm = go.Figure(go.Bar(
+                x=_nm_df["net_margin_pct"], y=_nm_df["sector"], orientation="h",
+                marker_color=["#2ca02c" if x >= 0 else "#d62728" for x in _nm_df["net_margin_pct"]],
+                text=[f"{x:.1f}%" for x in _nm_df["net_margin_pct"]], textposition="outside",
+                hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
+            ))
+            fig_nm.update_layout(
+                title="Median Net Margin by Sector",
+                height=max(300, n_sectors * 26), margin=dict(l=0, r=60, t=36, b=0),
+                showlegend=False, dragmode=False,
+            )
+            st.plotly_chart(fig_nm, width="stretch")
+
+        st.divider()
+
+        # ── 3. SUMMARY TABLE ────────────────────────────────────
+        st.subheader("Sector Summary Table")
         disp = sector_df.copy()
-        disp["DCF Upside"] = disp["dcf_upside_pct"].apply(
-            lambda x: f"{x:+.1f}%" if pd.notna(x) else "-"
-        )
-        disp["ROE"] = disp["roe_pct"].apply(
-            lambda x: f"{x:.1f}%" if pd.notna(x) else "-"
-        )
-        disp["Net Margin"] = disp["net_margin_pct"].apply(
-            lambda x: f"{x:.1f}%" if pd.notna(x) else "-"
-        )
-        disp["FCF Margin"] = disp["fcf_margin_pct"].apply(
-            lambda x: f"{x:.1f}%" if pd.notna(x) else "-"
-        )
-        disp["D/E"] = disp["de"].apply(
-            lambda x: f"{x:.2f}x" if pd.notna(x) else "-"
-        )
-        disp["Curr Ratio"] = disp["current_ratio"].apply(
-            lambda x: f"{x:.2f}x" if pd.notna(x) else "-"
-        )
-        disp["P/E"] = disp["pe"].apply(
-            lambda x: f"{x:.1f}x" if pd.notna(x) else "-"
-        )
-        disp["Quality"] = disp["quality"].apply(
-            lambda x: f"{x:.0f}" if pd.notna(x) else "-"
-        )
-        disp = disp.rename(columns={"sector": "Sector", "tickers": "# Tickers"})
+        for col, fmt in [
+            ("dcf_upside_pct", lambda x: f"{x:+.1f}%"),
+            ("roe_pct",        lambda x: f"{x:.1f}%"),
+            ("net_margin_pct", lambda x: f"{x:.1f}%"),
+            ("fcf_margin_pct", lambda x: f"{x:.1f}%"),
+            ("de",             lambda x: f"{x:.2f}×"),
+            ("current_ratio",  lambda x: f"{x:.2f}×"),
+            ("pe",             lambda x: f"{x:.1f}×"),
+            ("pb",             lambda x: f"{x:.2f}×"),
+            ("quality",        lambda x: f"{x:.0f}"),
+        ]:
+            disp[col] = disp[col].apply(lambda x, f=fmt: f(x) if pd.notna(x) else "—")
+        disp = disp.rename(columns={
+            "sector":"Sector","tickers":"# Tickers",
+            "dcf_upside_pct":"DCF Upside","roe_pct":"ROE","net_margin_pct":"Net Margin",
+            "fcf_margin_pct":"FCF Margin","de":"D/E","current_ratio":"Curr Ratio",
+            "pe":"P/E","pb":"P/B","quality":"Quality",
+        })
         st.dataframe(
-            disp[["Sector", "# Tickers", "DCF Upside", "ROE", "Net Margin",
-                  "FCF Margin", "D/E", "Curr Ratio", "P/E", "Quality"]]
+            disp[["Sector","# Tickers","DCF Upside","P/E","P/B","ROE",
+                  "Net Margin","FCF Margin","D/E","Curr Ratio","Quality"]]
             .set_index("Sector"),
             width="stretch",
         )
 
         st.divider()
 
-        # ── Charts ────────────────────────────────────────────
-        chart_df = sector_df.dropna(subset=["dcf_upside_pct"]).sort_values("dcf_upside_pct", ascending=True)
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.subheader("Median DCF Upside by Sector")
-            colors = ["#2ca02c" if x >= 0 else "#d62728" for x in chart_df["dcf_upside_pct"]]
-            fig1 = go.Figure(go.Bar(
-                x=chart_df["dcf_upside_pct"],
-                y=chart_df["sector"],
-                orientation="h",
-                marker_color=colors,
-                text=[f"{x:+.1f}%" for x in chart_df["dcf_upside_pct"]],
-                textposition="outside",
-            ))
-            fig1.update_layout(
-                height=max(300, n_sectors * 28),
-                margin=dict(l=0, r=60, t=10, b=0),
-                xaxis_title="Median DCF Upside (%)",
-                yaxis_title=None,
+        # ── 4. TOP 5 UNDERVALUED PER SECTOR ─────────────────────
+        st.subheader("Top 5 Undervalued Tickers per Sector")
+        if not ticker_df.empty:
+            _top_df = (
+                ticker_df.dropna(subset=["upside_pct"])
+                .sort_values("upside_pct", ascending=False)
             )
-            st.plotly_chart(fig1, width="stretch")
-
-        with col2:
-            st.subheader("Median ROE by Sector")
-            roe_df = sector_df.dropna(subset=["roe_pct"]).sort_values("roe_pct", ascending=True)
-            fig2 = go.Figure(go.Bar(
-                x=roe_df["roe_pct"],
-                y=roe_df["sector"],
-                orientation="h",
-                marker_color="#1f77b4",
-                text=[f"{x:.1f}%" for x in roe_df["roe_pct"]],
-                textposition="outside",
-            ))
-            fig2.update_layout(
-                height=max(300, n_sectors * 28),
-                margin=dict(l=0, r=60, t=10, b=0),
-                xaxis_title="Median ROE (%)",
-                yaxis_title=None,
+            _sectors_sorted = (
+                sector_df.dropna(subset=["dcf_upside_pct"])
+                .sort_values("dcf_upside_pct", ascending=False)["sector"]
+                .tolist()
             )
-            st.plotly_chart(fig2, width="stretch")
+            for _sec in _sectors_sorted:
+                _sec_top = _top_df[_top_df["sector"] == _sec].head(5)
+                if _sec_top.empty:
+                    continue
+                with st.expander(f"**{_sec}** — top {len(_sec_top)} undervalued", expanded=False):
+                    _t = _sec_top[["ticker","name","price","dcf","upside_pct","pe","pb","roe"]].copy()
+                    _t["price"]     = _t["price"].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "—")
+                    _t["dcf"]       = _t["dcf"].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "—")
+                    _t["upside_pct"]= _t["upside_pct"].apply(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
+                    _t["pe"]        = _t["pe"].apply(lambda x: f"{x:.1f}×" if pd.notna(x) else "—")
+                    _t["pb"]        = _t["pb"].apply(lambda x: f"{x:.2f}×" if pd.notna(x) else "—")
+                    _t["roe"]       = _t["roe"].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "—")
+                    _t = _t.rename(columns={
+                        "ticker":"Ticker","name":"Company","price":"Price (VND)",
+                        "dcf":"DCF Value","upside_pct":"Upside","pe":"P/E","pb":"P/B","roe":"ROE",
+                    })
+                    st.dataframe(_t.set_index("Ticker"), width="stretch")
 
-        # Quality vs Upside scatter
+        st.divider()
+
+        # ── 5. QUALITY vs UPSIDE SCATTER ───────────────────────
         st.subheader("Quality Score vs DCF Upside")
         scatter_df = sector_df.dropna(subset=["dcf_upside_pct", "quality"])
-        fig3 = px.scatter(
-            scatter_df,
-            x="dcf_upside_pct",
-            y="quality",
-            size="tickers",
-            text="sector",
-            color="roe_pct",
+        fig_sc = px.scatter(
+            scatter_df, x="dcf_upside_pct", y="quality",
+            size="tickers", text="sector", color="roe_pct",
             color_continuous_scale="RdYlGn",
-            labels={
-                "dcf_upside_pct": "Median DCF Upside (%)",
-                "quality": "Median Quality Score",
-                "tickers": "# Tickers",
-                "roe_pct": "ROE (%)",
-            },
+            labels={"dcf_upside_pct":"Median DCF Upside (%)","quality":"Median Quality Score",
+                    "tickers":"# Tickers","roe_pct":"ROE (%)"},
         )
-        fig3.update_traces(textposition="top center")
-        fig3.add_vline(x=0, line_dash="dash", line_color="gray", opacity=0.5)
-        fig3.update_layout(height=460, margin=dict(l=0, r=0, t=10, b=0))
-        st.plotly_chart(fig3, width="stretch")
+        fig_sc.update_traces(textposition="top center")
+        fig_sc.add_vline(x=0, line_dash="dash", line_color="gray", opacity=0.5)
+        fig_sc.update_layout(height=460, margin=dict(l=0, r=0, t=10, b=0), dragmode=False)
+        st.plotly_chart(fig_sc, width="stretch")
 
 
 # ═══════════════════════════════════════════════════════════════
