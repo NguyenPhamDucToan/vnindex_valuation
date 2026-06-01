@@ -6,6 +6,18 @@ import sys, os
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# Signal labels with invisible sort prefix (U+2060 Word Joiner)
+_WJ_GLOBAL = "⁠"
+_SIG_LABELS = {
+    "Strong Buy":  _WJ_GLOBAL * 1 + "Strong Buy",
+    "Buy":         _WJ_GLOBAL * 2 + "Buy",
+    "Watch":       _WJ_GLOBAL * 3 + "Watch",
+    "Neutral":     _WJ_GLOBAL * 4 + "Neutral",
+    "Reduce":      _WJ_GLOBAL * 5 + "Reduce",
+    "Sell":        _WJ_GLOBAL * 6 + "Sell",
+    "Strong Sell": _WJ_GLOBAL * 7 + "Strong Sell",
+}
+
 # Sector → relevant commodity symbols (Yahoo Finance) for input/output price chart
 _SECTOR_COMMODITIES = {
     "Thực phẩm - Đồ uống": {
@@ -2825,18 +2837,7 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
 
         # 7-level signal — prefixed with number so column-header click sorts correctly
         # "1-Strong Buy" < "2-Buy" < ... alphabetically = our intended order
-        # Invisible Word Joiner (U+2060) prefix: more = sorts later
-        # → click ascending = Strong Buy first, descending = Strong Sell first
-        _WJ = "⁠"
-        _SIG_LABELS = {
-            "Strong Buy":  _WJ * 1 + "Strong Buy",
-            "Buy":         _WJ * 2 + "Buy",
-            "Watch":       _WJ * 3 + "Watch",
-            "Neutral":     _WJ * 4 + "Neutral",
-            "Reduce":      _WJ * 5 + "Reduce",
-            "Sell":        _WJ * 6 + "Sell",
-            "Strong Sell": _WJ * 7 + "Strong Sell",
-        }
+        # _SIG_LABELS defined at module level above
         signals = []
         for u, q in zip(filtered["_avg_upside_raw"], filtered["_qs_raw"]):
             if   u >=  0.20 and q >= 60: signals.append(_SIG_LABELS["Strong Buy"])
@@ -3415,16 +3416,60 @@ elif view == "Undervalued Watchlist":
         else:
             st.caption(f"{len(res)} tickers match · Click a row then use buttons below to save/remove")
 
-            # Add pin status column
             res_disp = res.copy()
-            res_disp["Saved"] = res_disp["Ticker"].apply(lambda t: "★" if t in pinned else "")
+            # Star column before ticker — ★ gold (saved), ✩ dim (not saved)
+            res_disp["·"] = res_disp["Ticker"].apply(lambda t: "★" if t in pinned else "")
 
-            display_cols = ["Saved","Sector","Price (VND)","DCF Estimate","Upside",
-                            "P/E","P/B","ROE","Net Margin","Quality Score"]
+            # Signal column with colors
+            _sc_sigs = []
+            for u, q in zip(res_disp["_avg_upside_raw"], res_disp["_qs_raw"]):
+                if   u >=  0.20 and q >= 60: _sc_sigs.append(_SIG_LABELS["Strong Buy"])
+                elif u >=  0.10 and q >= 45: _sc_sigs.append(_SIG_LABELS["Buy"])
+                elif u >=  0.00:             _sc_sigs.append(_SIG_LABELS["Watch"])
+                elif u >= -0.10:             _sc_sigs.append(_SIG_LABELS["Neutral"])
+                elif u >= -0.30:             _sc_sigs.append(_SIG_LABELS["Reduce"])
+                elif u >= -0.50:             _sc_sigs.append(_SIG_LABELS["Sell"])
+                else:                        _sc_sigs.append(_SIG_LABELS["Strong Sell"])
+            res_disp["Signal"] = _sc_sigs
+            res_disp["Quality"] = [int(round(q)) for q in res_disp["_qs_raw"]]
+
+            display_cols = ["Signal","Sector","Price (VND)",  # "☆" added below
+                            "Avg Estimate","Avg Upside",
+                            "DCF Estimate","Upside","Quality",
+                            "P/E","P/B","ROE","Net Margin"]
             display_cols = [c for c in display_cols if c in res_disp.columns]
 
-            st.dataframe(res_disp[["Ticker"] + display_cols].set_index("Ticker"),
-                         width="stretch")
+            def _sc_sig_col(val):
+                _v = val.lstrip("⁠") if val else val
+                return {"Strong Buy":"background-color:#14532d;color:#86efac;font-weight:700",
+                        "Buy":"background-color:#166534;color:#bbf7d0;font-weight:600",
+                        "Watch":"background-color:#713f12;color:#fde68a",
+                        "Neutral":"background-color:#1e293b;color:#94a3b8",
+                        "Reduce":"background-color:#7c2d12;color:#fdba74",
+                        "Sell":"background-color:#7f1d1d;color:#fca5a5;font-weight:600",
+                        "Strong Sell":"background-color:#450a0a;color:#f87171;font-weight:700",
+                        }.get(_v, "")
+
+            def _sc_q_col(val):
+                try:
+                    q = int(val)
+                    if q >= 70: return "background-color:#166534;color:#86efac"
+                    elif q >= 50: return "background-color:#713f12;color:#fde047"
+                    elif q >= 30: return "background-color:#7c2d12;color:#fdba74"
+                    else: return "background-color:#7f1d1d;color:#fca5a5"
+                except: return ""
+
+            # Star column before Ticker, then rest
+            _final_cols = ["·", "Ticker"] + display_cols
+            _final_cols = [c for c in _final_cols if c in res_disp.columns]
+            _styled_sc = (
+                res_disp[_final_cols].reset_index(drop=True)
+                .style
+                .map(_sc_sig_col, subset=["Signal"])
+                .map(_sc_q_col,   subset=["Quality"] if "Quality" in display_cols else [])
+            )
+            st.dataframe(_styled_sc, width="stretch", hide_index=True,
+                         column_config={"·": st.column_config.TextColumn("★", width="small")})
 
             # Save/remove buttons
             save_col, rem_col, _ = st.columns([2, 2, 6])
@@ -3448,16 +3493,72 @@ elif view == "Undervalued Watchlist":
             st.info("No tickers saved yet. Use the Screen tab to find and save tickers.")
         else:
             saved_df = screen_df[screen_df["Ticker"].isin(pinned)].copy()
-            saved_df = saved_df.sort_values("_upside_raw", ascending=False)
-            display_cols2 = ["Sector","Price (VND)","DCF Estimate","Upside",
-                             "P/E","P/B","ROE","Net Margin","Quality Score"]
+
+            # Compute signals for saved tickers
+            _saved_sigs = []
+            for u, q in zip(saved_df["_avg_upside_raw"], saved_df["_qs_raw"]):
+                if   u >=  0.20 and q >= 60: _saved_sigs.append(_SIG_LABELS["Strong Buy"])
+                elif u >=  0.10 and q >= 45: _saved_sigs.append(_SIG_LABELS["Buy"])
+                elif u >=  0.00:             _saved_sigs.append(_SIG_LABELS["Watch"])
+                elif u >= -0.10:             _saved_sigs.append(_SIG_LABELS["Neutral"])
+                elif u >= -0.30:             _saved_sigs.append(_SIG_LABELS["Reduce"])
+                elif u >= -0.50:             _saved_sigs.append(_SIG_LABELS["Sell"])
+                else:                        _saved_sigs.append(_SIG_LABELS["Strong Sell"])
+            saved_df["Signal"] = _saved_sigs
+
+            # Search + remove row
+            sw_col, rem_col = st.columns([4, 2])
+            _saved_search = sw_col.multiselect(
+                "Filter", sorted(saved_df["Ticker"].tolist()),
+                default=[], placeholder="Search saved tickers...",
+                key="wl_saved_search", label_visibility="collapsed",
+            )
+            if _saved_search:
+                saved_df = saved_df[saved_df["Ticker"].isin(_saved_search)]
+
+            saved_df = saved_df.sort_values("_sig_rank" if "_sig_rank" in saved_df.columns
+                                             else "_avg_upside_raw", ascending=False)
+
+            display_cols2 = ["Signal","Sector","Price (VND)","Avg Estimate","Avg Upside",
+                             "DCF Estimate","Upside","Quality","P/E","P/B","ROE","Net Margin"]
             display_cols2 = [c for c in display_cols2 if c in saved_df.columns]
-            st.dataframe(saved_df[["Ticker"] + display_cols2].set_index("Ticker"),
-                         width="stretch")
-            st.caption(f"{len(pinned)} tickers saved")
-            _rem2 = st.text_input("Remove ticker", placeholder="e.g. VNM",
-                                  key="wl_rem2_input").upper().strip()
-            if st.button("✕ Remove", key="wl_rem2_btn"):
+
+            # Color Signal + Quality
+            def _saved_sig_color(val):
+                _v = val.lstrip("⁠") if val else val
+                return {"Strong Buy":"background-color:#14532d;color:#86efac;font-weight:700",
+                        "Buy":"background-color:#166534;color:#bbf7d0;font-weight:600",
+                        "Watch":"background-color:#713f12;color:#fde68a",
+                        "Neutral":"background-color:#1e293b;color:#94a3b8",
+                        "Reduce":"background-color:#7c2d12;color:#fdba74",
+                        "Sell":"background-color:#7f1d1d;color:#fca5a5;font-weight:600",
+                        "Strong Sell":"background-color:#450a0a;color:#f87171;font-weight:700",
+                        }.get(_v, "")
+
+            def _saved_q_color(val):
+                try:
+                    q = int(val)
+                    if q >= 70: return "background-color:#166534;color:#86efac"
+                    elif q >= 50: return "background-color:#713f12;color:#fde047"
+                    elif q >= 30: return "background-color:#7c2d12;color:#fdba74"
+                    else: return "background-color:#7f1d1d;color:#fca5a5"
+                except: return ""
+
+            saved_disp = saved_df[["Ticker"] + display_cols2].copy()
+            saved_disp["Quality"] = [int(round(q)) for q in saved_df["_qs_raw"]]
+            styled2 = (
+                saved_disp.set_index("Ticker")[display_cols2]
+                .style
+                .map(_saved_sig_color, subset=["Signal"])
+                .map(_saved_q_color,   subset=["Quality"] if "Quality" in display_cols2 else [])
+            )
+            st.dataframe(styled2, width="stretch")
+            st.caption(f"{len(pinned)} saved · showing {len(saved_df)}")
+
+            # Remove button
+            _rem2 = rem_col.text_input("Remove ticker", placeholder="e.g. VNM",
+                                       key="wl_rem2_input", label_visibility="collapsed").upper().strip()
+            if rem_col.button("✕ Remove from watchlist", key="wl_rem2_btn", use_container_width=True):
                 if _rem2:
                     unpin_ticker(_rem2)
                     st.cache_data.clear()
