@@ -226,6 +226,7 @@ def compute_valuation_row(ticker: str, calc_date: date) -> dict | None:
         "ev": dcf_result.get("enterprise_value"),
         "equity_value": dcf_result.get("equity_value"),
         "dcf_estimate": dcf_price,
+        "fcfe_estimate": round(fcfe_price, 0) if fcfe_price and fcfe_price > 0 else None,
         "upside_pct": round(upside, 4) if upside is not None else None,
         "avg_intrinsic_value": avg_iv,
         # Multiples

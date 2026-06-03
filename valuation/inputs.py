@@ -80,23 +80,24 @@ def compute_ttm(ticker: str) -> dict | None:
 
 
 def compute_fcff_ttm(ttm: dict, tax_rate: float = TAX_RATE) -> float | None:
-    """Proper FCFF from TTM components.
+    """FCFF from TTM components.
 
-    FCFF = NOPAT + D&A − CapEx − ΔNWC
-         = EBIT × (1 - T) + D&A − CapEx − ΔNWC
-
-    Falls back to simple FCF (operating_cf − capex) when EBIT or D&A is missing.
+    Primary: NOPAT + D&A − CapEx − ΔNWC  (EBIT-based, less volatile than OCF)
+    Fallback: OCF − CapEx  (when EBIT/D&A unavailable)
     """
-    ebit        = ttm.get("ebit")
-    da          = ttm.get("depreciation")
-    capex       = ttm.get("capex")
-    delta_nwc   = ttm.get("delta_nwc", 0.0) or 0.0
+    ebit      = ttm.get("ebit")
+    da        = ttm.get("depreciation")
+    capex     = ttm.get("capex")
+    delta_nwc = ttm.get("delta_nwc", 0.0) or 0.0
 
     if ebit is not None and da is not None and capex is not None:
-        nopat = ebit * (1 - tax_rate)
-        return nopat + da - capex - delta_nwc
+        return ebit * (1 - tax_rate) + da - capex - delta_nwc
 
-    # Fallback: simple FCF proxy
+    # Fallback: OCF-based
+    ocf = ttm.get("operating_cf")
+    if ocf is not None and capex is not None:
+        return ocf - capex
+
     return ttm.get("fcf")
 
 
@@ -155,13 +156,17 @@ def prepare_dcf_inputs(ticker: str) -> dict | None:
     net_debt_bn    = debt_bn - cash_bn
     shares_millions = ttm.get("shares_outstanding") or 0.0
 
-    # Growth rate: prefer annual CAGR, cap at reasonable range, default 12%
+    # Growth rate: prefer annual CAGR, cap at WACC-3% to ensure meaningful spread
+    from valuation.wacc import wacc as calc_wacc, DEFAULT_BETA, DEFAULT_COD
+    wacc_est = calc_wacc(DEFAULT_BETA, DEFAULT_COD, debt_bn, equity_bn)
+    max_growth = max(0.02, wacc_est - 0.03)   # always keep 3% spread vs WACC
+
     hist_growth = annual_fcff_growth(ticker)
     if hist_growth is not None:
-        fcff_growth_rate = max(0.02, min(hist_growth, 0.35))
+        fcff_growth_rate = max(0.02, min(hist_growth, max_growth))
         growth_source = "annual_cagr"
     else:
-        fcff_growth_rate = 0.12
+        fcff_growth_rate = min(0.08, max_growth)   # default 8%, capped at WACC-3%
         growth_source = "default"
 
     return {

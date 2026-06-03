@@ -115,6 +115,7 @@ class Valuation(Base):
     pb = Column(Float)               # Price / BVPS
     ev_ebitda = Column(Float)        # (Market cap + Debt - Cash) / EBITDA
     graham_number = Column(Float)    # sqrt(22.5 × EPS × BVPS)
+    fcfe_estimate = Column(Float)    # FCFE (OCF−CapEx) discounted at cost of equity
     avg_intrinsic_value = Column(Float)  # simple avg of all valid method estimates
 
     # --- DCF (FCFF-based) ---

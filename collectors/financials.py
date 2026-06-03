@@ -83,11 +83,65 @@ def _fetch_vci(ticker: str, freq: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.D
 
 
 def _is_bank(income: pd.DataFrame) -> bool:
-    """True if ticker is a bank/credit institution (income statement has NII instead of net_sales)."""
+    """True if ticker is a bank/credit institution."""
     if income is None or income.empty or "item_id" not in income.columns:
         return False
     ids = set(income["item_id"].tolist())
     return "net_interest_income" in ids and "net_sales" not in ids
+
+
+def _is_insurance(income: pd.DataFrame) -> bool:
+    """True if ticker is an insurance company."""
+    if income is None or income.empty or "item_id" not in income.columns:
+        return False
+    ids = set(income["item_id"].tolist())
+    return "gross_written_premium" in ids or "net_sales_from_insurance_business" in ids
+
+
+def _extract_insurance(income, balance, cashflow, p: str) -> dict:
+    """Map insurance VAS item_ids to the standard Financial schema fields."""
+    def gi(iid, s=1e9): return _get(income,   iid, p, s)
+    def gb(iid, s=1e9): return _get(balance,  iid, p, s)
+    def gc(iid, s=1e9): return _get(cashflow, iid, p, s)
+
+    # Revenue = gross written premium (total insurance premium)
+    revenue      = gi("gross_written_premium") or gi("net_sales_from_insurance_business")
+    net_income   = gi("profit_after_tax") or gi("net_profit_attributable_to_shareholders_of_the_group")
+    ebit         = gi("profit_before_tax")
+    ga_expense_r = gi("general_and_administrative_expenses")
+    ga_expense   = abs(ga_expense_r) if ga_expense_r is not None else None
+    eps          = gi("eps_basic_vnd", 1.0)
+    tax_raw      = gi("corporate_income_tax_for_the_year")
+    tax_expense  = abs(tax_raw) if tax_raw is not None else None
+
+    total_assets    = gb("total_assets")
+    equity          = gb("owners_equity")
+    cash            = gb("cash_and_cash_equivalents") or gb("cash_and_cash_equivalents_at_end_of_the_period")
+    retained_earn   = gb("undistributed_earnings") or gb("retained_earnings")
+    # Use common_shares or paid_in_capital (both = par value, same formula as regular cos)
+    common_sh_bn    = gb("common_shares") or gb("paid_in_capital") or gb("charter_capital")
+    shares_out      = common_sh_bn / 10 if common_sh_bn is not None else None
+
+    operating_cf = gc("net_cash_from_operating_activities") or gc("net_cash_inflows_outflows_from_operating_activities")
+    capex_raw    = gc("purchases_of_fixed_assets_and_other_long_term_assets")
+    capex        = abs(capex_raw) if capex_raw is not None else None
+    investing_cf = gc("net_cash_from_investing_activities") or gc("net_cash_inflows_outflows_from_investing_activities")
+    fcf          = (operating_cf - capex) if (operating_cf is not None and capex is not None) else None
+
+    return {
+        "revenue": revenue, "cogs": None, "gross_profit": None,
+        "selling_expense": None, "ga_expense": ga_expense,
+        "ebit": ebit, "ebitda": None, "depreciation": None,
+        "interest_expense": None, "tax_expense": tax_expense,
+        "net_income": net_income, "eps": eps,
+        "total_assets": total_assets, "current_assets": None,
+        "current_liabilities": None, "inventory": None,
+        "receivables": None, "payables": None, "equity": equity,
+        "debt": None, "cash": cash, "retained_earnings": retained_earn,
+        "shares_outstanding": shares_out,
+        "operating_cf": operating_cf, "capex": capex, "fcf": fcf,
+        "investing_cf": investing_cf, "financing_cf": None,
+    }
 
 
 def _extract_regular(income, balance, cashflow, p: str) -> dict:
@@ -99,8 +153,8 @@ def _extract_regular(income, balance, cashflow, p: str) -> dict:
     cogs_raw         = gi("cost_of_sales")
     cogs             = abs(cogs_raw) if cogs_raw is not None else None
     gross_profit     = gi("gross_profit")
-    selling_expense  = gi("selling_expenses")
-    ga_expense       = gi("general_and_admin_expenses")
+    selling_expense  = gi("selling_expenses") or gi("selling_cost")   # securities use selling_cost
+    ga_expense       = gi("general_and_admin_expenses") or gi("general_and_administrative_expenses")
     op_profit        = gi("operating_profit_loss")
     interest_raw     = gi("interest_expenses")
     interest_expense = abs(interest_raw) if interest_raw is not None else None
@@ -254,14 +308,19 @@ def fetch_financials(ticker: str, n_periods: int = 8, freq: str = "quarter") -> 
     if not periods:
         return pd.DataFrame()
 
-    bank = _is_bank(income)
+    bank      = _is_bank(income)
+    insurance = not bank and _is_insurance(income)
     if bank:
         logger.info(f"{ticker}: detected as bank — using banking item_id mapping")
+    elif insurance:
+        logger.info(f"{ticker}: detected as insurance — using insurance item_id mapping")
 
     rows = []
     for p in periods:
         if bank:
             fields = _extract_bank(income, balance, cashflow, p)
+        elif insurance:
+            fields = _extract_insurance(income, balance, cashflow, p)
         else:
             fields = _extract_regular(income, balance, cashflow, p)
         rows.append({"period": p, "period_type": period_type, **fields})

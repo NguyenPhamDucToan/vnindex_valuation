@@ -504,6 +504,7 @@ def load_valuation_screen_data() -> pd.DataFrame:
                 "Avg Estimate":  f"{avg_est:,.0f}" if avg_est else "—",
                 "Avg Upside":    f"{avg_upside*100:+.1f}%" if avg_upside is not None else "—",
                 "DCF Estimate":  f"{v.dcf_estimate:,.0f}" if v.dcf_estimate else "—",
+                "FCFE Estimate": f"{v.fcfe_estimate:,.0f}" if (hasattr(v,'fcfe_estimate') and v.fcfe_estimate) else "—",
                 "Upside":        f"{upside*100:+.1f}%" if upside is not None else "—",
                 "Quality":       f"{qs:.0f}",
                 "Graham Number": f"{v.graham_number:,.0f}" if v.graham_number else "—",
@@ -522,7 +523,7 @@ def load_valuation_screen_data() -> pd.DataFrame:
                 "_fcfm_raw":      v.fcf_margin if v.fcf_margin is not None else -999,
                 "_cr_raw":        v.current_ratio if v.current_ratio is not None else 0,
                 "_qs_raw":        qs,
-                "_avg_upside_raw": avg_upside if avg_upside is not None else -999,
+                "_avg_upside_raw": avg_upside if avg_upside is not None else -9999,
             })
 
     return pd.DataFrame(records)
@@ -1250,7 +1251,7 @@ if view == "Company Analysis":
         vh = valuation_history(ticker)
         _val_series = [
             ("dcf",    "#4ade80", "DCF Intrinsic Value",         "dash",  1),
-            ("fcfe",   "#00bcd4", "Cash Flow to Equity",         "dash",  1),
+            ("fcfe",   "#00bcd4", "FCFE / Cash Flow to Equity",  "dash",  1),
             ("graham", "#fbbf24", "Graham Number",               "dash",  1),
             ("pe",     "#c084fc", f"P/E Implied (×{MARKET_PE})", "dash",  1),
             ("avg",    "#f87171", "Avg of Estimates",            "solid", 2),
@@ -1413,7 +1414,7 @@ if view == "Company Analysis":
 
         _ALL_METHODS = [
             ("dcf",       "DCF / FCFF",              "NOPAT-based DCF at WACC"),
-            ("fcfe",      "Cash Flow to Equity",      "FCFE discounted at CoE"),
+            ("fcfe",      "FCFE / Cash Flow to Equity", "OCF−CapEx discounted at cost of equity"),
             ("graham",    "Graham Number",            "√(22.5 × EPS × BVPS)"),
             ("pe",        f"P/E Implied (×{MARKET_PE})", f"TTM EPS × {MARKET_PE}×"),
             ("pb",        "P/B Implied (×1.5)",       "BVPS × 1.5× VN market"),
@@ -1889,10 +1890,15 @@ if view == "Company Analysis":
 
         else:
             with r3c1:
-                prov_st_rec = _ser(bal_raw, ["provision_for_doubtful_debts"],           periods_r3)
-                prov_inv    = _ser(bal_raw, ["provision_for_decline_in_inventories"],    periods_r3)
-                prov_lt_rec = _ser(bal_raw, ["provision_for_doubtful_lt_receivable"],    periods_r3)
-                prov_lt_inv = _ser(bal_raw, ["provision_for_long_term_investments"],     periods_r3)
+                prov_st_rec = _ser(bal_raw, ["provision_for_doubtful_debts",
+                    "provision_for_short_term_receivables",
+                    "provision_for_diminution"], periods_r3)
+                prov_inv    = _ser(bal_raw, ["provision_for_decline_in_inventories",
+                    "provision_for_diminution_in_value_of_trading_securities"], periods_r3)
+                prov_lt_rec = _ser(bal_raw, ["provision_for_doubtful_lt_receivable",
+                    "provision_for_long_term_receivables"], periods_r3)
+                prov_lt_inv = _ser(bal_raw, ["provision_for_long_term_investments",
+                    "provision_for_diminution_in_value_of_long_term_investments"], periods_r3)
                 fig7 = go.Figure()
                 for vals, name, color in [
                     (prov_lt_rec, "LT Receivables Provision", "#f4a460"),
@@ -1910,7 +1916,8 @@ if view == "Company Analysis":
                 st.plotly_chart(fig7, width="stretch")
 
             with r3c2:
-                fin_income = _ser(inc_raw, ["financial_income"], periods_r3)
+                fin_income = _ser(inc_raw, ["financial_income",
+                    "revenue_from_financial_activities"], periods_r3)
                 import re as _re2
                 _qpat = _re2.compile(r'^\d{4}-Q[1-4]$')
                 _all_p = sorted([c for c in (inc_raw.columns if not inc_raw.empty else []) if _qpat.match(str(c))])
@@ -1934,8 +1941,9 @@ if view == "Company Analysis":
                 st.plotly_chart(fig8, width="stretch")
 
             with r3c3:
-                fin_exp_raw = _ser(inc_raw, ["financial_expenses"], periods_r3)
-                int_exp_raw = _ser(inc_raw, ["interest_expenses"],  periods_r3)
+                fin_exp_raw = _ser(inc_raw, ["financial_expenses",
+                    "expense_from_financial_activities"], periods_r3)
+                int_exp_raw = _ser(inc_raw, ["interest_expenses", "interests_expenses"], periods_r3)
                 fin_exp_abs = [abs(v) if v is not None else None for v in fin_exp_raw]
                 int_exp_abs = [abs(v) if v is not None else None for v in int_exp_raw]
                 other_exp   = [round(fe - ie, 3) if (fe is not None and ie is not None) else fe
@@ -2137,19 +2145,43 @@ if view == "Company Analysis":
                 st.plotly_chart(fig13b, width="stretch")
 
             with r5c2:
-                # Asset Quality: Provisions + Credit Cost %
-                cc_r5  = [_pct((p or 0) * 4, l) for p, l in zip(prov_r5, loans_r5)]
-                prv_r5 = [_pct(p, l) for p, l in zip(prov_r5, loans_r5)]
+                # Provisions & Reversals — green for reversals (hoàn nhập), red for new provisions
+                _prov_colors = [
+                    "#22c55e" if (p or 0) < 0 else "#ef4444"
+                    for p in prov_r5
+                ]
+                _prov_labels = [
+                    f"{'Reversal' if (p or 0) < 0 else 'Provision'}: {abs(p or 0):,.0f} bn"
+                    for p in prov_r5
+                ]
+                cc_r5 = [_pct((p or 0) * 4, l) for p, l in zip(prov_r5, loans_r5)]
+
                 fig14b = make_subplots(specs=[[{"secondary_y": True}]])
-                fig14b.add_trace(go.Bar(x=labels, y=prov_r5, name="Provision (quarterly)",
-                    marker_color="#ef4444", hovertemplate="%{y:,.0f} bn<extra></extra>"),
-                    secondary_y=False)
-                fig14b.add_trace(go.Scatter(x=labels, y=cc_r5, name="Credit Cost % (ann.)",
+                fig14b.add_trace(go.Bar(
+                    x=labels, y=prov_r5, name="Provisions / Reversals",
+                    marker_color=_prov_colors,
+                    text=["★ REVERSAL" if (p or 0) < 0 else "" for p in prov_r5],
+                    textposition="outside",
+                    textfont=dict(color="#22c55e", size=10),
+                    hovertemplate="%{x}: %{y:,.0f} bn<extra></extra>",
+                ), secondary_y=False)
+                fig14b.add_hline(y=0, line_dash="dot", line_color="gray",
+                                 opacity=0.5, secondary_y=False)
+                fig14b.add_trace(go.Scatter(
+                    x=labels, y=cc_r5, name="Credit Cost % (ann.)",
                     mode="lines+markers", line=dict(color="#f5c518", width=2),
-                    marker=dict(size=5), hovertemplate="%{y:.2f}%<extra></extra>"),
-                    secondary_y=True)
-                fig14b.update_layout(title="Asset Quality", height=_CHART_H, margin=_CHART_M,
-                    legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
+                    marker=dict(size=5), hovertemplate="CoC %{y:.2f}%<extra></extra>",
+                ), secondary_y=True)
+                fig14b.update_layout(
+                    title="Provisions & Reversals", height=_CHART_H, margin=_CHART_M,
+                    legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False,
+                    annotations=[dict(
+                        text="Green = Reversal (hoàn nhập) | Red = New provision",
+                        x=0, xref="paper", y=-0.28, yref="paper",
+                        xanchor="left", font=dict(size=10, color="#6b7280"),
+                        showarrow=False,
+                    )]
+                )
                 fig14b.update_yaxes(title_text="bn VND", secondary_y=False)
                 fig14b.update_yaxes(title_text="Credit Cost %", secondary_y=True, showgrid=False)
                 st.plotly_chart(fig14b, width="stretch")
@@ -2219,51 +2251,61 @@ if view == "Company Analysis":
                 fig13.update_yaxes(title_text="bn VND")
                 st.plotly_chart(fig13, width="stretch")
 
-            # Chart 14 — Inventory Structure
+            # Chart 14 — Inventory / Trading Securities (for securities firms)
             with r5c2:
-                inv_gross = _ser(bal_raw, ["inventories"],                        periods_r3)
-                inv_net   = _ser(bal_raw, ["inventories_net"],                    periods_r3)
-                inv_prov  = _ser(bal_raw, ["provision_for_decline_in_inventories"],periods_r3)
-                inv_prov_neg = [-(abs(v)) if v is not None and v != 0 else v for v in inv_prov]
-                inv_pct = [
-                    round(n / t * 100, 2) if n and t and t > 0 else None
-                    for n, t in zip(inv_net, total_v)
-                ]
-
-                fig14 = make_subplots(specs=[[{"secondary_y": True}]])
-                if any(v is not None and v > 0 for v in inv_gross):
-                    fig14.add_trace(go.Bar(
-                        x=labels, y=inv_gross, name="Gross Inventory",
-                        marker_color="#f0ad4e",
-                        hovertemplate="%{y:,.0f} bn<extra></extra>",
-                    ), secondary_y=False)
-                elif any(v is not None and v > 0 for v in inv_net):
-                    fig14.add_trace(go.Bar(
-                        x=labels, y=inv_net, name="Net Inventory",
-                        marker_color="#f0ad4e",
-                        hovertemplate="%{y:,.0f} bn<extra></extra>",
-                    ), secondary_y=False)
-                if any(v is not None and v != 0 for v in inv_prov_neg):
-                    fig14.add_trace(go.Bar(
-                        x=labels, y=inv_prov_neg, name="Inventory Provision",
-                        marker_color="#d9534f",
-                        hovertemplate="%{y:,.0f} bn<extra></extra>",
-                    ), secondary_y=False)
-                if any(v is not None for v in inv_pct):
-                    fig14.add_trace(go.Scatter(
-                        x=labels, y=inv_pct, name="Inventory/Assets %",
-                        mode="lines", line=dict(color="#c00000", width=2),
-                        hovertemplate="%{y:.1f}%<extra></extra>",
-                    ), secondary_y=True)
-                fig14.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4, secondary_y=False)
-                fig14.update_layout(
-                    title="Inventory", height=_CHART_H, margin=_CHART_M,
-                    barmode="relative", legend=_LEG_LAYOUT, hovermode="x unified",
-                    dragmode=False,
-                )
-                fig14.update_yaxes(title_text="bn VND", secondary_y=False)
-                fig14.update_yaxes(title_text="%", secondary_y=True, showgrid=False)
-                st.plotly_chart(fig14, width="stretch")
+                if _co_sect == "Chứng khoán":
+                    _ts = _ser(bal_raw, [
+                        "financial_assets_at_fair_value_through_profit_or_loss_fvtpl",
+                        "trading_securities", "trading_securities_2",
+                        "available_for_sale_financial_assets_afs",
+                    ], periods_r3)
+                    _ts = _ts or [None] * len(labels)
+                    _ts_qoq = _yoy(pd.Series(_ts), lag=1)  # QoQ: starts from 2nd bar
+                    fig14 = make_subplots(specs=[[{"secondary_y": True}]])
+                    if any(v is not None and v != 0 for v in _ts):
+                        fig14.add_trace(go.Bar(x=labels, y=_ts, name="Trading Securities",
+                            marker_color="#5b9bd5",
+                            hovertemplate="%{y:,.0f} bn<extra></extra>"), secondary_y=False)
+                    if any(v is not None for v in _ts_qoq):
+                        fig14.add_trace(go.Scatter(x=labels, y=_ts_qoq, name="QoQ %",
+                            mode="lines+markers", line=dict(color="#f5c518", width=2),
+                            marker=dict(size=5),
+                            hovertemplate="%{y:.1f}%<extra></extra>"), secondary_y=True)
+                    fig14.update_layout(title="Trading Securities Portfolio", height=_CHART_H,
+                        margin=_CHART_M, legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
+                    fig14.update_yaxes(title_text="bn VND", secondary_y=False)
+                    fig14.update_yaxes(title_text="QoQ %", secondary_y=True, showgrid=False)
+                    st.plotly_chart(fig14, width="stretch")
+                else:
+                    inv_gross = _ser(bal_raw, ["inventories"],                        periods_r3)
+                    inv_net   = _ser(bal_raw, ["inventories_net"],                    periods_r3)
+                    inv_prov  = _ser(bal_raw, ["provision_for_decline_in_inventories"],periods_r3)
+                    inv_prov_neg = [-(abs(v)) if v is not None and v != 0 else v for v in inv_prov]
+                    inv_pct = [round(n / t * 100, 2) if n and t and t > 0 else None
+                               for n, t in zip(inv_net, total_v)]
+                    fig14 = make_subplots(specs=[[{"secondary_y": True}]])
+                    if any(v is not None and v > 0 for v in inv_gross):
+                        fig14.add_trace(go.Bar(x=labels, y=inv_gross, name="Gross Inventory",
+                            marker_color="#f0ad4e",
+                            hovertemplate="%{y:,.0f} bn<extra></extra>"), secondary_y=False)
+                    elif any(v is not None and v > 0 for v in inv_net):
+                        fig14.add_trace(go.Bar(x=labels, y=inv_net, name="Net Inventory",
+                            marker_color="#f0ad4e",
+                            hovertemplate="%{y:,.0f} bn<extra></extra>"), secondary_y=False)
+                    if any(v is not None and v != 0 for v in inv_prov_neg):
+                        fig14.add_trace(go.Bar(x=labels, y=inv_prov_neg, name="Inventory Provision",
+                            marker_color="#d9534f",
+                            hovertemplate="%{y:,.0f} bn<extra></extra>"), secondary_y=False)
+                    if any(v is not None for v in inv_pct):
+                        fig14.add_trace(go.Scatter(x=labels, y=inv_pct, name="Inventory/Assets %",
+                            mode="lines", line=dict(color="#c00000", width=2),
+                            hovertemplate="%{y:.1f}%<extra></extra>"), secondary_y=True)
+                    fig14.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4, secondary_y=False)
+                    fig14.update_layout(title="Inventory", height=_CHART_H, margin=_CHART_M,
+                        barmode="relative", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
+                    fig14.update_yaxes(title_text="bn VND", secondary_y=False)
+                    fig14.update_yaxes(title_text="%", secondary_y=True, showgrid=False)
+                    st.plotly_chart(fig14, width="stretch")
 
             # Chart 15 — Financial Leverage
             with r5c3:
@@ -2753,9 +2795,9 @@ elif view == "Valuation Screen":
             placeholder="All sectors",
         )
 
-        min_roe = st.sidebar.slider("Min ROE (%)", -50, 50, 0, step=5)
-        max_de  = st.sidebar.slider("Max D/E (x)", 0.0, 10.0, 10.0, step=0.5)
-        min_upside_pct = st.sidebar.slider("Min Avg upside (%)", -500, 200, -500, step=10)
+        min_roe = st.sidebar.slider("Min ROE (%)", -50, 50, -50, step=5)
+        max_de  = st.sidebar.slider("Max D/E (x)", 0.0, 30.0, 30.0, step=0.5)
+        min_upside_pct = st.sidebar.slider("Min Avg upside (%)", -1000, 200, -1000, step=50)
         min_quality = st.sidebar.slider("Min Quality score", 0, 100, 0, step=5)
 
         sort_col = st.sidebar.selectbox(
@@ -2815,17 +2857,6 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
     color: #93c5fd !important;
 }
 </style>""", unsafe_allow_html=True)
-        _all_tickers = sorted(screen_df["Ticker"].tolist())
-        _sel_tickers = st.multiselect(
-            "Ticker", _all_tickers, default=[],
-            placeholder="Filter by ticker...",
-            key="screen_ticker_ms",
-            label_visibility="collapsed",
-        )
-        if _sel_tickers:
-            # When specific tickers are selected, bypass other filters for those tickers
-            filtered = screen_df[screen_df["Ticker"].isin(_sel_tickers)]
-
         # ── Build display table ────────────────────────────────
         raw_cols = [c for c in filtered.columns if c.startswith("_")]
         display = filtered.drop(columns=raw_cols).copy()
@@ -2857,7 +2888,7 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
         # Column order — Avg Estimate first, then DCF
         ordered = ["Signal", "Sector", "Price (VND)",
                    "Avg Estimate", "Avg Upside",
-                   "DCF Estimate", "Upside",
+                   "DCF Estimate", "FCFE Estimate", "Upside",
                    "Quality", "Graham Number", "P/E", "P/B",
                    "Net Margin", "ROE", "FCF Margin", "D/E", "Current Ratio"]
         ordered = [c for c in ordered if c in display.columns]
@@ -3357,19 +3388,25 @@ elif view == "Undervalued Watchlist":
     all_sectors = sorted(screen_df["Sector"].dropna().unique().tolist()) if "Sector" in screen_df.columns else []
     _saved_sectors = [s for s in st.session_state.get("f_sectors", []) if s in all_sectors]
     f_sectors  = st.sidebar.multiselect("Sectors", all_sectors, default=_saved_sectors)
-    f_min_upside = st.sidebar.slider("Min DCF Upside (%)", -100, 200,
-                     st.session_state.get("f_min_upside", 0), step=5)
+    f_min_upside = st.sidebar.slider("Min Avg Upside (%)", -1000, 200,
+                     st.session_state.get("f_min_upside", -1000), step=50)
     f_max_pe  = st.sidebar.slider("Max P/E (×)",   0, 100,
-                     st.session_state.get("f_max_pe", 50))
+                     st.session_state.get("f_max_pe", 100))
     f_max_pb  = st.sidebar.slider("Max P/B (×)",   0.0, 10.0,
-                     float(st.session_state.get("f_max_pb", 5.0)), step=0.1)
-    f_min_roe = st.sidebar.slider("Min ROE (%)",  -30, 50,
-                     st.session_state.get("f_min_roe", 0))
+                     float(st.session_state.get("f_max_pb", 10.0)), step=0.1)
+    f_min_roe = st.sidebar.slider("Min ROE (%)",  -50, 50,
+                     st.session_state.get("f_min_roe", -50))
     f_min_nm  = st.sidebar.slider("Min Net Margin (%)", -50, 50,
-                     st.session_state.get("f_min_nm", 0))
+                     st.session_state.get("f_min_nm", -50))
     f_min_qs  = st.sidebar.slider("Min Quality Score", 0, 100,
                      st.session_state.get("f_min_qs", 0), step=5)
     f_pinned_only = st.sidebar.checkbox("Saved watchlist only", value=False)
+
+    # Reset stale session state defaults to new permissive values
+    for _k, _v in [("f_min_upside", -1000), ("f_min_roe", -50),
+                   ("f_min_nm", -50), ("f_max_pe", 100), ("f_max_pb", 10.0)]:
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
 
     # Save current filter state
     st.session_state.update({
@@ -3382,9 +3419,9 @@ elif view == "Undervalued Watchlist":
     res = screen_df.copy()
     if f_sectors:
         res = res[res["Sector"].isin(f_sectors)]
-    res = res[res["_upside_raw"]   >= f_min_upside / 100]
-    res = res[res["_roe_raw"]      >= f_min_roe / 100]
-    res = res[res["_nm_raw"]       >= f_min_nm  / 100]
+    res = res[res["_avg_upside_raw"] >= f_min_upside / 100]
+    res = res[res["_roe_raw"]       >= f_min_roe / 100]
+    res = res[res["_nm_raw"]        >= f_min_nm  / 100]
     if f_max_pe < 100:
         res = res[(res["_upside_raw"] > -999)]  # ensure column exists
         # parse P/E from display col
@@ -3404,6 +3441,8 @@ elif view == "Undervalued Watchlist":
 
     res = res.sort_values("_upside_raw", ascending=False)
 
+    _all_tickers = sorted(screen_df["Ticker"].tolist())
+
     # ── Results ─────────────────────────────────────────────────
     tab_screen, tab_saved = st.tabs([
         f"Screen Results ({len(res)})",
@@ -3411,14 +3450,25 @@ elif view == "Undervalued Watchlist":
     ])
 
     with tab_screen:
-        if res.empty:
-            st.info("No tickers match the current filters. Adjust filters in the sidebar.")
-        else:
-            st.caption(f"{len(res)} tickers match · Click a row then use buttons below to save/remove")
+        # Search filter only (no buttons — click row to save/remove)
+        _sel_tickers = st.multiselect(
+            "Ticker", _all_tickers, default=[],
+            placeholder="Search to filter tickers...",
+            key="screen_ticker_ms", label_visibility="collapsed",
+        )
 
-            res_disp = res.copy()
-            # Star column before ticker — ★ gold (saved), ✩ dim (not saved)
-            res_disp["·"] = res_disp["Ticker"].apply(lambda t: "★" if t in pinned else "")
+        # Apply ticker filter to results
+        _res_display = res[res["Ticker"].isin(_sel_tickers)] if _sel_tickers else res
+        if _res_display.empty:
+            st.info("No tickers match. Adjust filters in the sidebar.")
+        else:
+            st.caption(f"{len(_res_display)} tickers shown")
+
+            res_disp = _res_display.copy()
+            # Star in same column as Ticker — ★ lit (saved) or ✩ dim (not saved)
+            res_disp["Ticker"] = res_disp["Ticker"].apply(
+                lambda t: f"★ {t}" if t in pinned else f"✩ {t}"
+            )
 
             # Signal column with colors
             _sc_sigs = []
@@ -3459,34 +3509,49 @@ elif view == "Undervalued Watchlist":
                     else: return "background-color:#7f1d1d;color:#fca5a5"
                 except: return ""
 
-            # Star column before Ticker, then rest
-            _final_cols = ["·", "Ticker"] + display_cols
+            _final_cols = ["Ticker"] + display_cols
             _final_cols = [c for c in _final_cols if c in res_disp.columns]
+            _plain_df = res_disp[_final_cols].reset_index(drop=True)
             _styled_sc = (
-                res_disp[_final_cols].reset_index(drop=True)
-                .style
+                _plain_df.style
                 .map(_sc_sig_col, subset=["Signal"])
                 .map(_sc_q_col,   subset=["Quality"] if "Quality" in display_cols else [])
             )
-            st.dataframe(_styled_sc, width="stretch", hide_index=True,
-                         column_config={"·": st.column_config.TextColumn("★", width="small")})
+            _selection = st.dataframe(
+                _styled_sc, width="stretch", hide_index=True,
+                on_select="rerun", selection_mode="single-row",
+            )
 
-            # Save/remove buttons
-            save_col, rem_col, _ = st.columns([2, 2, 6])
-            _ticker_input = st.text_input("Ticker to save/remove", placeholder="e.g. VNM",
-                                          key="wl_ticker_input").upper().strip()
-            if save_col.button("★ Save to watchlist", use_container_width=True):
-                if _ticker_input:
-                    pin_ticker(_ticker_input)
-                    st.success(f"Saved {_ticker_input}")
-                    st.cache_data.clear()
-                    st.rerun()
-            if rem_col.button("✕ Remove from watchlist", use_container_width=True):
-                if _ticker_input:
-                    unpin_ticker(_ticker_input)
-                    st.info(f"Removed {_ticker_input}")
-                    st.cache_data.clear()
-                    st.rerun()
+            # Handle row click → save or remove
+            _sel_rows = _selection.selection.get("rows", []) if _selection else []
+            if _sel_rows:
+                _row_idx = _sel_rows[0]
+                # Strip star prefix to get raw ticker
+                _clicked_raw = _plain_df.iloc[_row_idx]["Ticker"]
+                _clicked_ticker = _clicked_raw.lstrip("★✩ ")
+                _is_pinned = _clicked_ticker in pinned
+
+                _act_col, _info_col = st.columns([3, 7])
+                _info_col.markdown(
+                    f"**{_clicked_ticker}** — "
+                    f"{'already in watchlist ★' if _is_pinned else 'not in watchlist ✩'}"
+                )
+                if _is_pinned:
+                    if _act_col.button(f"✕ Remove {_clicked_ticker} from watchlist",
+                                       key="wl_rm_click", use_container_width=True):
+                        if st.session_state.get("wl_rm_confirm") == _clicked_ticker:
+                            unpin_ticker(_clicked_ticker)
+                            st.session_state.pop("wl_rm_confirm", None)
+                            st.cache_data.clear(); st.rerun()
+                        else:
+                            st.session_state["wl_rm_confirm"] = _clicked_ticker
+                            st.warning(f"Click Remove again to confirm removing **{_clicked_ticker}**")
+                else:
+                    if _act_col.button(f"★ Save {_clicked_ticker} to watchlist",
+                                       key="wl_save_click", use_container_width=True):
+                        pin_ticker(_clicked_ticker)
+                        st.success(f"★ {_clicked_ticker} saved!")
+                        st.cache_data.clear(); st.rerun()
 
     with tab_saved:
         if not pinned:
