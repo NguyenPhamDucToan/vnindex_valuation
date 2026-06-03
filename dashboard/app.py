@@ -3144,10 +3144,18 @@ iframe[title="heatmap_click.heatmap_click"] {
             from heatmap_component import heatmap_click as _heatmap_click
             _hm_clicked = _heatmap_click(fig_hm, height=1050, key="hm_comp_fixed")
             if _hm_clicked and isinstance(_hm_clicked, str) and _hm_clicked.strip():
-                # Set popup ticker — show in THIS SAME render, no extra rerun
-                st.session_state["hm_popup_ticker"] = _hm_clicked.strip().upper()
+                _val = _hm_clicked.strip()
+                if _val.startswith("TICKER:"):
+                    st.session_state["hm_popup_ticker"] = _val[7:].upper()
+                    st.session_state.pop("hm_popup_sector", None)
+                elif _val.startswith("SECTOR:"):
+                    st.session_state["hm_popup_sector"] = _val[7:]
+                    st.session_state.pop("hm_popup_ticker", None)
+                else:
+                    # Legacy: plain ticker
+                    st.session_state["hm_popup_ticker"] = _val.upper()
 
-            # Show popup if a ticker was clicked
+            # Show TICKER popup
             if st.session_state.get("hm_popup_ticker"):
                 _pt = st.session_state["hm_popup_ticker"]
 

@@ -13,7 +13,6 @@ html, body { background: #0e1117 !important; }
 <div id="plot"></div>
 <div id="err"></div>
 <script>
-// Minimal Streamlit component protocol
 var Streamlit = {
   _sendMessage: function(type, data) {
     window.parent.postMessage(Object.assign({type: type, isStreamlitMessage: true}, data), "*");
@@ -47,14 +46,21 @@ function onRender(event) {
             if (ev && ev.points && ev.points[0]) {
               var id = String(ev.points[0].id || "");
               if (id.indexOf("_") !== -1) {
+                // TICKER node: prevent drill-down, send to Python for popup
                 var ticker = id.split("_").slice(1).join("_").trim();
                 if (ticker && ticker.length >= 2 && ticker.length <= 6) {
-                  Streamlit.setComponentValue(ticker);
+                  Streamlit.setComponentValue("TICKER:" + ticker);
                 }
+                return false; // block drill-down only for tickers
+              }
+              // SECTOR node: allow native drill-down (return nothing = default behavior)
+              // Also notify Python so it can track state if needed
+              if (id && id.length > 0) {
+                Streamlit.setComponentValue("SECTOR:" + id);
               }
             }
           } catch(e2) {}
-          return false; // block drill-down
+          // Don't return false for sectors — allow Plotly drill-down
         });
       });
   } catch(e) {
