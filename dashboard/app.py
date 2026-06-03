@@ -778,6 +778,28 @@ def unpin_ticker(ticker: str) -> None:
         )
 
 
+@st.cache_data(ttl=3600)
+def load_vnindex_prices(days: int = 504) -> "pd.DataFrame":
+    """Fetch VNINDEX daily close prices for benchmark comparison."""
+    import warnings
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from vnstock import Vnstock
+            stock = Vnstock().stock(symbol="VNINDEX", source="VCI")
+            from datetime import date, timedelta
+            end = date.today().strftime("%Y-%m-%d")
+            start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+            df = stock.quote.history(start=start, end=end, interval="1D")
+            if df is None or df.empty:
+                return pd.DataFrame()
+            df = df.rename(columns={"time": "date"})
+            df["date"] = pd.to_datetime(df["date"])
+            return df[["date", "close"]].sort_values("date")
+    except Exception:
+        return pd.DataFrame()
+
+
 @st.cache_data(ttl=300)
 def load_latest_prices() -> dict[str, float]:
     """Return {ticker: latest_close_vnd} for all tickers with price data."""
@@ -1032,7 +1054,7 @@ VIEWS = [
     "Undervalued Watchlist",
     "Portfolio Tracker",
 ]
-view = st.sidebar.radio("View", VIEWS)
+view = st.sidebar.radio("View", VIEWS, key="view_selector")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1041,8 +1063,15 @@ view = st.sidebar.radio("View", VIEWS)
 if view == "Company Analysis":
 
     _available = load_available_tickers()
-    _default_idx = _available.index("VNM") if "VNM" in _available else 0
-    ticker = st.sidebar.selectbox("Ticker", _available, index=_default_idx)
+    # Allow navigation from heatmap click
+    _nav_ticker = st.session_state.pop("ticker_input", None)
+    if _nav_ticker and _nav_ticker in _available:
+        _default_idx = _available.index(_nav_ticker)
+    elif "VNM" in _available:
+        _default_idx = _available.index("VNM")
+    else:
+        _default_idx = 0
+    ticker = st.sidebar.selectbox("Ticker", _available, index=_default_idx, key="ticker_selector")
 
     prices_df   = load_prices(ticker)
     fin_q       = load_financials_q(ticker)
@@ -2993,6 +3022,13 @@ elif view == "Sector Analysis":
 
         # ── 1. SECTOR HEATMAP ─────────────────────────────────────
         st.subheader("Sector Heatmap")
+        # Hide iframe white flash
+        st.markdown("""<style>
+iframe[title="heatmap_click.heatmap_click"] {
+    background: #0e1117 !important;
+    border: none !important;
+}
+</style>""", unsafe_allow_html=True)
 
         if not ticker_df.empty and _metric_col in ticker_df.columns:
             hm_df = ticker_df.dropna(subset=[_metric_col, "sector"]).copy()
@@ -3098,11 +3134,166 @@ elif view == "Sector Analysis":
                 tiling=dict(squarifyratio=1),
             ))
             fig_hm.update_layout(
-                height=900,
+                height=1050,
                 margin=dict(l=0, r=0, t=0, b=0),
                 dragmode=False,
             )
-            st.plotly_chart(fig_hm, width="stretch")
+            # Heatmap — proper component (JS blocks drill-down, returns ticker in one rerun)
+            import sys as _sys
+            _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from heatmap_component import heatmap_click as _heatmap_click
+            _hm_clicked = _heatmap_click(fig_hm, height=1050, key="hm_comp_fixed")
+            if _hm_clicked and isinstance(_hm_clicked, str) and _hm_clicked.strip():
+                # Set popup ticker — show in THIS SAME render, no extra rerun
+                st.session_state["hm_popup_ticker"] = _hm_clicked.strip().upper()
+
+            # Show popup if a ticker was clicked
+            if st.session_state.get("hm_popup_ticker"):
+                _pt = st.session_state["hm_popup_ticker"]
+
+                @st.dialog(f"{_pt}", width="large")
+                def _ticker_popup():
+                    _prices  = load_prices(_pt)
+                    _td_rows = ticker_df[ticker_df["ticker"] == _pt]
+                    _td      = _td_rows.iloc[0] if not _td_rows.empty else None
+
+                    # Company name from Company table
+                    with get_session() as _ds:
+                        _co = _ds.execute(select(Company.name, Company.sector)
+                                          .where(Company.ticker == _pt)).first()
+                    _co_name = _co[0] if _co else _pt
+                    _co_sect = _co[1] if _co else ""
+                    st.markdown(f"**{_co_name}** · *{_co_sect}*")
+
+                    if _prices.empty:
+                        st.warning("No price data.")
+                        return
+
+                    _last  = _prices.iloc[-1]
+                    _prev  = _prices.iloc[-2] if len(_prices) > 1 else _last
+                    _cur   = float(_last["close"]) * 1000
+                    _ref   = float(_prev["close"]) * 1000
+                    _open  = float(_last["open"])  * 1000
+                    _high  = float(_last["high"])  * 1000
+                    _low   = float(_last["low"])   * 1000
+                    _vol   = float(_last["volume"])
+                    _chg   = _cur - _ref
+                    _chgp  = _chg / _ref * 100 if _ref else 0
+                    _cc    = "#22c55e" if _chg >= 0 else "#ef4444"
+
+                    # MA10 / MA50 from last 63 days
+                    _mini = _prices.tail(113).copy()
+                    _mini["ma10"] = _mini["close"].rolling(10).mean() * 1000
+                    _mini["ma50"] = _mini["close"].rolling(50).mean() * 1000
+                    _mini = _mini.tail(63)
+                    _mini["dlabel"] = pd.to_datetime(_mini["date"]).dt.strftime("%Y-%m-%d")
+                    _mini["vol_color"] = _mini.apply(
+                        lambda r: "#22c55e" if r["close"] >= r["open"] else "#ef4444", axis=1)
+
+                    # Avg vol 10D
+                    _avg_vol10 = int(_prices.tail(10)["volume"].mean()) if len(_prices) >= 10 else 0
+                    # Shares & market cap from valuation
+                    _sh = _td["shares_outstanding"] if _td is not None and pd.notna(_td.get("shares_outstanding")) else None
+
+                    # ── 2-column layout ─────────────────────────────────
+                    _left, _right = st.columns([4, 1.5])
+
+                    with _left:
+                        # OHLCV header
+                        st.markdown(
+                            f"<div style='font-size:11px;color:#9ca3af;margin-bottom:2px;'>"
+                            f"O&nbsp;<b style='color:#f9fafb'>{_open:,.0f}</b>&nbsp; "
+                            f"H&nbsp;<b style='color:#22c55e'>{_high:,.0f}</b>&nbsp; "
+                            f"L&nbsp;<b style='color:#ef4444'>{_low:,.0f}</b>&nbsp; "
+                            f"C&nbsp;<b style='color:{_cc}'>{_cur:,.0f}</b>&nbsp; "
+                            f"Vol&nbsp;<b style='color:#f9fafb'>{_vol/1e6:.2f}M</b></div>"
+                            f"<div style='font-size:11px;color:#9ca3af;margin-bottom:4px;'>"
+                            f"MA10&nbsp;<b style='color:#60a5fa'>{_mini['ma10'].dropna().iloc[-1]:,.0f}</b>&nbsp; "
+                            f"MA50&nbsp;<b style='color:#fb923c'>{_mini['ma50'].dropna().iloc[-1]:,.0f}</b></div>",
+                            unsafe_allow_html=True)
+
+                        # Candlestick + volume (single figure with yaxis domains)
+                        _fig_p = go.Figure()
+                        _fig_p.add_trace(go.Candlestick(
+                            x=_mini["dlabel"],
+                            open=_mini["open"]*1000, high=_mini["high"]*1000,
+                            low=_mini["low"]*1000,   close=_mini["close"]*1000,
+                            increasing_line_color="#22c55e", decreasing_line_color="#ef4444",
+                            showlegend=False, hoverinfo="x+y", yaxis="y",
+                        ))
+                        _fig_p.add_trace(go.Scatter(
+                            x=_mini["dlabel"], y=_mini["ma10"], yaxis="y",
+                            mode="lines", line=dict(color="#60a5fa", width=1.2),
+                            name="MA10", showlegend=False,
+                            hovertemplate="MA10 %{y:,.0f}<extra></extra>"))
+                        _fig_p.add_trace(go.Scatter(
+                            x=_mini["dlabel"], y=_mini["ma50"], yaxis="y",
+                            mode="lines", line=dict(color="#fb923c", width=1.2),
+                            name="MA50", showlegend=False,
+                            hovertemplate="MA50 %{y:,.0f}<extra></extra>"))
+                        _fig_p.add_trace(go.Bar(
+                            x=_mini["dlabel"], y=_mini["volume"],
+                            marker_color=_mini["vol_color"].tolist(),
+                            yaxis="y2", showlegend=False, hoverinfo="skip"))
+                        # Invisible proxy on yaxis so volume appears in unified hover
+                        _mini["vol_m"] = _mini["volume"] / 1e6
+                        _fig_p.add_trace(go.Scatter(
+                            x=_mini["dlabel"],
+                            y=_mini["close"] * 1000,  # at price level (invisible)
+                            yaxis="y", mode="markers",
+                            marker=dict(color="rgba(0,0,0,0)", size=1),
+                            showlegend=False, name="Vol",
+                            customdata=_mini["vol_m"],
+                            hovertemplate="Vol %{customdata:.2f}M<extra></extra>"))
+                        _fig_p.update_layout(
+                            height=360, margin=dict(l=0,r=0,t=0,b=0),
+                            dragmode=False, hovermode="x unified",
+                            xaxis=dict(type="category", rangeslider=dict(visible=False), nticks=6, showgrid=False),
+                            yaxis=dict(domain=[0.25,1.0], showgrid=True, gridcolor="rgba(255,255,255,0.06)"),
+                            yaxis2=dict(domain=[0.0,0.22], showgrid=False),
+                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        )
+                        st.plotly_chart(_fig_p, width="stretch")
+
+                    with _right:
+                        def _stat(label, value, color="#f9fafb"):
+                            return (f"<div style='display:flex;justify-content:space-between;"
+                                    f"padding:5px 0;border-bottom:1px solid #1f2937;font-size:13px;'>"
+                                    f"<span style='color:#9ca3af'>{label}</span>"
+                                    f"<span style='color:{color};font-weight:600'>{value}</span></div>")
+
+                        _mcap_str = f"{_cur * _sh / 1e12:,.1f} tn" if _sh else "—"
+                        _eps_str  = f"{_td['net_margin']:,.0f}" if _td is not None and pd.notna(_td.get("net_margin")) else "—"
+                        _pe_str   = f"{_td['pe']:.1f}×" if _td is not None and pd.notna(_td.get("pe")) else "—"
+                        _pb_str   = f"{_td['pb']:.2f}×" if _td is not None and pd.notna(_td.get("pb")) else "—"
+                        _roe_str  = f"{_td['roe']:.1f}%" if _td is not None and pd.notna(_td.get("roe")) else "—"
+                        _upside   = f"{_td['avg_upside']:+.1f}%" if _td is not None and pd.notna(_td.get("avg_upside")) else "—"
+                        _up_color = ("#22c55e" if _td is not None and (_td.get("avg_upside") or 0) > 0 else "#ef4444") if _td is not None else "#9ca3af"
+
+                        st.markdown(
+                            f"<div style='font-size:28px;font-weight:800;color:{_cc}'>{_cur:,.0f}</div>"
+                            f"<div style='font-size:13px;color:{_cc};margin-bottom:8px;'>{_chg:+,.0f} / {_chgp:+.2f}%</div>"
+                            + _stat("Tham chiếu", f"{_ref:,.0f}", "#eab308")
+                            + _stat("Mở cửa",    f"{_open:,.0f}")
+                            + _stat("Thấp – Cao", f"{_low:,.0f} – {_high:,.0f}")
+                            + _stat("Khối lượng", f"{_vol:,.0f}")
+                            + _stat("KLTB 10D",   f"{_avg_vol10:,.0f}")
+                            + _stat("Thị giá vốn",f"{_mcap_str}")
+                            + _stat("P/E",  _pe_str)
+                            + _stat("P/B",  _pb_str)
+                            + _stat("ROE",  _roe_str)
+                            + _stat("Avg Upside", _upside, _up_color),
+                            unsafe_allow_html=True)
+
+                    st.divider()
+                    if st.button("Open Full Analysis →", type="primary", use_container_width=True):
+                        st.session_state["view_selector"] = "Company Analysis"
+                        st.session_state["ticker_input"] = _pt
+                        st.session_state["hm_popup_ticker"] = None
+                        st.rerun()
+
+                _ticker_popup()
+                st.session_state["hm_popup_ticker"] = None
 
             # Dynamic color legend
             _legend_configs = {
@@ -3635,155 +3826,235 @@ elif view == "Undervalued Watchlist":
 # ═══════════════════════════════════════════════════════════════
 elif view == "Portfolio Tracker":
     st.title("Portfolio Tracker")
-    st.caption("Track your holdings - enter each ticker and share count, get live value + upside.")
+    st.caption("Format: `TICKER  SHARES  ENTRY_PRICE`  (entry price optional — needed for P&L)")
 
-    # ── Holdings input ─────────────────────────────────────────
-    st.subheader("Your Holdings")
-    holdings_text = st.text_area(
-        "Enter holdings (one per line: TICKER SHARES)",
-        value=st.session_state.get("holdings_text", "VNM 1000\nFPT 500\nVIC 200"),
-        height=150,
-        placeholder="VNM 1000\nFPT 500\nHPG 2000",
+    # ── Holdings input — editable table ────────────────────────
+    # Initialize ONCE — never overwrite between reruns (prevents lost edits)
+    if "portfolio_df" not in st.session_state:
+        st.session_state["portfolio_df"] = pd.DataFrame([
+            {"Ticker": "VNM",  "Shares": 1000, "Entry Price (VND)": 58000},
+            {"Ticker": "FPT",  "Shares": 500,  "Entry Price (VND)": 120000},
+            {"Ticker": "VIC",  "Shares": 200,  "Entry Price (VND)": 45000},
+            {"Ticker": "HPG",  "Shares": 2000, "Entry Price (VND)": 0},
+        ])
+
+    edited = st.data_editor(
+        st.session_state["portfolio_df"],
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Ticker": st.column_config.TextColumn("Ticker", width="small",
+                help="Stock ticker e.g. VNM"),
+            "Shares": st.column_config.NumberColumn("Shares", min_value=0,
+                format="%d", width="small"),
+            "Entry Price (VND)": st.column_config.NumberColumn("Entry Price (VND)",
+                min_value=0, format="%d", width="medium",
+                help="Avg buy price. Leave 0 to skip P&L."),
+        },
+        key="portfolio_editor",
     )
-    st.session_state["holdings_text"] = holdings_text
+    # Persist edits so they survive page navigation
+    st.session_state["portfolio_df"] = edited
 
-    # Parse holdings
-    holdings: dict[str, float] = {}
-    parse_errors = []
-    for line in holdings_text.strip().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split()
-        if len(parts) != 2:
-            parse_errors.append(f"Invalid line: '{line}' - expected 'TICKER SHARES'")
-            continue
-        tkr, shares_str = parts
+    # Parse from data editor
+    holdings: dict[str, tuple] = {}
+    for _, row in edited.iterrows():
+        tkr = str(row.get("Ticker", "") or "").upper().strip()
         try:
-            shares = float(shares_str.replace(",", ""))
-            if shares > 0:
-                holdings[tkr.upper()] = shares
-        except ValueError:
-            parse_errors.append(f"Invalid shares for '{tkr}': '{shares_str}'")
-
-    for err in parse_errors:
-        st.warning(err)
+            shares = float(row.get("Shares") or 0)
+            entry  = float(row.get("Entry Price (VND)") or 0)
+            if tkr and shares > 0:
+                holdings[tkr] = (shares, entry)
+        except (ValueError, TypeError):
+            pass
 
     if not holdings:
-        st.info("Enter your holdings above to see portfolio analysis.")
+        st.info("Enter your holdings above.")
         st.stop()
 
-    # ── Load data for portfolio tickers ────────────────────────
-    price_map = load_latest_prices()
-    screen_df = load_valuation_screen_data()
+    # ── Load data ───────────────────────────────────────────────
+    price_map  = load_latest_prices()
+    screen_df  = load_valuation_screen_data()
+    vnidx_df   = load_vnindex_prices(days=730)
 
-    # Build a lookup from screen data (raw values by ticker)
     val_lookup: dict[str, dict] = {}
+    sector_lookup: dict[str, str] = {}
     if not screen_df.empty:
         for _, row in screen_df.iterrows():
             val_lookup[row["Ticker"]] = row.to_dict()
+            sector_lookup[row["Ticker"]] = row.get("Sector", "Unknown")
 
-    # ── Build portfolio table ──────────────────────────────────
-    portfolio_rows = []
-    for tkr, shares in holdings.items():
-        cur_price = price_map.get(tkr)
-        val_data  = val_lookup.get(tkr, {})
+    # ── Build portfolio rows ────────────────────────────────────
+    rows = []
+    for tkr, (shares, entry_price) in holdings.items():
+        cur     = price_map.get(tkr, 0)
+        vd      = val_lookup.get(tkr, {})
+        sector  = sector_lookup.get(tkr, "Unknown")
 
-        dcf_est_raw = None
-        if val_data.get("DCF Estimate", "-") != "-":
-            try:
-                dcf_est_raw = float(val_data["DCF Estimate"].replace(",", ""))
-            except (ValueError, AttributeError):
-                pass
+        mkt_val  = cur * shares
+        cost     = entry_price * shares if entry_price > 0 else None
+        pnl      = (mkt_val - cost) if cost else None
+        pnl_pct  = (pnl / cost * 100) if cost else None
 
-        market_value = cur_price * shares if cur_price else None
-        dcf_value    = dcf_est_raw * shares if dcf_est_raw else None
-        upside       = val_data.get("_upside_raw")
-        if upside == -999:
-            upside = None
+        avg_est_raw = None
+        ae_str = vd.get("Avg Estimate", "—")
+        if ae_str and ae_str not in ("—", "-"):
+            try: avg_est_raw = float(str(ae_str).replace(",",""))
+            except: pass
+        avg_upside = ((avg_est_raw - cur) / cur * 100) if avg_est_raw and cur else None
 
-        portfolio_rows.append({
-            "Ticker":        tkr,
-            "Shares":        f"{shares:,.0f}",
-            "Price (VND)":   f"{cur_price:,.0f}" if cur_price else "-",
-            "Market Value":  f"{market_value:,.0f}" if market_value else "-",
-            "DCF Estimate":  val_data.get("DCF Estimate", "-"),
-            "DCF Value":     f"{dcf_value:,.0f}" if dcf_value else "-",
-            "DCF Upside":    val_data.get("Upside", "-"),
-            "Quality":       val_data.get("Quality", "-"),
-            "ROE":           val_data.get("ROE", "-"),
-            "Net Margin":    val_data.get("Net Margin", "-"),
-            "_market_value": market_value or 0,
-            "_dcf_value":    dcf_value or 0,
-            "_upside":       upside,
-            "_shares":       shares,
+        rows.append({
+            "Ticker":       tkr,
+            "Sector":       sector,
+            "Shares":       f"{shares:,.0f}",
+            "Entry (VND)":  f"{entry_price:,.0f}" if entry_price > 0 else "—",
+            "Price (VND)":  f"{cur:,.0f}" if cur else "—",
+            "Mkt Value":    f"{mkt_val:,.0f}" if cur else "—",
+            "P&L (VND)":    f"{pnl:+,.0f}" if pnl is not None else "—",
+            "P&L %":        f"{pnl_pct:+.1f}%" if pnl_pct is not None else "—",
+            "Avg Est":      vd.get("Avg Estimate", "—"),
+            "Avg Upside":   f"{avg_upside:+.1f}%" if avg_upside is not None else "—",
+            "Signal":       vd.get("Signal", "—"),
+            "Quality":      vd.get("Quality", "—"),
+            "_mkt":         mkt_val,
+            "_cost":        cost or 0,
+            "_pnl":         pnl or 0,
+            "_pnl_pct":     pnl_pct,
+            "_shares":      shares,
+            "_entry":       entry_price,
+            "_sector":      sector,
+            "_avg_upside":  avg_upside,
         })
 
-    port_df = pd.DataFrame(portfolio_rows)
+    port_df = pd.DataFrame(rows)
+    total_mkt  = port_df["_mkt"].sum()
+    total_cost = port_df["_cost"].sum()
+    total_pnl  = port_df["_pnl"].sum()
+    has_cost   = total_cost > 0
 
-    # ── Summary KPIs ───────────────────────────────────────────
-    total_market = port_df["_market_value"].sum()
-    total_dcf    = port_df["_dcf_value"].sum()
-    n_tickers    = len(port_df)
-
-    # Weighted average upside (weighted by market value)
-    has_upside = port_df.dropna(subset=["_upside"])
-    if not has_upside.empty and total_market > 0:
-        weights = has_upside["_market_value"] / total_market
-        wavg_upside = (has_upside["_upside"] * weights).sum()
-    else:
-        wavg_upside = None
-
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Total Market Value", f"{total_market/1e9:,.1f} bn VND" if total_market else "-")
-    k2.metric("Total DCF Value",    f"{total_dcf/1e9:,.1f} bn VND" if total_dcf else "-")
-
-    if wavg_upside is not None:
-        portfolio_upside_delta = total_dcf - total_market if total_market and total_dcf else None
-        k3.metric(
-            "Weighted Avg Upside",
-            f"{wavg_upside*100:+.1f}%",
-            delta=f"DCF value {portfolio_upside_delta/1e9:+,.1f} bn VND" if portfolio_upside_delta else None,
-        )
-    else:
-        k3.metric("Weighted Avg Upside", "-")
-
-    k4.metric("Holdings", f"{n_tickers} tickers, {port_df['_shares'].sum():,.0f} shares total")
+    # ── Summary KPIs ────────────────────────────────────────────
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Market Value",  f"{total_mkt/1e9:,.2f} bn" if total_mkt else "—")
+    k2.metric("Cost Basis",    f"{total_cost/1e9:,.2f} bn" if has_cost else "—")
+    k3.metric("P&L",
+              f"{total_pnl/1e9:+,.2f} bn" if has_cost else "—",
+              delta=f"{total_pnl/total_cost*100:+.1f}%" if has_cost and total_cost else None,
+              delta_color="normal" if total_pnl >= 0 else "inverse")
+    # Weighted avg upside
+    _wu = port_df.dropna(subset=["_avg_upside"])
+    wavg = (_wu["_avg_upside"] * _wu["_mkt"]).sum() / _wu["_mkt"].sum() if not _wu.empty and _wu["_mkt"].sum() > 0 else None
+    k4.metric("Wtd Avg Upside", f"{wavg:+.1f}%" if wavg is not None else "—")
+    k5.metric("Holdings", f"{len(port_df)} tickers")
 
     st.divider()
 
-    # ── Holdings table ─────────────────────────────────────────
-    display_cols = ["Ticker", "Shares", "Price (VND)", "Market Value",
-                    "DCF Estimate", "DCF Value", "DCF Upside", "Quality", "ROE", "Net Margin"]
+    # ── Holdings table ──────────────────────────────────────────
+    display_cols = ["Sector","Shares","Entry (VND)","Price (VND)","Mkt Value",
+                    "P&L (VND)","P&L %","Avg Est","Avg Upside","Signal","Quality"]
     raw_cols = [c for c in port_df.columns if c.startswith("_")]
-    display = port_df.drop(columns=raw_cols)
-    st.dataframe(display.set_index("Ticker"), width="stretch")
 
-    # ── Allocation chart ──────────────────────────────────────
-    if total_market > 0:
-        st.subheader("Portfolio Allocation")
-        alloc_df = port_df[port_df["_market_value"] > 0].copy()
-        alloc_df["pct"] = alloc_df["_market_value"] / total_market * 100
+    def _pnl_color(val):
+        try:
+            v = float(str(val).replace(",","").replace("%","").replace("+",""))
+            if v > 0: return "color:#22c55e"
+            elif v < 0: return "color:#ef4444"
+        except: pass
+        return ""
 
-        fig_pie = px.pie(
-            alloc_df,
-            names="Ticker",
-            values="_market_value",
-            hover_data={"pct": ":.1f"},
-            hole=0.4,
-        )
-        fig_pie.update_traces(
-            textinfo="label+percent",
-            hovertemplate="<b>%{label}</b><br>%{value:,.0f} VND<br>%{percent}<extra></extra>",
-        )
-        fig_pie.update_layout(height=380, margin=dict(l=0, r=0, t=10, b=0), showlegend=False)
-        st.plotly_chart(fig_pie, width="stretch")
-
-    # ── CSV export ─────────────────────────────────────────────
-    csv_bytes = display.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        label="Download Portfolio CSV",
-        data=csv_bytes,
-        file_name="portfolio.csv",
-        mime="text/csv",
+    styled_port = (
+        port_df[["Ticker"] + display_cols].set_index("Ticker")
+        .style.map(_pnl_color, subset=["P&L (VND)", "P&L %", "Avg Upside"])
     )
+    st.dataframe(styled_port, width="stretch")
+
+    st.divider()
+
+    # ── Charts ──────────────────────────────────────────────────
+    chart1, chart2 = st.columns(2)
+
+    # Sector allocation pie
+    with chart1:
+        st.subheader("Sector Allocation")
+        sec_alloc = port_df.groupby("_sector")["_mkt"].sum().reset_index()
+        sec_alloc.columns = ["Sector", "Value"]
+        sec_alloc = sec_alloc[sec_alloc["Value"] > 0].sort_values("Value", ascending=False)
+        fig_sec = px.pie(sec_alloc, names="Sector", values="Value", hole=0.4)
+        fig_sec.update_traces(textinfo="label+percent",
+            hovertemplate="<b>%{label}</b><br>%{value:,.0f} VND<extra></extra>")
+        fig_sec.update_layout(height=380, margin=dict(l=0,r=0,t=10,b=0),
+            showlegend=False, dragmode=False)
+        st.plotly_chart(fig_sec, width="stretch")
+
+    # Ticker allocation pie
+    with chart2:
+        st.subheader("Position Allocation")
+        tkr_alloc = port_df[port_df["_mkt"] > 0].copy()
+        fig_tkr = px.pie(tkr_alloc, names="Ticker", values="_mkt", hole=0.4)
+        fig_tkr.update_traces(textinfo="label+percent",
+            hovertemplate="<b>%{label}</b><br>%{value:,.0f} VND<extra></extra>")
+        fig_tkr.update_layout(height=380, margin=dict(l=0,r=0,t=10,b=0),
+            showlegend=False, dragmode=False)
+        st.plotly_chart(fig_tkr, width="stretch")
+
+    # ── P&L chart (if entry prices provided) ───────────────────
+    if has_cost:
+        st.subheader("P&L by Position")
+        pnl_df = port_df[port_df["_entry"] > 0].copy()
+        pnl_df = pnl_df.sort_values("_pnl_pct", ascending=True)
+        fig_pnl = go.Figure(go.Bar(
+            x=pnl_df["_pnl_pct"], y=pnl_df["Ticker"], orientation="h",
+            marker_color=["#22c55e" if v >= 0 else "#ef4444" for v in pnl_df["_pnl_pct"]],
+            text=[f"{v:+.1f}%" for v in pnl_df["_pnl_pct"]],
+            textposition="outside",
+            hovertemplate="%{y}: %{x:+.1f}%<extra></extra>",
+        ))
+        fig_pnl.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.5)
+        fig_pnl.update_layout(height=max(250, len(pnl_df)*32),
+            margin=dict(l=0,r=60,t=10,b=0), xaxis_title="Return %",
+            dragmode=False)
+        st.plotly_chart(fig_pnl, width="stretch")
+
+    # ── Portfolio vs VN-Index performance ──────────────────────
+    if has_cost and not vnidx_df.empty:
+        st.subheader("Portfolio Return vs VN-Index")
+        # Use the earliest entry date to anchor performance comparison
+        # Show cumulative return from cost basis date (use today as anchor)
+        fig_bench = go.Figure()
+
+        # VN-Index normalized to 100 (last 1Y)
+        _vi = vnidx_df.tail(252).copy()
+        if not _vi.empty:
+            _base = float(_vi["close"].iloc[0])
+            _vi["return_pct"] = (_vi["close"] / _base - 1) * 100
+            fig_bench.add_trace(go.Scatter(
+                x=_vi["date"].dt.strftime("%Y-%m-%d"), y=_vi["return_pct"],
+                name="VN-Index", mode="lines",
+                line=dict(color="#9ca3af", width=2),
+                hovertemplate="VN-Index: %{y:+.1f}%<extra></extra>",
+            ))
+
+        # Portfolio current return (single point — total P&L %)
+        if total_cost > 0:
+            port_return = total_pnl / total_cost * 100
+            fig_bench.add_hline(y=port_return, line_dash="dash",
+                line_color="#22c55e" if port_return >= 0 else "#ef4444",
+                line_width=2,
+                annotation_text=f"Portfolio {port_return:+.1f}%",
+                annotation_position="right",
+                annotation_font_color="#22c55e" if port_return >= 0 else "#ef4444")
+
+        fig_bench.update_layout(
+            height=320, margin=dict(l=0,r=0,t=10,b=0),
+            yaxis_title="Return %", dragmode=False,
+            hovermode="x unified",
+        )
+        fig_bench.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4)
+        st.plotly_chart(fig_bench, width="stretch")
+        st.caption("VN-Index return shown over last 1Y. Portfolio return = total P&L / total cost basis.")
+
+    # ── CSV export ──────────────────────────────────────────────
+    _exp = port_df[["Ticker"] + display_cols].copy()
+    st.download_button("Download Portfolio CSV",
+        data=_exp.to_csv(index=False).encode("utf-8-sig"),
+        file_name="portfolio.csv", mime="text/csv")

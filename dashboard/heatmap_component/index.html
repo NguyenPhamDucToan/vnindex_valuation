@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script src="https://unpkg.com/plotly.js@2.35.2/dist/plotly.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { background: #0e1117 !important; }
+#plot { width: 100%; height: 1050px; background: #0e1117; }
+#err { color: red; font-size: 12px; padding: 8px; }
+</style>
+</head>
+<body>
+<div id="plot"></div>
+<div id="err"></div>
+<script>
+// Minimal Streamlit component protocol
+var Streamlit = {
+  _sendMessage: function(type, data) {
+    window.parent.postMessage(Object.assign({type: type, isStreamlitMessage: true}, data), "*");
+  },
+  setComponentValue: function(value) {
+    this._sendMessage("streamlit:setComponentValue", {value: value, dataType: "json"});
+  },
+  setFrameHeight: function(h) {
+    this._sendMessage("streamlit:setFrameHeight", {height: h});
+  },
+  ready: function() {
+    this._sendMessage("streamlit:componentReady", {apiVersion: 1});
+  }
+};
+
+function onRender(event) {
+  if (!event.data || event.data.type !== "streamlit:render") return;
+  var args = event.data.args;
+  if (!args || !args.fig_json) return;
+
+  try {
+    var fig = JSON.parse(args.fig_json);
+    fig.layout.paper_bgcolor = "rgba(0,0,0,0)";
+    fig.layout.plot_bgcolor  = "rgba(0,0,0,0)";
+    Streamlit.setFrameHeight(1050);
+
+    Plotly.react("plot", fig.data, fig.layout, {responsive: true, displayModeBar: false})
+      .then(function(gd) {
+        gd.on("plotly_treemapclick", function(ev) {
+          try {
+            if (ev && ev.points && ev.points[0]) {
+              var id = String(ev.points[0].id || "");
+              if (id.indexOf("_") !== -1) {
+                var ticker = id.split("_").slice(1).join("_").trim();
+                if (ticker && ticker.length >= 2 && ticker.length <= 6) {
+                  Streamlit.setComponentValue(ticker);
+                }
+              }
+            }
+          } catch(e2) {}
+          return false; // block drill-down
+        });
+      });
+  } catch(e) {
+    document.getElementById("err").textContent = "Error: " + e.message;
+  }
+}
+
+window.addEventListener("message", onRender);
+Streamlit.ready();
+</script>
+</body>
+</html>
