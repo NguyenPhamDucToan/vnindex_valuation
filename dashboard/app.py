@@ -120,6 +120,18 @@ st.set_page_config(
     layout="wide",
 )
 
+# Kill all animations/transitions globally — prevents white flash and dialog delay
+st.markdown("""<style>
+html { background:#0e1117!important; color-scheme:dark; }
+body,[data-testid="stApp"],.main,.block-container { background-color:#0e1117!important; }
+[data-testid="stApp"]*{ animation-duration:0.001s!important; transition-duration:0.001s!important; }
+[data-testid="stStatusWidget"]{ visibility:hidden!important; }
+[data-testid="stDecoration"]{ display:none!important; }
+[data-testid="stModal"],[data-testid="stModalContent"],[data-testid="stModalOverlay"]{
+    animation:none!important; transition:none!important;
+}
+</style>""", unsafe_allow_html=True)
+
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Utility functions
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -778,6 +790,60 @@ def unpin_ticker(ticker: str) -> None:
         )
 
 
+@st.cache_data(ttl=300)
+def load_market_snapshot() -> "pd.DataFrame":
+    """Return today's price snapshot: close, prev_close, change%, volume for all tickers."""
+    with get_session() as s:
+        price_subq = (
+            select(Price.ticker, sqlfunc.max(Price.date).label("max_date"))
+            .group_by(Price.ticker).subquery()
+        )
+        # Latest price
+        latest = s.execute(
+            select(Price.ticker, Price.close, Price.volume, Price.date)
+            .join(price_subq, (Price.ticker == price_subq.c.ticker) &
+                               (Price.date == price_subq.c.max_date))
+        ).all()
+        latest_map = {r[0]: {"close": r[1], "volume": r[2], "date": r[3]} for r in latest}
+
+        # Second latest price (for change calc)
+        all_prices = s.execute(
+            select(Price.ticker, Price.close, Price.date)
+            .order_by(Price.ticker, Price.date.desc())
+        ).all()
+        comp_rows = s.execute(select(Company.ticker, Company.sector, Company.name)).all()
+        sector_map = {r[0]: r[1] for r in comp_rows}
+        name_map   = {r[0]: r[2] for r in comp_rows}
+
+    # Build prev-close map (second most recent)
+    from collections import defaultdict
+    ticker_dates: dict = defaultdict(list)
+    for r in all_prices:
+        ticker_dates[r[0]].append((r[2], r[1]))
+    prev_map = {}
+    for tkr, dates in ticker_dates.items():
+        dates.sort(key=lambda x: x[0], reverse=True)
+        if len(dates) >= 2:
+            prev_map[tkr] = dates[1][1]
+
+    rows = []
+    for tkr, data in latest_map.items():
+        cur = data["close"] * 1000 if data["close"] else None
+        prev = prev_map.get(tkr)
+        prev_vnd = prev * 1000 if prev else None
+        chg_pct = ((cur - prev_vnd) / prev_vnd * 100) if (cur and prev_vnd and prev_vnd > 0) else None
+        rows.append({
+            "ticker":   tkr,
+            "name":     name_map.get(tkr, tkr),
+            "sector":   sector_map.get(tkr, "Unknown"),
+            "price":    cur,
+            "prev":     prev_vnd,
+            "chg_pct":  chg_pct,
+            "volume":   data["volume"],
+        })
+    return pd.DataFrame(rows)
+
+
 @st.cache_data(ttl=3600)
 def load_vnindex_prices(days: int = 504) -> "pd.DataFrame":
     """Fetch VNINDEX daily close prices for benchmark comparison."""
@@ -1047,14 +1113,148 @@ def load_valuation_multiples(ticker: str) -> "pd.DataFrame":
 # ─────────────────────────────────────────────
 # Sidebar navigation
 # ─────────────────────────────────────────────
+
+
+@st.cache_data(ttl=600)
+def check_data_completeness() -> "pd.DataFrame":
+    """Return data quality per ticker: financials, prices, valuations count."""
+    with get_session() as s:
+        tickers_fin   = {r[0]: r[1] for r in s.execute(
+            select(Financial.ticker, sqlfunc.count(Financial.id).label("n"))
+            .where(Financial.period_type == "Q")
+            .group_by(Financial.ticker)).all()}
+        tickers_price = {r[0]: r[1] for r in s.execute(
+            select(Price.ticker, sqlfunc.count(Price.id).label("n"))
+            .group_by(Price.ticker)).all()}
+        tickers_val   = {r[0]: r[1] for r in s.execute(
+            select(Valuation.ticker, sqlfunc.count(Valuation.id).label("n"))
+            .group_by(Valuation.ticker)).all()}
+        comp_rows = s.execute(select(Company.ticker, Company.sector)).all()
+    rows = []
+    for tkr, sec in comp_rows:
+        fin_n  = tickers_fin.get(tkr, 0)
+        pri_n  = tickers_price.get(tkr, 0)
+        val_n  = tickers_val.get(tkr, 0)
+        ok     = fin_n >= 4 and pri_n >= 10 and val_n >= 1
+        rows.append({"Ticker": tkr, "Sector": sec or "Unknown",
+                     "Quarterly Fins": fin_n, "Price Days": pri_n, "Valuations": val_n,
+                     "Status": "OK" if ok else "Needs Update"})
+    return pd.DataFrame(rows)
+
+
+def build_excel_export(df: "pd.DataFrame", screen_name: str = "Valuation Screen") -> bytes:
+    """Build multi-sheet Excel file."""
+    import io
+    buf = io.BytesIO()
+    raw_cols = [c for c in df.columns if c.startswith("_")]
+    exp = df.drop(columns=raw_cols, errors="ignore")
+    try:
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            exp.to_excel(writer, sheet_name=screen_name[:31], index=False)
+            if "Sector" in exp.columns:
+                sec_s = exp.groupby("Sector").size().reset_index(name="Count")
+                sec_s.to_excel(writer, sheet_name="By Sector", index=False)
+    except Exception:
+        exp.to_csv(buf, index=False)
+    return buf.getvalue()
+
 VIEWS = [
     "Company Analysis",
     "Valuation Screen",
     "Sector Analysis",
     "Undervalued Watchlist",
     "Portfolio Tracker",
+    "Market Overview",
 ]
-view = st.sidebar.radio("View", VIEWS, key="view_selector")
+# Handle navigation from popup buttons (must be before radio renders)
+if st.session_state.get("hm_navigate_to"):
+    _pre_nav = st.session_state.pop("hm_navigate_to")
+    st.session_state["view_selector"] = "Company Analysis"
+    st.session_state["ticker_input"] = _pre_nav
+
+def _on_view_change():
+    # Clear any open popup the instant the tab changes (before heavy view renders)
+    st.session_state["hm_popup_ticker"] = None
+    st.session_state["hm_popup_sector"] = None
+
+view = st.sidebar.radio("View", VIEWS, key="view_selector", on_change=_on_view_change)
+
+# ── Global ticker quick-view popup (works from any tab) ──────────────────────
+if st.session_state.get("hm_popup_ticker"):
+    _gpt = st.session_state["hm_popup_ticker"]
+
+    @st.dialog(f"{_gpt}", width="large")
+    def _global_ticker_popup():
+        from sqlalchemy import select as _sel2
+        _gprices = load_prices(_gpt)
+        _gtd_rows = load_sector_ticker_data()
+        _gtd = _gtd_rows[_gtd_rows["ticker"] == _gpt].iloc[0] if not _gtd_rows[_gtd_rows["ticker"] == _gpt].empty else None
+
+        with get_session() as _gds:
+            _gco = _gds.execute(_sel2(Company.name, Company.sector).where(Company.ticker == _gpt)).first()
+        _gco_name = _gco[0] if _gco else _gpt
+        _gco_sect = _gco[1] if _gco else ""
+        st.markdown(f"**{_gco_name}** · *{_gco_sect}*")
+
+        if _gprices.empty:
+            st.warning("No price data.")
+        else:
+            _gl = _gprices.iloc[-1]; _gpv = _gprices.iloc[-2] if len(_gprices) > 1 else _gl
+            _gcur = float(_gl["close"])*1000; _gref = float(_gpv["close"])*1000
+            _gopen = float(_gl["open"])*1000; _ghigh = float(_gl["high"])*1000
+            _glow = float(_gl["low"])*1000; _gvol = float(_gl["volume"])
+            _gchg = _gcur - _gref; _gchgp = _gchg/_gref*100 if _gref else 0
+            _gcc = "#22c55e" if _gchg >= 0 else "#ef4444"
+            _gmini = _gprices.tail(113).copy()
+            _gmini["ma10"] = _gmini["close"].rolling(10).mean()*1000
+            _gmini["ma50"] = _gmini["close"].rolling(50).mean()*1000
+            _gmini = _gmini.tail(63)
+            _gmini["dlabel"] = pd.to_datetime(_gmini["date"]).dt.strftime("%Y-%m-%d")
+            _gmini["vc"] = _gmini.apply(lambda r: "#22c55e" if r["close"]>=r["open"] else "#ef4444", axis=1)
+            _gavol10 = int(_gprices.tail(10)["volume"].mean()) if len(_gprices)>=10 else 0
+            _gsh = _gtd["shares_outstanding"] if _gtd is not None and pd.notna(_gtd.get("shares_outstanding")) else None
+            _left, _right = st.columns([4, 1.5])
+            with _left:
+                st.markdown(
+                    f"<div style='font-size:11px;color:#9ca3af;margin-bottom:2px;'>"
+                    f"O&nbsp;<b style='color:#f9fafb'>{_gopen:,.0f}</b>&nbsp;"
+                    f"H&nbsp;<b style='color:#22c55e'>{_ghigh:,.0f}</b>&nbsp;"
+                    f"L&nbsp;<b style='color:#ef4444'>{_glow:,.0f}</b>&nbsp;"
+                    f"C&nbsp;<b style='color:{_gcc}'>{_gcur:,.0f}</b>&nbsp;"
+                    f"Vol&nbsp;<b style='color:#f9fafb'>{_gvol/1e6:.2f}M</b><br>"
+                    f"MA10&nbsp;<b style='color:#60a5fa'>{_gmini['ma10'].dropna().iloc[-1]:,.0f}</b>&nbsp;"
+                    f"MA50&nbsp;<b style='color:#fb923c'>{_gmini['ma50'].dropna().iloc[-1]:,.0f}</b></div>",
+                    unsafe_allow_html=True)
+                _gfig = go.Figure()
+                _gfig.add_trace(go.Candlestick(x=_gmini["dlabel"],open=_gmini["open"]*1000,high=_gmini["high"]*1000,low=_gmini["low"]*1000,close=_gmini["close"]*1000,increasing_line_color="#22c55e",decreasing_line_color="#ef4444",showlegend=False,hoverinfo="skip",yaxis="y"))
+                _gfig.add_trace(go.Scatter(x=_gmini["dlabel"],y=_gmini["ma10"],yaxis="y",mode="lines",line=dict(color="#60a5fa",width=1.2),showlegend=False,name="MA10",hovertemplate="MA10 %{y:,.0f}<extra></extra>"))
+                _gfig.add_trace(go.Scatter(x=_gmini["dlabel"],y=_gmini["ma50"],yaxis="y",mode="lines",line=dict(color="#fb923c",width=1.2),showlegend=False,name="MA50",hovertemplate="MA50 %{y:,.0f}<extra></extra>"))
+                _gmini["vol_m"] = _gmini["volume"]/1e6
+                _gfig.add_trace(go.Bar(x=_gmini["dlabel"],y=_gmini["volume"],marker_color=_gmini["vc"].tolist(),yaxis="y2",showlegend=False,hoverinfo="skip"))
+                _gfig.add_trace(go.Scatter(x=_gmini["dlabel"],y=_gmini["close"]*1000,yaxis="y",mode="markers",marker=dict(color="rgba(0,0,0,0)",size=1),showlegend=False,name="Vol",customdata=_gmini["vol_m"],hovertemplate="Vol %{customdata:.2f}M<extra></extra>"))
+                _gfig.update_layout(height=360,margin=dict(l=0,r=0,t=0,b=0),dragmode=False,hovermode="x unified",xaxis=dict(type="category",rangeslider=dict(visible=False),nticks=6,showgrid=False),yaxis=dict(domain=[0.25,1.0],showgrid=True,gridcolor="rgba(255,255,255,0.06)"),yaxis2=dict(domain=[0.0,0.22],showgrid=False),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(_gfig, width="stretch")
+            with _right:
+                def _gs(label,value,color="#f9fafb"):
+                    return (f"<div style='display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #1f2937;font-size:13px;'><span style='color:#9ca3af'>{label}</span><span style='color:{color};font-weight:600'>{value}</span></div>")
+                _gmcap = f"{_gcur*_gsh/1e12:,.1f} tn" if _gsh else "—"
+                _gpe = f"{_gtd['pe']:.1f}×" if _gtd is not None and pd.notna(_gtd.get("pe")) else "—"
+                _gpb = f"{_gtd['pb']:.2f}×" if _gtd is not None and pd.notna(_gtd.get("pb")) else "—"
+                _groe = f"{_gtd['roe']:.1f}%" if _gtd is not None and pd.notna(_gtd.get("roe")) else "—"
+                _gup = _gtd.get("avg_upside") if _gtd is not None else None
+                _gup_str = f"{_gup:+.1f}%" if _gup is not None and pd.notna(_gup) else "—"
+                _gup_col = "#22c55e" if (_gup or 0) > 0 else "#ef4444"
+                st.markdown(f"<div style='font-size:28px;font-weight:800;color:{_gcc}'>{_gcur:,.0f}</div><div style='font-size:13px;color:{_gcc};margin-bottom:8px;'>{_gchg:+,.0f} / {_gchgp:+.2f}%</div>"+_gs("Tham chiếu",f"{_gref:,.0f}","#eab308")+_gs("Mở cửa",f"{_gopen:,.0f}")+_gs("Thấp – Cao",f"{_glow:,.0f} – {_ghigh:,.0f}")+_gs("Khối lượng",f"{_gvol:,.0f}")+_gs("KLTB 10D",f"{_gavol10:,.0f}")+_gs("Thị giá vốn",_gmcap)+_gs("P/E",_gpe)+_gs("P/B",_gpb)+_gs("ROE",_groe)+_gs("Avg Upside",_gup_str,_gup_col),unsafe_allow_html=True)
+
+        st.divider()
+        if st.button("Open Full Analysis →", type="primary", use_container_width=True):
+            st.session_state["hm_popup_ticker"] = None
+            st.session_state["view_selector"] = "Company Analysis"
+            st.session_state["ticker_input"] = _gpt
+            st.rerun()
+
+    _global_ticker_popup()
+    st.session_state["hm_popup_ticker"] = None
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1417,23 +1617,34 @@ if view == "Company Analysis":
                 v["ps"]        = _ps_val(ttm.get("revenue"),        5)   # P/TOI ×5
 
             elif _co_sect == "Bất động sản":
-                # RE: EV/EBITDA ×15, P/Revenue ×3.5 (lumpy project revenues)
+                # RE: EV/EBITDA ×15, NAV proxy (Book × 1.5 premium), P/Revenue ×3.5
                 _ebitda_re = (ttm.get("ebit") or 0) + (ttm.get("depreciation") or 0)
-                _nd_re = (ttm.get("debt") or 0) - (ttm.get("cash") or 0)
+                _nd_re     = (ttm.get("debt") or 0) - (ttm.get("cash") or 0)
                 if _ebitda_re > 0 and _sh_s > 0:
                     _ev_re = _ebitda_re * 15 - _nd_re
                     v["ev_ebitda"] = round(_ev_re * 1e9 / (_sh_s * 1e6)) if _ev_re > 0 else None
                 v["ps"] = _ps_val(ttm.get("revenue"), 3.5)
+                # EPV → NAV proxy: Book value × 1.8 (RE trades at premium to book for land bank)
+                _eq_re = ttm.get("equity")
+                if _eq_re and _sh_s > 0:
+                    v["epv"] = round(_eq_re * 1.8 * 1e9 / (_sh_s * 1e6))
 
             elif _co_sect == "Chứng khoán":
-                # Securities: P/Revenue ×3, no EV/EBITDA
+                # Securities: P/Revenue ×3, EPV = BVPS × 1.2 (book value target)
                 v["ps"]        = _ps_val(ttm.get("revenue"), 3)
                 v["ev_ebitda"] = None
+                _eq_sec = ttm.get("equity")
+                if _eq_sec and _sh_s > 0:
+                    v["epv"] = round(_eq_sec * 1.2 * 1e9 / (_sh_s * 1e6))
 
             elif _co_sect == "Bảo hiểm":
-                # Insurance: P/Revenue ×2, P/Book is primary method
+                # Insurance: P/Revenue ×2, Embedded Value proxy = Book × 2.0
+                # (insurers trade at premium to book for VIF embedded value)
                 v["ps"]        = _ps_val(ttm.get("revenue"), 2)
                 v["ev_ebitda"] = None
+                _eq_ins = ttm.get("equity")
+                if _eq_ins and _sh_s > 0:
+                    v["epv"] = round(_eq_ins * 2.0 * 1e9 / (_sh_s * 1e6))
 
         # ── Build method label list (sector-aware) ─────────────────
         _IS_BANK   = (_co_sect == "Ngân hàng")
@@ -1455,8 +1666,16 @@ if view == "Company Analysis":
                 "EBITDA × 15× − net debt (RE)" if _IS_RE else
                 "EBITDA × 8× − net debt"),
             ("epv",
-                "P/PPOP (×6)"     if _IS_BANK else "Earnings Power Value",
-                "PPOP/share × 6×" if _IS_BANK else "NOPAT ÷ WACC, zero growth"),
+                "P/PPOP (×6)"          if _IS_BANK else
+                "NAV Proxy (Book×1.8)" if _IS_RE   else
+                "Book Value (×1.2)"    if _IS_SEC  else
+                "Embedded Value (×2.0)"if _IS_INS  else
+                "Earnings Power Value",
+                "PPOP/share × 6×"          if _IS_BANK else
+                "Book × 1.8 (land bank premium)" if _IS_RE else
+                "Book × 1.2 (securities target)" if _IS_SEC else
+                "Book × 2.0 (VIF embedded value)" if _IS_INS else
+                "NOPAT ÷ WACC, zero growth"),
             ("ps",
                 "P/TOI (×5)"      if _IS_BANK else
                 "P/Revenue (×3.5)"if _IS_RE   else
@@ -2934,7 +3153,16 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
 
         # ── CSV export ─────────────────────────────────────────
         csv_bytes = display[["Ticker"] + ordered].to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
+        xlsx_bytes = build_excel_export(filtered)
+        _dl1, _dl2, _ = st.columns([2, 2, 6])
+        _dl1.download_button("Download CSV", data=csv_bytes,
+            file_name="valuation_screen.csv", mime="text/csv", use_container_width=True)
+        _dl2.download_button("Download Excel", data=xlsx_bytes,
+            file_name="valuation_screen.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True)
+        if False:
+            st.download_button(
             label="Download CSV",
             data=csv_bytes,
             file_name="valuation_screen.csv",
@@ -3155,153 +3383,7 @@ iframe[title="heatmap_click.heatmap_click"] {
                     # Legacy: plain ticker
                     st.session_state["hm_popup_ticker"] = _val.upper()
 
-            # Show TICKER popup
-            if st.session_state.get("hm_popup_ticker"):
-                _pt = st.session_state["hm_popup_ticker"]
-
-                @st.dialog(f"{_pt}", width="large")
-                def _ticker_popup():
-                    _prices  = load_prices(_pt)
-                    _td_rows = ticker_df[ticker_df["ticker"] == _pt]
-                    _td      = _td_rows.iloc[0] if not _td_rows.empty else None
-
-                    # Company name from Company table
-                    with get_session() as _ds:
-                        _co = _ds.execute(select(Company.name, Company.sector)
-                                          .where(Company.ticker == _pt)).first()
-                    _co_name = _co[0] if _co else _pt
-                    _co_sect = _co[1] if _co else ""
-                    st.markdown(f"**{_co_name}** · *{_co_sect}*")
-
-                    if _prices.empty:
-                        st.warning("No price data.")
-                        return
-
-                    _last  = _prices.iloc[-1]
-                    _prev  = _prices.iloc[-2] if len(_prices) > 1 else _last
-                    _cur   = float(_last["close"]) * 1000
-                    _ref   = float(_prev["close"]) * 1000
-                    _open  = float(_last["open"])  * 1000
-                    _high  = float(_last["high"])  * 1000
-                    _low   = float(_last["low"])   * 1000
-                    _vol   = float(_last["volume"])
-                    _chg   = _cur - _ref
-                    _chgp  = _chg / _ref * 100 if _ref else 0
-                    _cc    = "#22c55e" if _chg >= 0 else "#ef4444"
-
-                    # MA10 / MA50 from last 63 days
-                    _mini = _prices.tail(113).copy()
-                    _mini["ma10"] = _mini["close"].rolling(10).mean() * 1000
-                    _mini["ma50"] = _mini["close"].rolling(50).mean() * 1000
-                    _mini = _mini.tail(63)
-                    _mini["dlabel"] = pd.to_datetime(_mini["date"]).dt.strftime("%Y-%m-%d")
-                    _mini["vol_color"] = _mini.apply(
-                        lambda r: "#22c55e" if r["close"] >= r["open"] else "#ef4444", axis=1)
-
-                    # Avg vol 10D
-                    _avg_vol10 = int(_prices.tail(10)["volume"].mean()) if len(_prices) >= 10 else 0
-                    # Shares & market cap from valuation
-                    _sh = _td["shares_outstanding"] if _td is not None and pd.notna(_td.get("shares_outstanding")) else None
-
-                    # ── 2-column layout ─────────────────────────────────
-                    _left, _right = st.columns([4, 1.5])
-
-                    with _left:
-                        # OHLCV header
-                        st.markdown(
-                            f"<div style='font-size:11px;color:#9ca3af;margin-bottom:2px;'>"
-                            f"O&nbsp;<b style='color:#f9fafb'>{_open:,.0f}</b>&nbsp; "
-                            f"H&nbsp;<b style='color:#22c55e'>{_high:,.0f}</b>&nbsp; "
-                            f"L&nbsp;<b style='color:#ef4444'>{_low:,.0f}</b>&nbsp; "
-                            f"C&nbsp;<b style='color:{_cc}'>{_cur:,.0f}</b>&nbsp; "
-                            f"Vol&nbsp;<b style='color:#f9fafb'>{_vol/1e6:.2f}M</b></div>"
-                            f"<div style='font-size:11px;color:#9ca3af;margin-bottom:4px;'>"
-                            f"MA10&nbsp;<b style='color:#60a5fa'>{_mini['ma10'].dropna().iloc[-1]:,.0f}</b>&nbsp; "
-                            f"MA50&nbsp;<b style='color:#fb923c'>{_mini['ma50'].dropna().iloc[-1]:,.0f}</b></div>",
-                            unsafe_allow_html=True)
-
-                        # Candlestick + volume (single figure with yaxis domains)
-                        _fig_p = go.Figure()
-                        _fig_p.add_trace(go.Candlestick(
-                            x=_mini["dlabel"],
-                            open=_mini["open"]*1000, high=_mini["high"]*1000,
-                            low=_mini["low"]*1000,   close=_mini["close"]*1000,
-                            increasing_line_color="#22c55e", decreasing_line_color="#ef4444",
-                            showlegend=False, hoverinfo="x+y", yaxis="y",
-                        ))
-                        _fig_p.add_trace(go.Scatter(
-                            x=_mini["dlabel"], y=_mini["ma10"], yaxis="y",
-                            mode="lines", line=dict(color="#60a5fa", width=1.2),
-                            name="MA10", showlegend=False,
-                            hovertemplate="MA10 %{y:,.0f}<extra></extra>"))
-                        _fig_p.add_trace(go.Scatter(
-                            x=_mini["dlabel"], y=_mini["ma50"], yaxis="y",
-                            mode="lines", line=dict(color="#fb923c", width=1.2),
-                            name="MA50", showlegend=False,
-                            hovertemplate="MA50 %{y:,.0f}<extra></extra>"))
-                        _fig_p.add_trace(go.Bar(
-                            x=_mini["dlabel"], y=_mini["volume"],
-                            marker_color=_mini["vol_color"].tolist(),
-                            yaxis="y2", showlegend=False, hoverinfo="skip"))
-                        # Invisible proxy on yaxis so volume appears in unified hover
-                        _mini["vol_m"] = _mini["volume"] / 1e6
-                        _fig_p.add_trace(go.Scatter(
-                            x=_mini["dlabel"],
-                            y=_mini["close"] * 1000,  # at price level (invisible)
-                            yaxis="y", mode="markers",
-                            marker=dict(color="rgba(0,0,0,0)", size=1),
-                            showlegend=False, name="Vol",
-                            customdata=_mini["vol_m"],
-                            hovertemplate="Vol %{customdata:.2f}M<extra></extra>"))
-                        _fig_p.update_layout(
-                            height=360, margin=dict(l=0,r=0,t=0,b=0),
-                            dragmode=False, hovermode="x unified",
-                            xaxis=dict(type="category", rangeslider=dict(visible=False), nticks=6, showgrid=False),
-                            yaxis=dict(domain=[0.25,1.0], showgrid=True, gridcolor="rgba(255,255,255,0.06)"),
-                            yaxis2=dict(domain=[0.0,0.22], showgrid=False),
-                            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                        )
-                        st.plotly_chart(_fig_p, width="stretch")
-
-                    with _right:
-                        def _stat(label, value, color="#f9fafb"):
-                            return (f"<div style='display:flex;justify-content:space-between;"
-                                    f"padding:5px 0;border-bottom:1px solid #1f2937;font-size:13px;'>"
-                                    f"<span style='color:#9ca3af'>{label}</span>"
-                                    f"<span style='color:{color};font-weight:600'>{value}</span></div>")
-
-                        _mcap_str = f"{_cur * _sh / 1e12:,.1f} tn" if _sh else "—"
-                        _eps_str  = f"{_td['net_margin']:,.0f}" if _td is not None and pd.notna(_td.get("net_margin")) else "—"
-                        _pe_str   = f"{_td['pe']:.1f}×" if _td is not None and pd.notna(_td.get("pe")) else "—"
-                        _pb_str   = f"{_td['pb']:.2f}×" if _td is not None and pd.notna(_td.get("pb")) else "—"
-                        _roe_str  = f"{_td['roe']:.1f}%" if _td is not None and pd.notna(_td.get("roe")) else "—"
-                        _upside   = f"{_td['avg_upside']:+.1f}%" if _td is not None and pd.notna(_td.get("avg_upside")) else "—"
-                        _up_color = ("#22c55e" if _td is not None and (_td.get("avg_upside") or 0) > 0 else "#ef4444") if _td is not None else "#9ca3af"
-
-                        st.markdown(
-                            f"<div style='font-size:28px;font-weight:800;color:{_cc}'>{_cur:,.0f}</div>"
-                            f"<div style='font-size:13px;color:{_cc};margin-bottom:8px;'>{_chg:+,.0f} / {_chgp:+.2f}%</div>"
-                            + _stat("Tham chiếu", f"{_ref:,.0f}", "#eab308")
-                            + _stat("Mở cửa",    f"{_open:,.0f}")
-                            + _stat("Thấp – Cao", f"{_low:,.0f} – {_high:,.0f}")
-                            + _stat("Khối lượng", f"{_vol:,.0f}")
-                            + _stat("KLTB 10D",   f"{_avg_vol10:,.0f}")
-                            + _stat("Thị giá vốn",f"{_mcap_str}")
-                            + _stat("P/E",  _pe_str)
-                            + _stat("P/B",  _pb_str)
-                            + _stat("ROE",  _roe_str)
-                            + _stat("Avg Upside", _upside, _up_color),
-                            unsafe_allow_html=True)
-
-                    st.divider()
-                    if st.button("Open Full Analysis →", type="primary", use_container_width=True):
-                        st.session_state["view_selector"] = "Company Analysis"
-                        st.session_state["ticker_input"] = _pt
-                        st.session_state["hm_popup_ticker"] = None
-                        st.rerun()
-
-                _ticker_popup()
-                st.session_state["hm_popup_ticker"] = None
+            # Ticker popup handled by global popup block above (before radio)
 
             # Dynamic color legend
             _legend_configs = {
@@ -3553,6 +3635,18 @@ elif view == "Undervalued Watchlist":
 
     screen_df = load_valuation_screen_data()
     pinned    = get_pinned_tickers()
+
+    # ── Data Health expander in sidebar ────────────────────────
+    with st.sidebar.expander("Data Health Check"):
+        if st.button("Check completeness", key="btn_health"):
+            _comp = check_data_completeness()
+            _missing = _comp[_comp["Status"] == "Needs Update"]
+            st.caption(f"{len(_missing)} / {len(_comp)} tickers need update")
+            if not _missing.empty:
+                st.dataframe(_missing.head(20), width="stretch")
+            else:
+                st.success("All tickers have full data!")
+
 
     if screen_df.empty:
         st.warning("No pre-computed valuation data. Run: `python -m collectors.compute_valuations`")
@@ -4066,3 +4160,145 @@ elif view == "Portfolio Tracker":
     st.download_button("Download Portfolio CSV",
         data=_exp.to_csv(index=False).encode("utf-8-sig"),
         file_name="portfolio.csv", mime="text/csv")
+
+
+# ═══════════════════════════════════════════════════════════════
+# VIEW 6 — MARKET OVERVIEW
+# ═══════════════════════════════════════════════════════════════
+elif view == "Market Overview":
+    st.title("Market Overview")
+
+    with st.spinner("Loading market data..."):
+        snap_df = load_market_snapshot()
+        vnidx   = load_vnindex_prices(days=252)
+
+    if snap_df.empty:
+        st.warning("No price data.")
+        st.stop()
+
+    snap_df = snap_df[snap_df["chg_pct"].notna()].copy()
+    n_up   = (snap_df["chg_pct"] > 0).sum()
+    n_dn   = (snap_df["chg_pct"] < 0).sum()
+    n_flat = (snap_df["chg_pct"] == 0).sum()
+    total  = len(snap_df)
+
+    # ── VN-Index chart + A/D ratio
+    col_idx, col_ad = st.columns([3, 1])
+    with col_idx:
+        st.subheader("VN-Index (1 Year)")
+        if not vnidx.empty:
+            _vi = vnidx.copy()
+            _vi["ma20"]   = _vi["close"].rolling(20).mean()
+            _vi["dlabel"] = _vi["date"].dt.strftime("%Y-%m-%d")
+            _last_vi = float(_vi.iloc[-1]["close"])
+            _prev_vi = float(_vi.iloc[-2]["close"]) if len(_vi) > 1 else _last_vi
+            _chg_vi  = (_last_vi - _prev_vi) / _prev_vi * 100 if _prev_vi else 0
+            _cc_vi   = "#22c55e" if _chg_vi >= 0 else "#ef4444"
+            _fig_vi  = go.Figure()
+            _fig_vi.add_trace(go.Scatter(x=_vi["dlabel"], y=_vi["close"], mode="lines", name="VN-Index",
+                line=dict(color="#5b9bd5", width=2), fill="tozeroy", fillcolor="rgba(91,155,213,0.08)",
+                hovertemplate="%{y:,.2f}<extra></extra>"))
+            _fig_vi.add_trace(go.Scatter(x=_vi["dlabel"], y=_vi["ma20"], mode="lines", name="MA20",
+                line=dict(color="#fb923c", width=1.5), hovertemplate="MA20 %{y:,.2f}<extra></extra>"))
+            _fig_vi.update_layout(height=320, margin=dict(l=0,r=10,t=40,b=0), dragmode=False,
+                hovermode="x unified", showlegend=True, legend=dict(orientation="h", y=-0.1),
+                title=dict(text=f"<span style='color:{_cc_vi}'>{_last_vi:,.2f}  ({_chg_vi:+.2f}%)</span>",
+                           font=dict(size=16)),
+                xaxis=dict(type="category", nticks=8, showgrid=False, rangeslider=dict(visible=False)),
+                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)"))
+            st.plotly_chart(_fig_vi, width="stretch")
+        else:
+            st.info("No VN-Index data available.")
+
+    with col_ad:
+        st.subheader("Advance / Decline")
+        _fig_ad = go.Figure(go.Bar(
+            x=["Up", "Flat", "Down"], y=[n_up, n_flat, n_dn],
+            marker_color=["#22c55e", "#eab308", "#ef4444"],
+            text=[n_up, n_flat, n_dn], textposition="outside",
+            hovertemplate="%{x}: %{y}<extra></extra>"))
+        _fig_ad.update_layout(height=200, margin=dict(l=0,r=0,t=10,b=0),
+            dragmode=False, showlegend=False, yaxis_visible=False)
+        st.plotly_chart(_fig_ad, width="stretch")
+        _ratio     = n_up / max(n_dn, 1)
+        _rc        = "#22c55e" if _ratio >= 1.5 else "#eab308" if _ratio >= 0.8 else "#ef4444"
+        st.markdown(
+            f"<div style='text-align:center;font-size:26px;font-weight:700;color:{_rc}'>{_ratio:.2f}"
+            f"<span style='font-size:13px;color:#9ca3af'> A/D ratio</span></div>"
+            f"<div style='text-align:center;font-size:12px;color:#9ca3af'>"
+            f"<span style='color:#22c55e'>▲{n_up}</span>  "
+            f"<span style='color:#eab308'>—{n_flat}</span>  "
+            f"<span style='color:#ef4444'>▼{n_dn}</span>  "
+            f"of {total} tickers</div>", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Top gainers / losers
+    gain_col, lose_col = st.columns(2)
+    def _chg_color(val):
+        try:
+            v = float(str(val).replace("%","").replace("+",""))
+            if v > 0: return "color:#22c55e;font-weight:600"
+            if v < 0: return "color:#ef4444;font-weight:600"
+        except: pass
+        return ""
+
+    with gain_col:
+        st.subheader("Top 10 Gainers")
+        _g = snap_df.nlargest(10, "chg_pct").copy()
+        _g["Price"]  = _g["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
+        _g["Change"] = _g["chg_pct"].apply(lambda x: f"{x:+.2f}%")
+        _g["Volume"] = _g["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
+        _gd = _g[["ticker","name","Price","Change","Volume"]].rename(columns={"ticker":"Ticker","name":"Company"})
+        st.dataframe(_gd.set_index("Ticker").style.map(_chg_color, subset=["Change"]), width="stretch")
+
+    with lose_col:
+        st.subheader("Top 10 Losers")
+        _l = snap_df.nsmallest(10, "chg_pct").copy()
+        _l["Price"]  = _l["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
+        _l["Change"] = _l["chg_pct"].apply(lambda x: f"{x:+.2f}%")
+        _l["Volume"] = _l["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
+        _ld = _l[["ticker","name","Price","Change","Volume"]].rename(columns={"ticker":"Ticker","name":"Company"})
+        st.dataframe(_ld.set_index("Ticker").style.map(_chg_color, subset=["Change"]), width="stretch")
+
+    st.divider()
+
+    # ── Top volume + Sector performance
+    vol_col, sec_col = st.columns(2)
+    with vol_col:
+        st.subheader("Top 10 by Volume")
+        _tv = snap_df.nlargest(10, "volume").copy()
+        _tv["Price"]  = _tv["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
+        _tv["Change"] = _tv["chg_pct"].apply(lambda x: f"{x:+.2f}%")
+        _tv["Volume"] = _tv["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
+        _tvd = _tv[["ticker","name","Price","Change","Volume"]].rename(columns={"ticker":"Ticker","name":"Company"})
+        st.dataframe(_tvd.set_index("Ticker").style.map(_chg_color, subset=["Change"]), width="stretch")
+
+    with sec_col:
+        st.subheader("Sector Performance")
+        _sp = snap_df[snap_df["sector"] != "Unknown"].groupby("sector")["chg_pct"].mean().reset_index()
+        _sp = _sp.sort_values("chg_pct", ascending=True)
+        _sp_colors = ["#22c55e" if v >= 0 else "#ef4444" for v in _sp["chg_pct"]]
+        _fig_sp = go.Figure(go.Bar(
+            x=_sp["chg_pct"], y=_sp["sector"], orientation="h",
+            marker_color=_sp_colors,
+            text=[f"{v:+.2f}%" for v in _sp["chg_pct"]], textposition="outside",
+            hovertemplate="%{y}: %{x:+.2f}%<extra></extra>"))
+        _fig_sp.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.5)
+        _fig_sp.update_layout(height=max(300, len(_sp)*24), margin=dict(l=0,r=60,t=10,b=0),
+            dragmode=False, showlegend=False, xaxis_title="Avg Change %")
+        st.plotly_chart(_fig_sp, width="stretch")
+
+    st.divider()
+
+    # ── Return distribution
+    st.subheader("Return Distribution Today")
+    _hdf = snap_df.dropna(subset=["chg_pct"])
+    _fig_h = go.Figure(go.Histogram(x=_hdf["chg_pct"], nbinsx=40,
+        marker_color="#5b9bd5", opacity=0.8,
+        hovertemplate="%{x:.1f}%: %{y} tickers<extra></extra>"))
+    _fig_h.add_vline(x=0, line_dash="dash", line_color="white", opacity=0.5)
+    _fig_h.update_layout(height=220, margin=dict(l=0,r=0,t=10,b=0), dragmode=False,
+        xaxis_title="Daily Change %", yaxis_title="# Tickers", bargap=0.05)
+    st.plotly_chart(_fig_h, width="stretch")
+    st.caption(f"{total} tickers · Mean {_hdf['chg_pct'].mean():+.2f}% · Median {_hdf['chg_pct'].median():+.2f}%")
