@@ -1421,7 +1421,7 @@ if view == "Company Analysis":
     st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:0 0 8px 0;">', unsafe_allow_html=True)
 
     # ── Price chart ────────────────────────────────────────────
-    col_chart, col_dcf = st.columns([5, 2])
+    col_chart, col_dcf = st.columns([5, 2], gap="large")
 
     with col_chart:
         # Time range selector
@@ -1593,6 +1593,136 @@ if view == "Company Analysis":
         )
         st.plotly_chart(fig_price, width="stretch")
 
+        # ── Peer Comparison vs Sector (fills space below chart) ──
+        if ttm and _co_sect and _co_sect != "—":
+            _peers = load_sector_ticker_data()
+            _peers = _peers[_peers["sector"] == _co_sect]
+            if len(_peers) >= 3:
+              st.write("")
+              with st.container(border=True):
+                st.markdown(
+                    f'<div style="font-size:17px;font-weight:700;color:#f9fafb;margin-bottom:8px;">'
+                    f'Peer Comparison <span style="color:#9ca3af;font-size:13px;font-weight:400;">'
+                    f'· {_co_sect}</span></div>', unsafe_allow_html=True)
+
+                def _pmed(col):
+                    s = _peers[col].dropna()
+                    return s.median() if not s.empty else None
+
+                def _pself(col):
+                    r = _peers[_peers["ticker"] == ticker]
+                    return r.iloc[0][col] if not r.empty and pd.notna(r.iloc[0][col]) else None
+
+                _pmetrics = [("pe", "P/E", False), ("pb", "P/B", False),
+                             ("roe", "ROE %", True), ("avg_upside", "Avg Upside %", True)]
+                _pcc = st.columns(4)
+                for _i, (_col, _lbl, _hb) in enumerate(_pmetrics):
+                    _sv = _pself(_col); _mv = _pmed(_col)
+                    if _sv is None or _mv is None:
+                        _pcc[_i].metric(_lbl, "—")
+                        continue
+                    _sfx = "%" if "%" in _lbl else "×"
+                    _pcc[_i].metric(_lbl, f"{_sv:.1f}{_sfx}",
+                        delta=f"{_sv-_mv:+.1f} vs median",
+                        delta_color="normal" if _hb else "inverse")
+
+                _pp = _peers.dropna(subset=["pe", "roe"]).copy()
+                if len(_pp) >= 3:
+                    _pp["is_self"] = _pp["ticker"] == ticker
+                    fig_pc = go.Figure()
+                    _oth = _pp[~_pp["is_self"]]; _slf = _pp[_pp["is_self"]]
+                    fig_pc.add_trace(go.Scatter(
+                        x=_oth["pe"], y=_oth["roe"], mode="markers+text",
+                        marker=dict(size=15, color="#5b9bd5", opacity=0.7,
+                                    line=dict(width=0.5, color="#1f2937")),
+                        text=_oth["ticker"], textposition="top center",
+                        textfont=dict(size=10, color="#9ca3af"),
+                        hovertemplate="%{text}<br>P/E %{x:.1f}× · ROE %{y:.1f}%<extra></extra>",
+                        name="Peers"))
+                    if not _slf.empty:
+                        fig_pc.add_trace(go.Scatter(
+                            x=_slf["pe"], y=_slf["roe"], mode="markers+text",
+                            marker=dict(size=28, color="#f59e0b", symbol="star",
+                                        line=dict(width=1.5, color="#fff")),
+                            text=_slf["ticker"], textposition="top center",
+                            textfont=dict(size=14, color="#f59e0b"),
+                            hovertemplate="<b>%{text}</b><br>P/E %{x:.1f}× · ROE %{y:.1f}%<extra></extra>",
+                            name=ticker))
+                    fig_pc.update_layout(
+                        height=340, margin=dict(l=0, r=0, t=6, b=0), dragmode=False,
+                        xaxis_title="P/E (×)", yaxis_title="ROE (%)",
+                        showlegend=False, hovermode="closest")
+                    st.plotly_chart(fig_pc, width="stretch")
+                    st.caption(f"★ {ticker} · Lower-right = cheap & profitable (low P/E, high ROE)")
+
+        # ── Financial Trend mini-charts (fills space below peer comparison) ──
+        if not fin_q.empty and len(fin_q) >= 2:
+            _ft = fin_q.sort_values("period").tail(8).copy()
+            def _qlabel(p):
+                try:
+                    y, q = p.split("-Q"); return f"Q{q}/{y[2:]}"
+                except Exception: return p
+            _ft["lbl"] = _ft["period"].apply(_qlabel)
+            _ft["nm_pct"] = [
+                (ni / rv * 100) if rv and rv != 0 else None
+                for ni, rv in zip(_ft["net_income"], _ft["revenue"])
+            ]
+            def _yoy_last(series):
+                s = series.dropna().tolist()
+                if len(s) >= 5 and s[-5] and s[-5] != 0:
+                    return (s[-1] - s[-5]) / abs(s[-5]) * 100
+                return None
+            _rev_yoy = _yoy_last(_ft["revenue"])
+            _ni_yoy  = _yoy_last(_ft["net_income"])
+
+            st.write("")
+            with st.container(border=True):
+                st.markdown(
+                    '<div style="font-size:17px;font-weight:700;color:#f9fafb;margin-bottom:8px;">'
+                    'Financial Trend <span style="color:#9ca3af;font-size:13px;font-weight:400;">'
+                    '· last 8 quarters</span></div>', unsafe_allow_html=True)
+                _ftc1, _ftc2, _ftc3 = st.columns(3)
+
+                with _ftc1:
+                    _yt = f"  ({_rev_yoy:+.0f}% YoY)" if _rev_yoy is not None else ""
+                    st.markdown(f"<div style='font-size:13px;color:#9ca3af;'>Revenue (bn){_yt}</div>",
+                                unsafe_allow_html=True)
+                    _f1 = go.Figure(go.Bar(x=_ft["lbl"], y=_ft["revenue"],
+                        marker_color="#5b9bd5", hovertemplate="%{x}: %{y:,.0f} bn<extra></extra>"))
+                    _f1.update_layout(height=160, margin=dict(l=0,r=0,t=4,b=0),
+                        dragmode=False, showlegend=False,
+                        xaxis=dict(showticklabels=True, tickfont=dict(size=9)),
+                        yaxis=dict(showticklabels=False))
+                    st.plotly_chart(_f1, width="stretch")
+
+                with _ftc2:
+                    _yt = f"  ({_ni_yoy:+.0f}% YoY)" if _ni_yoy is not None else ""
+                    st.markdown(f"<div style='font-size:13px;color:#9ca3af;'>Net Income (bn){_yt}</div>",
+                                unsafe_allow_html=True)
+                    _ni_colors = ["#22c55e" if (x or 0) >= 0 else "#ef4444" for x in _ft["net_income"]]
+                    _f2 = go.Figure(go.Bar(x=_ft["lbl"], y=_ft["net_income"],
+                        marker_color=_ni_colors, hovertemplate="%{x}: %{y:,.0f} bn<extra></extra>"))
+                    _f2.update_layout(height=160, margin=dict(l=0,r=0,t=4,b=0),
+                        dragmode=False, showlegend=False,
+                        xaxis=dict(showticklabels=True, tickfont=dict(size=9)),
+                        yaxis=dict(showticklabels=False))
+                    st.plotly_chart(_f2, width="stretch")
+
+                with _ftc3:
+                    _nm_last = _ft["nm_pct"].dropna()
+                    _nm_txt  = f"  ({_nm_last.iloc[-1]:.1f}%)" if not _nm_last.empty else ""
+                    st.markdown(f"<div style='font-size:13px;color:#9ca3af;'>Net Margin %{_nm_txt}</div>",
+                                unsafe_allow_html=True)
+                    _f3 = go.Figure(go.Scatter(x=_ft["lbl"], y=_ft["nm_pct"],
+                        mode="lines+markers", line=dict(color="#f59e0b", width=2),
+                        fill="tozeroy", fillcolor="rgba(245,158,11,0.1)",
+                        marker=dict(size=5), hovertemplate="%{x}: %{y:.1f}%<extra></extra>"))
+                    _f3.update_layout(height=160, margin=dict(l=0,r=0,t=4,b=0),
+                        dragmode=False, showlegend=False,
+                        xaxis=dict(showticklabels=True, tickfont=dict(size=9)),
+                        yaxis=dict(showticklabels=False))
+                    st.plotly_chart(_f3, width="stretch")
+
     # ── Valuation panel ────────────────────────────────────────
     with col_dcf:
         st.subheader("Valuation Estimates")
@@ -1713,6 +1843,8 @@ if view == "Company Analysis":
 
         if dcf_result:
             inp = dcf_result["inputs"]
+            st.markdown("---")
+            st.markdown("**DCF Parameters**")
             st.markdown(f"""
 | Parameter | Value |
 |---|---|
@@ -3019,6 +3151,53 @@ if view == "Company Analysis":
         pivot = pivot.map(lambda x: f"{x:,.0f}" if x is not None else "—")
         st.dataframe(pivot, width="stretch")
 
+    # ── Valuation Football Field ───────────────────────────────
+    if valuations and current_price:
+        st.divider()
+        st.subheader("Valuation Football Field")
+        _ff_methods = [
+            ("dcf", "DCF/FCFF"), ("fcfe", "FCFE"), ("graham", "Graham"),
+            ("pe", f"P/E ×{MARKET_PE}"), ("pb", "P/B"), ("ev_ebitda", "EV/EBITDA"),
+            ("epv", "EPV"), ("ps", "P/Sales"), ("ri", "Residual Income"),
+            ("pocf", "P/OCF"),
+        ]
+        _ff = [(lbl, valuations.get(k)) for k, lbl in _ff_methods
+               if valuations.get(k) and valuations[k] > 0]
+        if _ff:
+            _ff_vals = [v for _, v in _ff]
+            _ff_avg  = sum(_ff_vals) / len(_ff_vals)
+            # sort by value for visual ladder
+            _ff.sort(key=lambda x: x[1])
+            _labels  = [x[0] for x in _ff]
+            _vals    = [x[1] for x in _ff]
+            _colors  = ["#22c55e" if v >= current_price else "#ef4444" for v in _vals]
+            fig_ff = go.Figure(go.Bar(
+                x=_vals, y=_labels, orientation="h",
+                marker_color=_colors,
+                text=[f"{v:,.0f}" for v in _vals], textposition="outside",
+                hovertemplate="%{y}: %{x:,.0f} VND<extra></extra>",
+            ))
+            # Current price line
+            fig_ff.add_vline(x=current_price, line_dash="dash", line_color="#f59e0b",
+                             line_width=2, annotation_text=f"Market {current_price:,.0f}",
+                             annotation_position="top", annotation_font_color="#f59e0b")
+            # Average line
+            fig_ff.add_vline(x=_ff_avg, line_dash="dot", line_color="#60a5fa",
+                             line_width=2, annotation_text=f"Avg {_ff_avg:,.0f}",
+                             annotation_position="bottom", annotation_font_color="#60a5fa")
+            fig_ff.update_layout(
+                height=max(300, len(_ff) * 38), margin=dict(l=0, r=60, t=20, b=0),
+                dragmode=False, xaxis_title="Intrinsic Value (VND)",
+                showlegend=False)
+            st.plotly_chart(fig_ff, width="stretch")
+            _ff_up = (_ff_avg - current_price) / current_price * 100
+            _ff_cc = "#22c55e" if _ff_up >= 0 else "#ef4444"
+            st.markdown(
+                f"<div style='font-size:13px;color:#9ca3af;'>"
+                f"{len(_ff)} methods · Average intrinsic value "
+                f"<b style='color:{_ff_cc}'>{_ff_avg:,.0f} VND ({_ff_up:+.1f}% vs market)</b> · "
+                f"Green = above market price (undervalued signal)</div>",
+                unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════
 # VIEW 2 — VALUATION SCREEN
@@ -3214,6 +3393,124 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
   <span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Sell: &lt;-50%</span>
 </div>
 """, unsafe_allow_html=True)
+
+        # ════════════════════════════════════════════════════════
+        # ANALYTICS — charts below the table
+        # ════════════════════════════════════════════════════════
+        st.divider()
+
+        # Build a clean analysis frame from filtered data
+        _an = filtered.copy()
+        _an["_signal_clean"] = [
+            ("Strong Buy" if u >= 0.20 and q >= 60 else
+             "Buy"        if u >= 0.10 and q >= 45 else
+             "Watch"      if u >= 0.00 else
+             "Neutral"    if u >= -0.10 else
+             "Reduce"     if u >= -0.30 else
+             "Sell"       if u >= -0.50 else
+             "Strong Sell")
+            for u, q in zip(_an["_avg_upside_raw"], _an["_qs_raw"])
+        ]
+
+        # ── Signal count KPI cards ──────────────────────────────
+        _sig_order = ["Strong Buy", "Buy", "Watch", "Neutral", "Reduce", "Sell", "Strong Sell"]
+        _sig_colors_map = {
+            "Strong Buy": "#22c55e", "Buy": "#4ade80", "Watch": "#eab308",
+            "Neutral": "#94a3b8", "Reduce": "#fb923c", "Sell": "#ef4444",
+            "Strong Sell": "#b91c1c",
+        }
+        _counts = _an["_signal_clean"].value_counts().to_dict()
+        _kpi_cols = st.columns(7)
+        for _i, _sig in enumerate(_sig_order):
+            _cnt = _counts.get(_sig, 0)
+            _clr = _sig_colors_map[_sig]
+            _kpi_cols[_i].markdown(
+                f"<div style='text-align:center;padding:6px;border-radius:6px;"
+                f"background:rgba(255,255,255,0.03);border-top:3px solid {_clr};'>"
+                f"<div style='font-size:24px;font-weight:800;color:{_clr};'>{_cnt}</div>"
+                f"<div style='font-size:11px;color:#9ca3af;'>{_sig}</div></div>",
+                unsafe_allow_html=True)
+
+        st.write("")
+        _c1, _c2 = st.columns(2)
+
+        # ── Chart 1: Signal distribution donut ──────────────────
+        with _c1:
+            st.subheader("Signal Distribution")
+            _dist = [(s, _counts.get(s, 0)) for s in _sig_order if _counts.get(s, 0) > 0]
+            if _dist:
+                fig_sig = go.Figure(go.Pie(
+                    labels=[d[0] for d in _dist],
+                    values=[d[1] for d in _dist],
+                    marker=dict(colors=[_sig_colors_map[d[0]] for d in _dist]),
+                    hole=0.5, textinfo="label+value",
+                    hovertemplate="%{label}: %{value} (%{percent})<extra></extra>",
+                ))
+                fig_sig.update_layout(height=340, margin=dict(l=0, r=0, t=10, b=0),
+                                      showlegend=False, dragmode=False)
+                st.plotly_chart(fig_sig, width="stretch")
+
+        # ── Chart 2: Buy opportunities by sector ────────────────
+        with _c2:
+            st.subheader("Buy Opportunities by Sector")
+            _buys = _an[_an["_signal_clean"].isin(["Strong Buy", "Buy"])].copy()
+            if not _buys.empty:
+                _by_sec = (_buys.groupby("Sector")["_signal_clean"]
+                           .value_counts().unstack(fill_value=0))
+                for _col in ["Strong Buy", "Buy"]:
+                    if _col not in _by_sec.columns:
+                        _by_sec[_col] = 0
+                _by_sec["_tot"] = _by_sec["Strong Buy"] + _by_sec["Buy"]
+                _by_sec = _by_sec.sort_values("_tot", ascending=True).tail(12)
+                fig_sec_buy = go.Figure()
+                fig_sec_buy.add_trace(go.Bar(
+                    y=_by_sec.index, x=_by_sec["Strong Buy"], orientation="h",
+                    name="Strong Buy", marker_color="#22c55e",
+                    hovertemplate="%{y}: %{x} Strong Buy<extra></extra>"))
+                fig_sec_buy.add_trace(go.Bar(
+                    y=_by_sec.index, x=_by_sec["Buy"], orientation="h",
+                    name="Buy", marker_color="#4ade80",
+                    hovertemplate="%{y}: %{x} Buy<extra></extra>"))
+                fig_sec_buy.update_layout(
+                    height=340, margin=dict(l=0, r=10, t=10, b=0),
+                    barmode="stack", dragmode=False,
+                    legend=dict(orientation="h", y=-0.12),
+                    xaxis_title="# Tickers")
+                st.plotly_chart(fig_sec_buy, width="stretch")
+            else:
+                st.info("No Buy/Strong Buy tickers in current filter.")
+
+        # ── Chart 3: Quality vs Upside scatter ──────────────────
+        st.subheader("Quality vs Avg Upside (all filtered tickers)")
+        _sc = _an.dropna(subset=["_qs_raw", "_avg_upside_raw"]).copy()
+        _sc["_upside_pct"] = _sc["_avg_upside_raw"] * 100
+        _sc["_upside_clip"] = _sc["_upside_pct"].clip(-100, 200)
+        fig_qs = go.Figure(go.Scatter(
+            x=_sc["_upside_clip"], y=_sc["_qs_raw"],
+            mode="markers",
+            marker=dict(
+                size=8,
+                color=[_sig_colors_map[s] for s in _sc["_signal_clean"]],
+                line=dict(width=0.5, color="#1f2937"), opacity=0.75),
+            text=_sc["Ticker"],
+            customdata=_sc[["Sector", "_upside_pct"]].values,
+            hovertemplate="<b>%{text}</b><br>%{customdata[0]}<br>"
+                          "Upside %{customdata[1]:.1f}%<br>Quality %{y:.0f}<extra></extra>",
+        ))
+        # Quadrant reference lines
+        fig_qs.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.4)
+        fig_qs.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.4)
+        fig_qs.add_annotation(x=100, y=85, text="★ Cheap & Quality", showarrow=False,
+                              font=dict(color="#22c55e", size=12))
+        fig_qs.add_annotation(x=-50, y=15, text="Avoid", showarrow=False,
+                              font=dict(color="#ef4444", size=12))
+        fig_qs.update_layout(
+            height=420, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+            xaxis_title="Avg Upside % (clipped ±)", yaxis_title="Quality Score",
+            hovermode="closest")
+        st.plotly_chart(fig_qs, width="stretch")
+        st.caption("Top-right quadrant = undervalued + high quality (best opportunities). "
+                   "Bubble color = signal.")
 
 
 # ═══════════════════════════════════════════════════════════════
