@@ -13,13 +13,23 @@ from models.schema import Company
 def fetch_ticker_list() -> pd.DataFrame:
     """Return a DataFrame of all active HOSE tickers.
 
-    Columns: ticker, name, exchange, sector, industry
+    Columns: symbol, organ_name, exchange, sector (industry_name from ICB)
     """
     logger.info("Fetching ticker list from vnstock...")
     stock = Vnstock().stock(symbol="VNM", source=VNSTOCK_SOURCE)
+
     df = stock.listing.symbols_by_exchange()
     df = df[df["exchange"] == EXCHANGE].copy()
     logger.info(f"Found {len(df)} tickers on {EXCHANGE}")
+
+    try:
+        ind = stock.listing.symbols_by_industries()[["symbol", "industry_name"]].copy()
+        df = df.merge(ind, on="symbol", how="left")
+        logger.info(f"Merged industry data: {df['industry_name'].notna().sum()} tickers have sector")
+    except Exception as e:
+        logger.warning(f"Could not fetch industry data: {e}")
+        df["industry_name"] = None
+
     return df
 
 
@@ -35,8 +45,8 @@ def upsert_companies(df: pd.DataFrame) -> int:
                 session.add(company)
             company.name = row.get("organ_name") or row.get("short_name") or ticker
             company.exchange = row.get("exchange", EXCHANGE)
-            company.sector = row.get("sector", None)
-            company.industry = row.get("industry", None)
+            company.sector = row.get("industry_name") or row.get("sector") or None
+            company.industry = row.get("industry_name") or row.get("industry") or None
             company.is_active = True
             upserted += 1
     logger.info(f"Upserted {upserted} companies")

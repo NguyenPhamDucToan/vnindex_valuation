@@ -866,6 +866,50 @@ def load_vnindex_prices(days: int = 504) -> "pd.DataFrame":
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=1800)
+def load_foreign_flow(code: str = "VNINDEX", sessions: int = 15) -> "pd.DataFrame":
+    """Foreign investors' net trading value over the last N sessions.
+
+    Source: VNDirect finfo. `code="VNINDEX"` returns whole-market (HOSE) net
+    flow; a ticker symbol returns that stock's foreign net. `netVal` is in VND.
+    Returns columns: date, buy_val, sell_val, net_val (all VND), sorted ascending.
+    """
+    import requests
+    from datetime import date, timedelta
+    try:
+        # pull a generous window (calendar days) then keep the last N sessions
+        start = (date.today() - timedelta(days=sessions * 3 + 20)).strftime("%Y-%m-%d")
+        url = (
+            "https://api-finfo.vndirect.com.vn/v4/foreigns"
+            f"?q=code:{code}~tradingDate:gte:{start}"
+            f"&size=200&sort=tradingDate:asc"
+        )
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Accept": "application/json",
+            "Referer": "https://dstock.vndirect.com.vn/",
+        }
+        r = requests.get(url, headers=headers, timeout=12)
+        if r.status_code != 200:
+            return pd.DataFrame()
+        data = r.json().get("data", [])
+        if not data:
+            return pd.DataFrame()
+        df = pd.DataFrame(data)
+        df["date"] = pd.to_datetime(df["tradingDate"])
+        for col in ("buyVal", "sellVal", "netVal"):
+            df[col] = pd.to_numeric(df.get(col), errors="coerce")
+        df = (df.rename(columns={"buyVal": "buy_val", "sellVal": "sell_val", "netVal": "net_val"})
+                [["date", "buy_val", "sell_val", "net_val"]]
+                .dropna(subset=["net_val"])
+                .sort_values("date")
+                .tail(sessions)
+                .reset_index(drop=True))
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
 @st.cache_data(ttl=300)
 def load_latest_prices() -> dict[str, float]:
     """Return {ticker: latest_close_vnd} for all tickers with price data."""
@@ -1655,73 +1699,42 @@ if view == "Company Analysis":
                     st.plotly_chart(fig_pc, width="stretch")
                     st.caption(f"★ {ticker} · Lower-right = cheap & profitable (low P/E, high ROE)")
 
-        # ── Financial Trend mini-charts (fills space below peer comparison) ──
-        if not fin_q.empty and len(fin_q) >= 2:
-            _ft = fin_q.sort_values("period").tail(8).copy()
-            def _qlabel(p):
-                try:
-                    y, q = p.split("-Q"); return f"Q{q}/{y[2:]}"
-                except Exception: return p
-            _ft["lbl"] = _ft["period"].apply(_qlabel)
-            _ft["nm_pct"] = [
-                (ni / rv * 100) if rv and rv != 0 else None
-                for ni, rv in zip(_ft["net_income"], _ft["revenue"])
-            ]
-            def _yoy_last(series):
-                s = series.dropna().tolist()
-                if len(s) >= 5 and s[-5] and s[-5] != 0:
-                    return (s[-1] - s[-5]) / abs(s[-5]) * 100
-                return None
-            _rev_yoy = _yoy_last(_ft["revenue"])
-            _ni_yoy  = _yoy_last(_ft["net_income"])
+        # ── Foreign Net Trading Value — last 15 sessions (this ticker) ──
+        _ff = load_foreign_flow(ticker, sessions=15)
+        if not _ff.empty:
+            _ff = _ff.copy()
+            _ff["net_bn"] = _ff["net_val"] / 1e9          # VND → tỷ (billion)
+            _ff["dlabel"] = _ff["date"].dt.strftime("%d/%m")
+            _ff_colors    = ["#22c55e" if v >= 0 else "#ef4444" for v in _ff["net_bn"]]
+            _last_net     = float(_ff.iloc[-1]["net_bn"])
+            _net_15       = float(_ff["net_bn"].sum())
+            _cc_net       = "#22c55e" if _last_net >= 0 else "#ef4444"
+            _cc_sum       = "#22c55e" if _net_15 >= 0 else "#ef4444"
 
             st.write("")
             with st.container(border=True):
                 st.markdown(
                     '<div style="font-size:17px;font-weight:700;color:#f9fafb;margin-bottom:8px;">'
-                    'Financial Trend <span style="color:#9ca3af;font-size:13px;font-weight:400;">'
-                    '· last 8 quarters</span></div>', unsafe_allow_html=True)
-                _ftc1, _ftc2, _ftc3 = st.columns(3)
-
-                with _ftc1:
-                    _yt = f"  ({_rev_yoy:+.0f}% YoY)" if _rev_yoy is not None else ""
-                    st.markdown(f"<div style='font-size:13px;color:#9ca3af;'>Revenue (bn){_yt}</div>",
-                                unsafe_allow_html=True)
-                    _f1 = go.Figure(go.Bar(x=_ft["lbl"], y=_ft["revenue"],
-                        marker_color="#5b9bd5", hovertemplate="%{x}: %{y:,.0f} bn<extra></extra>"))
-                    _f1.update_layout(height=160, margin=dict(l=0,r=0,t=4,b=0),
-                        dragmode=False, showlegend=False,
-                        xaxis=dict(showticklabels=True, tickfont=dict(size=9)),
-                        yaxis=dict(showticklabels=False))
-                    st.plotly_chart(_f1, width="stretch")
-
-                with _ftc2:
-                    _yt = f"  ({_ni_yoy:+.0f}% YoY)" if _ni_yoy is not None else ""
-                    st.markdown(f"<div style='font-size:13px;color:#9ca3af;'>Net Income (bn){_yt}</div>",
-                                unsafe_allow_html=True)
-                    _ni_colors = ["#22c55e" if (x or 0) >= 0 else "#ef4444" for x in _ft["net_income"]]
-                    _f2 = go.Figure(go.Bar(x=_ft["lbl"], y=_ft["net_income"],
-                        marker_color=_ni_colors, hovertemplate="%{x}: %{y:,.0f} bn<extra></extra>"))
-                    _f2.update_layout(height=160, margin=dict(l=0,r=0,t=4,b=0),
-                        dragmode=False, showlegend=False,
-                        xaxis=dict(showticklabels=True, tickfont=dict(size=9)),
-                        yaxis=dict(showticklabels=False))
-                    st.plotly_chart(_f2, width="stretch")
-
-                with _ftc3:
-                    _nm_last = _ft["nm_pct"].dropna()
-                    _nm_txt  = f"  ({_nm_last.iloc[-1]:.1f}%)" if not _nm_last.empty else ""
-                    st.markdown(f"<div style='font-size:13px;color:#9ca3af;'>Net Margin %{_nm_txt}</div>",
-                                unsafe_allow_html=True)
-                    _f3 = go.Figure(go.Scatter(x=_ft["lbl"], y=_ft["nm_pct"],
-                        mode="lines+markers", line=dict(color="#f59e0b", width=2),
-                        fill="tozeroy", fillcolor="rgba(245,158,11,0.1)",
-                        marker=dict(size=5), hovertemplate="%{x}: %{y:.1f}%<extra></extra>"))
-                    _f3.update_layout(height=160, margin=dict(l=0,r=0,t=4,b=0),
-                        dragmode=False, showlegend=False,
-                        xaxis=dict(showticklabels=True, tickfont=dict(size=9)),
-                        yaxis=dict(showticklabels=False))
-                    st.plotly_chart(_f3, width="stretch")
+                    'Foreign Net Trading Value <span style="color:#9ca3af;font-size:13px;'
+                    'font-weight:400;">· last 15 sessions</span></div>', unsafe_allow_html=True)
+                _fig_ff = go.Figure(go.Bar(
+                    x=_ff["dlabel"], y=_ff["net_bn"], marker_color=_ff_colors,
+                    customdata=list(zip(_ff["buy_val"] / 1e9, _ff["sell_val"] / 1e9)),
+                    hovertemplate=("<b>%{x}</b><br>Net: %{y:,.2f} tỷ<br>"
+                                   "Buy: %{customdata[0]:,.2f} tỷ<br>"
+                                   "Sell: %{customdata[1]:,.2f} tỷ<extra></extra>")))
+                _fig_ff.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
+                _fig_ff.update_layout(
+                    height=240, margin=dict(l=0, r=0, t=4, b=0), dragmode=False, showlegend=False,
+                    xaxis=dict(type="category", showgrid=False, tickfont=dict(size=10)),
+                    yaxis=dict(title="tỷ VND", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                               zeroline=False))
+                st.plotly_chart(_fig_ff, width="stretch")
+                st.caption(
+                    f"Net buy = green, net sell = red · NN = nhà đầu tư nước ngoài. "
+                    f"Latest <span style='color:{_cc_net};font-weight:600'>{_last_net:+,.2f} tỷ</span> · "
+                    f"15-session total <span style='color:{_cc_sum};font-weight:600'>"
+                    f"{_net_15:+,.1f} tỷ</span>.", unsafe_allow_html=True)
 
     # ── Valuation panel ────────────────────────────────────────
     with col_dcf:
@@ -4527,6 +4540,43 @@ elif view == "Market Overview":
             f"<span style='color:#eab308'>—{n_flat}</span>  "
             f"<span style='color:#ef4444'>▼{n_dn}</span>  "
             f"of {total} tickers</div>", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Foreign net trading value — last 15 sessions (whole HOSE market) ──
+    st.subheader("Foreign Net Trading Value")
+    _ff = load_foreign_flow("VNINDEX", sessions=15)
+    if not _ff.empty:
+        _ff = _ff.copy()
+        _ff["net_bn"]  = _ff["net_val"] / 1e9          # VND → tỷ (billion)
+        _ff["dlabel"]  = _ff["date"].dt.strftime("%d/%m")
+        _ff_colors     = ["#22c55e" if v >= 0 else "#ef4444" for v in _ff["net_bn"]]
+        _last_net      = float(_ff.iloc[-1]["net_bn"])
+        _net_15        = float(_ff["net_bn"].sum())
+        _cc_net        = "#22c55e" if _last_net >= 0 else "#ef4444"
+        _cc_sum        = "#22c55e" if _net_15 >= 0 else "#ef4444"
+        _fig_ff = go.Figure(go.Bar(
+            x=_ff["dlabel"], y=_ff["net_bn"], marker_color=_ff_colors,
+            customdata=list(zip(_ff["buy_val"] / 1e9, _ff["sell_val"] / 1e9)),
+            hovertemplate=("<b>%{x}</b><br>Net: %{y:,.1f} tỷ<br>"
+                           "Buy: %{customdata[0]:,.1f} tỷ<br>"
+                           "Sell: %{customdata[1]:,.1f} tỷ<extra></extra>")))
+        _fig_ff.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
+        _fig_ff.update_layout(
+            height=300, margin=dict(l=0, r=10, t=40, b=0), dragmode=False, showlegend=False,
+            title=dict(text=("Foreign net buy/sell · last 15 sessions  "
+                             f"<span style='color:{_cc_net}'>(latest {_last_net:+,.0f} tỷ)</span>"),
+                       font=dict(size=14)),
+            xaxis=dict(type="category", showgrid=False),
+            yaxis=dict(title="Net value (tỷ VND)", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                       zeroline=False))
+        st.plotly_chart(_fig_ff, width="stretch")
+        st.caption(
+            f"Net buy = green, net sell = red. 15-session cumulative: "
+            f"<span style='color:{_cc_sum};font-weight:600'>{_net_15:+,.0f} tỷ VND</span>. "
+            f"Source: VNDirect (NN = nhà đầu tư nước ngoài).", unsafe_allow_html=True)
+    else:
+        st.info("Foreign flow data unavailable right now.")
 
     st.divider()
 

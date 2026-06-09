@@ -31,10 +31,11 @@ from models.schema import Company, Financial
 
 # VCI Guest: 20 requests/minute limit
 # Financials: 2 calls/ticker + each call takes ~3s → effective ~7 req/min (safe)
-# Prices: 1 call/ticker → 3.5s delay keeps it under 17 req/min (safe)
+# Prices: 1 call/ticker → 5s delay keeps it under 12 req/min (safe margin)
 # Do NOT run financials + prices in parallel — combined rate exceeds limit.
 _FINANCIALS_DELAY = 1.5
-_PRICES_DELAY = 3.5
+_PRICES_DELAY = 5.0
+_RATE_LIMIT_SLEEP = 90  # seconds to sleep when vnstock fires sys.exit() on rate limit
 
 # Number of periods to fetch per ticker
 _N_QUARTERS = 20
@@ -118,24 +119,35 @@ def step3_load_prices(tickers: list[str], force: bool = False) -> None:
     ok = skip = fail = 0
     for i, ticker in enumerate(tickers, 1):
         prefix = f"[{i}/{len(tickers)}] {ticker}"
-        try:
-            if force:
-                start = today - timedelta(days=365 * 5)
-            else:
-                start = incremental_start_date(ticker)
+        start = today - timedelta(days=365 * 5) if force else incremental_start_date(ticker)
+        if start > today:
+            logger.debug(f"{prefix}: prices up to date, skipping")
+            skip += 1
+            continue
 
-            if start > today:
-                logger.debug(f"{prefix}: prices up to date, skipping")
-                skip += 1
-                continue
+        fetched = False
+        for attempt in range(1, 4):  # up to 3 attempts
+            try:
+                df = fetch_prices(ticker, start, today)
+                count = upsert_prices(ticker, df)
+                logger.info(f"{prefix}: {count} price rows stored (from {start})"
+                            + (f" [attempt {attempt}]" if attempt > 1 else ""))
+                ok += 1
+                fetched = True
+                break
+            except SystemExit:
+                # vnstock rate limiter calls sys.exit() — sleep and retry
+                logger.warning(f"{prefix}: rate limit hit (attempt {attempt}) — "
+                               f"sleeping {_RATE_LIMIT_SLEEP}s")
+                time.sleep(_RATE_LIMIT_SLEEP)
+            except Exception as e:
+                logger.error(f"{prefix}: price fetch FAILED — {e}")
+                fail += 1
+                fetched = True  # don't retry non-rate-limit errors
+                break
 
-            df = fetch_prices(ticker, start, today)
-            count = upsert_prices(ticker, df)
-            logger.info(f"{prefix}: {count} price rows stored (from {start})")
-            ok += 1
-
-        except Exception as e:
-            logger.error(f"{prefix}: price fetch FAILED — {e}")
+        if not fetched:
+            logger.error(f"{prefix}: gave up after 3 rate-limit retries")
             fail += 1
 
         if i < len(tickers):
