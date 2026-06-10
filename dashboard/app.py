@@ -110,6 +110,7 @@ from valuation.ratios import (
     gross_margin, net_margin, operating_margin, roe, roa,
     current_ratio, debt_to_equity, profit_quality, fcf_margin,
 )
+from valuation.signals import compute_quality_score, classify_signal
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Page config
@@ -149,36 +150,6 @@ def fmt_pct(v) -> str:
 def fmt_vnd(v) -> str:
     if v is None: return "—"
     return f"{v:,.0f}"
-
-
-def compute_quality_score(roe_v, net_margin_v, profit_quality_v,
-                           fcf_margin_v, current_ratio_v, debt_to_equity_v) -> float:
-    """Composite quality score 0–100 from 6 metrics.
-
-    Thresholds (maps raw value to 0-10 sub-score):
-      ROE           0 % → 0,  25 %+ → 10
-      Net margin    0 % → 0,  20 %+ → 10
-      Profit quality 0 → 0,  1.5+  → 10
-      FCF margin    0 % → 0,  15 %+ → 10
-      Current ratio 0.5 → 0,  2.5+  → 10
-      D/E           3.0+ → 0,  0     → 10
-    """
-    scores = []
-    if roe_v is not None:
-        scores.append(max(0.0, min(10.0, max(roe_v, 0.0) / 0.25 * 10.0)))
-    if net_margin_v is not None:
-        scores.append(max(0.0, min(10.0, max(net_margin_v, 0.0) / 0.20 * 10.0)))
-    if profit_quality_v is not None:
-        scores.append(max(0.0, min(10.0, max(profit_quality_v, 0.0) / 1.5 * 10.0)))
-    if fcf_margin_v is not None:
-        scores.append(max(0.0, min(10.0, max(fcf_margin_v, 0.0) / 0.15 * 10.0)))
-    if current_ratio_v is not None:
-        scores.append(max(0.0, min(10.0, (current_ratio_v - 0.5) / 2.0 * 10.0)))
-    if debt_to_equity_v is not None:
-        scores.append(max(0.0, min(10.0, (3.0 - min(debt_to_equity_v, 3.0)) / 3.0 * 10.0)))
-    if not scores:
-        return 0.0
-    return round(sum(scores) / len(scores) * 10.0, 1)
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -3309,15 +3280,8 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
         # 7-level signal — prefixed with number so column-header click sorts correctly
         # "1-Strong Buy" < "2-Buy" < ... alphabetically = our intended order
         # _SIG_LABELS defined at module level above
-        signals = []
-        for u, q in zip(filtered["_avg_upside_raw"], filtered["_qs_raw"]):
-            if   u >=  0.20 and q >= 60: signals.append(_SIG_LABELS["Strong Buy"])
-            elif u >=  0.10 and q >= 45: signals.append(_SIG_LABELS["Buy"])
-            elif u >=  0.00:             signals.append(_SIG_LABELS["Watch"])
-            elif u >= -0.10:             signals.append(_SIG_LABELS["Neutral"])
-            elif u >= -0.30:             signals.append(_SIG_LABELS["Reduce"])
-            elif u >= -0.50:             signals.append(_SIG_LABELS["Sell"])
-            else:                        signals.append(_SIG_LABELS["Strong Sell"])
+        signals = [_SIG_LABELS[classify_signal(u, q)]
+                   for u, q in zip(filtered["_avg_upside_raw"], filtered["_qs_raw"])]
         display["Signal"] = signals
         _signal_rank = {v: 6 - i for i, v in enumerate(_SIG_LABELS.values())}
         display["_sig_rank"] = [_signal_rank.get(s, 3) for s in signals]
@@ -4074,15 +4038,8 @@ elif view == "Undervalued Watchlist":
             )
 
             # Signal column with colors
-            _sc_sigs = []
-            for u, q in zip(res_disp["_avg_upside_raw"], res_disp["_qs_raw"]):
-                if   u >=  0.20 and q >= 60: _sc_sigs.append(_SIG_LABELS["Strong Buy"])
-                elif u >=  0.10 and q >= 45: _sc_sigs.append(_SIG_LABELS["Buy"])
-                elif u >=  0.00:             _sc_sigs.append(_SIG_LABELS["Watch"])
-                elif u >= -0.10:             _sc_sigs.append(_SIG_LABELS["Neutral"])
-                elif u >= -0.30:             _sc_sigs.append(_SIG_LABELS["Reduce"])
-                elif u >= -0.50:             _sc_sigs.append(_SIG_LABELS["Sell"])
-                else:                        _sc_sigs.append(_SIG_LABELS["Strong Sell"])
+            _sc_sigs = [_SIG_LABELS[classify_signal(u, q)]
+                        for u, q in zip(res_disp["_avg_upside_raw"], res_disp["_qs_raw"])]
             res_disp["Signal"] = _sc_sigs
             res_disp["Quality"] = [int(round(q)) for q in res_disp["_qs_raw"]]
 
@@ -4163,15 +4120,8 @@ elif view == "Undervalued Watchlist":
             saved_df = screen_df[screen_df["Ticker"].isin(pinned)].copy()
 
             # Compute signals for saved tickers
-            _saved_sigs = []
-            for u, q in zip(saved_df["_avg_upside_raw"], saved_df["_qs_raw"]):
-                if   u >=  0.20 and q >= 60: _saved_sigs.append(_SIG_LABELS["Strong Buy"])
-                elif u >=  0.10 and q >= 45: _saved_sigs.append(_SIG_LABELS["Buy"])
-                elif u >=  0.00:             _saved_sigs.append(_SIG_LABELS["Watch"])
-                elif u >= -0.10:             _saved_sigs.append(_SIG_LABELS["Neutral"])
-                elif u >= -0.30:             _saved_sigs.append(_SIG_LABELS["Reduce"])
-                elif u >= -0.50:             _saved_sigs.append(_SIG_LABELS["Sell"])
-                else:                        _saved_sigs.append(_SIG_LABELS["Strong Sell"])
+            _saved_sigs = [_SIG_LABELS[classify_signal(u, q)]
+                           for u, q in zip(saved_df["_avg_upside_raw"], saved_df["_qs_raw"])]
             saved_df["Signal"] = _saved_sigs
 
             # Search + remove row

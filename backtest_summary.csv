@@ -1,0 +1,8 @@
+signal,count,mean_return,median_return,win_rate
+Strong Buy,1108,18.12,12.98,68.5
+Buy,970,17.2,8.29,60.6
+Watch,1685,10.2,1.2,52.0
+Neutral,259,4.86,1.17,52.1
+Reduce,488,1.05,-2.18,46.7
+Sell,306,-1.74,-4.01,40.5
+Strong Sell,235,-14.88,-9.88,27.2
