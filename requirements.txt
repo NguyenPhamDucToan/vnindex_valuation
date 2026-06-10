@@ -15,6 +15,10 @@ numpy>=1.26.0
 streamlit>=1.32.0
 plotly>=5.20.0
 
+# Market data / export
+yfinance>=0.2.40
+openpyxl>=3.1.0
+
 # Scheduling
 apscheduler>=3.10.0
 
