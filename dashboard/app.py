@@ -189,7 +189,7 @@ def load_prices(ticker: str) -> pd.DataFrame:
     return df_db
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_financials_q(ticker: str) -> pd.DataFrame:
     with get_session() as s:
         rows = s.execute(
@@ -201,7 +201,7 @@ def load_financials_q(ticker: str) -> pd.DataFrame:
         return pd.DataFrame([{c: getattr(r, c) for c in cols} for r in rows])
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_financials_y(ticker: str) -> pd.DataFrame:
     with get_session() as s:
         rows = s.execute(
@@ -213,7 +213,7 @@ def load_financials_y(ticker: str) -> pd.DataFrame:
         return pd.DataFrame([{c: getattr(r, c) for c in cols} for r in rows])
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def get_dcf(ticker: str) -> dict | None:
     inputs = prepare_dcf_inputs(ticker)
     if inputs is None or inputs["fcff_base"] <= 0:
@@ -232,7 +232,7 @@ def get_dcf(ticker: str) -> dict | None:
     return result
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def get_all_valuations(ticker: str) -> dict:
     """Compute all 10 intrinsic price estimates for a ticker."""
     ttm   = compute_ttm(ticker)
@@ -302,7 +302,7 @@ def get_all_valuations(ticker: str) -> dict:
     }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def valuation_history(ticker: str) -> pd.DataFrame:
     """Compute intrinsic-value estimates at each quarterly TTM snapshot."""
     import calendar
@@ -414,7 +414,7 @@ def valuation_history(ticker: str) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_available_tickers() -> list[str]:
     """Return sorted list of tickers that have at least 4 quarterly rows in DB."""
     with get_session() as s:
@@ -428,7 +428,7 @@ def load_available_tickers() -> list[str]:
     return [r[0] for r in rows] or ["VNM", "FPT", "VIC", "HPG"]
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=1800)
 def load_valuation_screen_data() -> pd.DataFrame:
     """Return pre-computed valuation rows joined with latest prices + sector.
 
@@ -512,7 +512,7 @@ def load_valuation_screen_data() -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=1800)
 def load_sector_ticker_data() -> pd.DataFrame:
     """Return ticker-level valuation data with sector — for heatmap and top-N per sector."""
     with get_session() as s:
@@ -589,7 +589,7 @@ def load_sector_ticker_data() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=1800)
 def load_sector_data() -> pd.DataFrame:
     """Return sector-level summary: median metrics per sector from valuations table."""
     with get_session() as s:
@@ -674,7 +674,7 @@ def load_sector_data() -> pd.DataFrame:
     return grouped
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=1800)
 def load_watchlist_data(min_upside: float = 0.20) -> pd.DataFrame:
     """Return watchlist rows: DCF upside > min_upside AND positive FCFF."""
     with get_session() as s:
@@ -898,7 +898,7 @@ def load_latest_prices() -> dict[str, float]:
     return {r[0]: r[1] * 1000 for r in rows if r[1]}
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_detailed_financials(ticker: str):
     """Fetch raw VCI income statement + balance sheet for detailed sub-item charts.
 
@@ -920,7 +920,7 @@ def load_detailed_financials(ticker: str):
         return pd.DataFrame(), pd.DataFrame()
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_annual_cf(ticker: str):
     """Fetch annual cash flow + income statement from VCI for dividends chart."""
     import warnings
@@ -1056,7 +1056,7 @@ def load_bank_kbs_data(ticker: str) -> "pd.DataFrame":
     return pd.DataFrame(rows).iloc[::-1].reset_index(drop=True)  # oldest first
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_annual_financials(ticker: str) -> "pd.DataFrame":
     """Load annual revenue + net_income from DB (period_type='Y')."""
     with get_session() as s:
@@ -1072,7 +1072,7 @@ def load_annual_financials(ticker: str) -> "pd.DataFrame":
         } for r in rows])
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_valuation_multiples(ticker: str) -> "pd.DataFrame":
     """Compute quarterly P/E and P/B from DB price history + financial data."""
     import datetime

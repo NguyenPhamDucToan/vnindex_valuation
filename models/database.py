@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 from loguru import logger
@@ -12,6 +12,16 @@ engine = create_engine(
     connect_args={"check_same_thread": False},  # SQLite only
     echo=False,
 )
+
+
+@event.listens_for(engine, "connect")
+def _set_sqlite_pragmas(dbapi_conn, _):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA cache_size=-64000")  # ~64MB page cache
+    cursor.close()
+
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
