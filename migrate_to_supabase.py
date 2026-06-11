@@ -12,7 +12,7 @@ import os
 import sys
 
 import pandas as pd
-from sqlalchemy import create_engine, Boolean
+from sqlalchemy import create_engine, text, Boolean
 
 from config import DB_URL, DB_PATH
 from models.schema import Base
@@ -59,6 +59,15 @@ def main():
             copied += len(chunk)
             print(f"  copied {copied}/{total}", end="\r")
         print(f"  copied {copied}/{total} - done")
+
+        # to_sql inserts explicit ids without advancing the auto-increment
+        # sequence, so reset it to MAX(id) + 1 to avoid collisions.
+        if "id" in table.columns:
+            with dst_engine.begin() as conn:
+                conn.execute(text(
+                    f"SELECT setval(pg_get_serial_sequence('{name}', 'id'), "
+                    f"COALESCE((SELECT MAX(id) FROM {name}), 1))"
+                ))
 
     print("\nMigration complete.")
 
