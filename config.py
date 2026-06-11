@@ -28,7 +28,9 @@ FIREANT_API_KEY = os.getenv("FIREANT_API_KEY", "")
 
 # --- Database ---
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "vnindex.db")
-DB_URL = f"sqlite:///{DB_PATH}"
+# If DATABASE_URL is set (e.g. Supabase Postgres connection string), use it.
+# Otherwise fall back to the local SQLite file.
+DB_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
 
 # --- Valuation / WACC parameters ---
 # CAPM inputs for Vietnamese market
