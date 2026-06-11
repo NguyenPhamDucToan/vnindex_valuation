@@ -31,10 +31,10 @@ from models.schema import Company, Financial
 
 # VCI Guest: 20 requests/minute limit
 # Financials: 2 calls/ticker + each call takes ~3s → effective ~7 req/min (safe)
-# Prices: 1 call/ticker → 5s delay keeps it under 12 req/min (safe margin)
+# Prices: 1 call/ticker takes ~5-6s already → 2s delay keeps it ~7-8s/req (~8 req/min, safe)
 # Do NOT run financials + prices in parallel — combined rate exceeds limit.
 _FINANCIALS_DELAY = 1.5
-_PRICES_DELAY = 5.0
+_PRICES_DELAY = 2.0
 _RATE_LIMIT_SLEEP = 90  # seconds to sleep when vnstock fires sys.exit() on rate limit
 
 # Number of periods to fetch per ticker
