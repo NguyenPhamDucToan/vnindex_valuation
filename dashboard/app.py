@@ -6,6 +6,12 @@ import sys, os
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# vnstock prints emoji/Vietnamese banners on import; on Windows the default
+# console encoding (cp1252) can't render them, which raises UnicodeEncodeError.
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # Signal labels with invisible sort prefix (U+2060 Word Joiner)
 _WJ_GLOBAL = "⁠"
 _SIG_LABELS = {
@@ -98,7 +104,7 @@ from sqlalchemy import select, func as sqlfunc
 from models.database import get_session
 from models.schema import Financial, Price, Company, Valuation, PinnedTicker
 from valuation.inputs import compute_ttm, compute_fcff_ttm, prepare_dcf_inputs, build_quarter_history
-from valuation.dcf import dcf_valuation, sensitivity_grid
+from valuation.dcf import dcf_valuation
 from valuation.graham import graham_number, bvps_from_financials
 from valuation.wacc import cost_of_equity, DEFAULT_BETA, DEFAULT_COD
 from valuation.multiples import (
@@ -109,6 +115,7 @@ from config import MARKET_PE
 from valuation.ratios import (
     gross_margin, net_margin, operating_margin, roe, roa,
     current_ratio, debt_to_equity, profit_quality, fcf_margin,
+    quick_ratio, absolute_liquidity, debt_to_assets, ocf_to_current_liabilities,
 )
 from valuation.signals import compute_quality_score, classify_signal
 
@@ -173,10 +180,13 @@ def load_prices(ticker: str) -> pd.DataFrame:
 
     df_db = _read_db()
 
-    # Auto-fetch if DB is sparse (< 200 rows in the last 2 years)
+    # Auto-fetch if DB is sparse (< 200 rows in the last 2 years) or stale (latest
+    # row more than 4 calendar days old, e.g. the daily refresh hasn't run).
     cutoff = _date.today() - timedelta(days=730)
     recent = len(df_db[pd.to_datetime(df_db["date"]).dt.date >= cutoff]) if not df_db.empty else 0
-    if recent < 200:
+    stale = (df_db.empty or
+             pd.to_datetime(df_db["date"]).max().date() < _date.today() - timedelta(days=4))
+    if recent < 200 or stale:
         try:
             start = incremental_start_date(ticker)
             df_fresh = fetch_prices(ticker, start, _date.today())
@@ -868,10 +878,11 @@ def load_foreign_flow(code: str = "VNINDEX", sessions: int = 15) -> "pd.DataFram
             return pd.DataFrame()
         df = pd.DataFrame(data)
         df["date"] = pd.to_datetime(df["tradingDate"])
-        for col in ("buyVal", "sellVal", "netVal"):
+        for col in ("buyVal", "sellVal", "netVal", "buyVol", "sellVol", "netVol"):
             df[col] = pd.to_numeric(df.get(col), errors="coerce")
-        df = (df.rename(columns={"buyVal": "buy_val", "sellVal": "sell_val", "netVal": "net_val"})
-                [["date", "buy_val", "sell_val", "net_val"]]
+        df = (df.rename(columns={"buyVal": "buy_val", "sellVal": "sell_val", "netVal": "net_val",
+                                  "buyVol": "buy_vol", "sellVol": "sell_vol", "netVol": "net_vol"})
+                [["date", "buy_val", "sell_val", "net_val", "buy_vol", "sell_vol", "net_vol"]]
                 .dropna(subset=["net_val"])
                 .sort_values("date")
                 .tail(sessions)
@@ -1291,7 +1302,6 @@ if view == "Company Analysis":
     prices_df   = load_prices(ticker)
     fin_q       = load_financials_q(ticker)
     ttm         = compute_ttm(ticker)
-    dcf_result  = get_dcf(ticker)
     valuations  = get_all_valuations(ticker)
 
     if prices_df.empty:
@@ -1436,6 +1446,46 @@ if view == "Company Analysis":
     st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:0 0 8px 0;">', unsafe_allow_html=True)
 
     # ── Price chart ────────────────────────────────────────────
+    # Marker + CSS so the last bordered card in each of the two columns
+    # below (Foreign & Proprietary Trading / Phân tích kỹ thuật) stretches
+    # to fill the column, keeping both columns' bottom edges aligned.
+    st.markdown('''
+        <div id="ta-align-row"></div>
+        <style>
+        div[data-testid="element-container"]:has(#ta-align-row)
+            + div[data-testid="element-container"] div[data-testid="stHorizontalBlock"]
+            > div[data-testid="column"] > div[data-testid="stVerticalBlock"] {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        div[data-testid="element-container"]:has(#ta-align-row)
+            + div[data-testid="element-container"] div[data-testid="stHorizontalBlock"]
+            > div[data-testid="column"] > div[data-testid="stVerticalBlock"]
+            > div[data-testid="element-container"]:last-child {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        div[data-testid="element-container"]:has(#ta-align-row)
+            + div[data-testid="element-container"] div[data-testid="stHorizontalBlock"]
+            > div[data-testid="column"] > div[data-testid="stVerticalBlock"]
+            > div[data-testid="element-container"]:last-child
+            > div[data-testid="stVerticalBlockBorderWrapper"] {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        div[data-testid="element-container"]:has(#ta-align-row)
+            + div[data-testid="element-container"] div[data-testid="stHorizontalBlock"]
+            > div[data-testid="column"] > div[data-testid="stVerticalBlock"]
+            > div[data-testid="element-container"]:last-child
+            > div[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlock"] {
+            flex: 1;
+        }
+        </style>
+    ''', unsafe_allow_html=True)
     col_chart, col_dcf = st.columns([5, 2], gap="large")
 
     with col_chart:
@@ -1670,42 +1720,73 @@ if view == "Company Analysis":
                     st.plotly_chart(fig_pc, width="stretch")
                     st.caption(f"★ {ticker} · Lower-right = cheap & profitable (low P/E, high ROE)")
 
-        # ── Foreign Net Trading Value — last 15 sessions (this ticker) ──
-        _ff = load_foreign_flow(ticker, sessions=15)
-        if not _ff.empty:
-            _ff = _ff.copy()
-            _ff["net_bn"] = _ff["net_val"] / 1e9          # VND → tỷ (billion)
-            _ff["dlabel"] = _ff["date"].dt.strftime("%d/%m")
-            _ff_colors    = ["#22c55e" if v >= 0 else "#ef4444" for v in _ff["net_bn"]]
-            _last_net     = float(_ff.iloc[-1]["net_bn"])
-            _net_15       = float(_ff["net_bn"].sum())
-            _cc_net       = "#22c55e" if _last_net >= 0 else "#ef4444"
-            _cc_sum       = "#22c55e" if _net_15 >= 0 else "#ef4444"
+        # ── Foreign & Proprietary Trading — last 20 sessions (this ticker) ──
+        st.write("")
+        with st.container(border=True):
+            st.markdown(
+                '<div style="font-size:17px;font-weight:700;color:#f9fafb;margin-bottom:8px;">'
+                'Foreign & Proprietary Trading <span style="color:#9ca3af;font-size:13px;'
+                'font-weight:400;">· last 20 sessions</span></div>', unsafe_allow_html=True)
 
-            st.write("")
-            with st.container(border=True):
-                st.markdown(
-                    '<div style="font-size:17px;font-weight:700;color:#f9fafb;margin-bottom:8px;">'
-                    'Foreign Net Trading Value <span style="color:#9ca3af;font-size:13px;'
-                    'font-weight:400;">· last 15 sessions</span></div>', unsafe_allow_html=True)
-                _fig_ff = go.Figure(go.Bar(
-                    x=_ff["dlabel"], y=_ff["net_bn"], marker_color=_ff_colors,
-                    customdata=list(zip(_ff["buy_val"] / 1e9, _ff["sell_val"] / 1e9)),
-                    hovertemplate=("<b>%{x}</b><br>Net: %{y:,.2f} tỷ<br>"
-                                   "Buy: %{customdata[0]:,.2f} tỷ<br>"
-                                   "Sell: %{customdata[1]:,.2f} tỷ<extra></extra>")))
-                _fig_ff.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
-                _fig_ff.update_layout(
-                    height=240, margin=dict(l=0, r=0, t=4, b=0), dragmode=False, showlegend=False,
-                    xaxis=dict(type="category", showgrid=False, tickfont=dict(size=10)),
-                    yaxis=dict(title="tỷ VND", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                               zeroline=False))
-                st.plotly_chart(_fig_ff, width="stretch")
-                st.caption(
-                    f"Net buy = green, net sell = red · NN = nhà đầu tư nước ngoài. "
-                    f"Latest <span style='color:{_cc_net};font-weight:600'>{_last_net:+,.2f} tỷ</span> · "
-                    f"15-session total <span style='color:{_cc_sum};font-weight:600'>"
-                    f"{_net_15:+,.1f} tỷ</span>.", unsafe_allow_html=True)
+            tab_nn, tab_td = st.tabs(["Nước ngoài", "Tự doanh"])
+
+            with tab_nn:
+                _ff20 = load_foreign_flow(ticker, sessions=20)
+                if not _ff20.empty:
+                    _last = _ff20.iloc[-1]
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("KL Mua", f"{_last['buy_vol']:,.0f}")
+                    c2.metric("KL Bán", f"{_last['sell_vol']:,.0f}")
+                    c3.metric("KL Mua-Bán", f"{_last['net_vol']:+,.0f}")
+                    c4, c5, c6 = st.columns(3)
+                    c4.metric("GT Mua (tỷ)", f"{_last['buy_val']/1e9:,.2f}")
+                    c5.metric("GT Bán (tỷ)", f"{_last['sell_val']/1e9:,.2f}")
+                    c6.metric("GT Mua-Bán (tỷ)", f"{_last['net_val']/1e9:+,.2f}")
+
+                    _ff20 = _ff20.copy()
+                    _ff20["net_bn"] = _ff20["net_val"] / 1e9
+                    _ff20["dlabel"] = _ff20["date"].dt.strftime("%d/%m")
+                    _ff_colors = ["#22c55e" if v >= 0 else "#ef4444" for v in _ff20["net_bn"]]
+
+                    # Align price line to the same x categories as the foreign-flow
+                    # bars — mismatched date sets on a categorical axis break the chart.
+                    _px = load_prices(ticker)
+                    if not _px.empty:
+                        _px2 = _px[["date", "close"]].copy()
+                        _px2["date"] = pd.to_datetime(_px2["date"])
+                        _ff20 = _ff20.merge(_px2, on="date", how="left")
+
+                    fig_nn = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig_nn.add_trace(go.Bar(
+                        x=_ff20["dlabel"], y=_ff20["net_bn"], marker_color=_ff_colors,
+                        name="GTNN mua ròng (tỷ)",
+                        customdata=list(zip(_ff20["buy_val"] / 1e9, _ff20["sell_val"] / 1e9)),
+                        hovertemplate=("<b>%{x}</b><br>Net: %{y:,.2f} tỷ<br>"
+                                       "Buy: %{customdata[0]:,.2f} tỷ<br>"
+                                       "Sell: %{customdata[1]:,.2f} tỷ<extra></extra>")),
+                        secondary_y=False)
+                    if "close" in _ff20.columns and _ff20["close"].notna().any():
+                        fig_nn.add_trace(go.Scatter(
+                            x=_ff20["dlabel"], y=_ff20["close"], mode="lines",
+                            line=dict(color="#60a5fa", width=2), name="Giá đóng cửa",
+                            connectgaps=True,
+                            hovertemplate="<b>%{x}</b><br>Giá: %{y:,.1f}<extra></extra>"),
+                            secondary_y=True)
+                    fig_nn.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
+                    fig_nn.update_layout(
+                        height=280, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+                        xaxis=dict(type="category", showgrid=False, tickfont=dict(size=10)),
+                        legend=dict(orientation="h", y=1.1, x=0))
+                    fig_nn.update_yaxes(title_text="GTNN ròng (tỷ)", showgrid=True,
+                                         gridcolor="rgba(255,255,255,0.06)", zeroline=False, secondary_y=False)
+                    fig_nn.update_yaxes(title_text="Giá (nghìn VND)", showgrid=False, secondary_y=True)
+                    st.plotly_chart(fig_nn, width="stretch")
+                    st.caption("GTNN = giá trị giao dịch ròng của nhà đầu tư nước ngoài.")
+                else:
+                    st.info("Foreign trading data unavailable right now.")
+
+            with tab_td:
+                st.info("Dữ liệu giao dịch tự doanh chưa có sẵn từ nguồn dữ liệu hiện tại.")
 
     # ── Valuation panel ────────────────────────────────────────
     with col_dcf:
@@ -1825,20 +1906,238 @@ if view == "Company Analysis":
                 help="Simple average of all valid method estimates",
             )
 
-        if dcf_result:
-            inp = dcf_result["inputs"]
-            st.markdown("---")
-            st.markdown("**DCF Parameters**")
-            st.markdown(f"""
-| Parameter | Value |
-|---|---|
-| WACC | {dcf_result['wacc']*100:.2f}% |
-| FCFF growth | {inp['fcff_growth_rate']*100:.1f}% ({inp['growth_source']}) |
-| FCFF base (TTM) | {inp['fcff_base']:,.0f} bn |
-| Net debt | {inp['net_debt_bn']:,.0f} bn |
-| Enterprise value | {dcf_result['enterprise_value']:,.0f} bn |
-| Equity value | {dcf_result['equity_value']:,.0f} bn |
+        # ── Technical analysis — daily ───────────────────────────
+        st.write("")
+        with st.container(border=True, key="ta_card"):
+            st.markdown('''
+                <style>
+                .st-key-ta_card [data-testid="stDataFrame"] * { font-size: 14px !important; }
+                .st-key-ta_card table { font-size: 14px !important; }
+                .st-key-ta_card p, .st-key-ta_card td, .st-key-ta_card th { font-size: 14px !important; }
+                .st-key-ta_card { border: none !important; padding: 0 !important; }
+                </style>
+            ''', unsafe_allow_html=True)
+            st.markdown(
+                '<div style="font-size:17px;font-weight:700;color:#f9fafb;margin-bottom:8px;">'
+                'Phân tích kỹ thuật <span style="color:#9ca3af;font-size:13px;'
+                'font-weight:400;">· 1 ngày</span></div>', unsafe_allow_html=True)
+
+            _ta = prices_df.copy().reset_index(drop=True)
+            if len(_ta) >= 100:
+                close, high, low, open_ = _ta["close"], _ta["high"], _ta["low"], _ta["open"]
+                cur_price = close.iloc[-1]
+
+                # RSI(14)
+                delta = close.diff()
+                gain = delta.clip(lower=0)
+                loss = -delta.clip(upper=0)
+                avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+                avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+                rsi = 100 - 100 / (1 + avg_gain / avg_loss)
+                rsi_val = rsi.iloc[-1]
+
+                # Stochastic(14,3)
+                low14, high14 = low.rolling(14).min(), high.rolling(14).max()
+                stoch_k = (close - low14) / (high14 - low14) * 100
+                stoch_val = stoch_k.iloc[-1]
+
+                # Stochastic RSI(14)
+                rsi_min, rsi_max = rsi.rolling(14).min(), rsi.rolling(14).max()
+                stoch_rsi = (rsi - rsi_min) / (rsi_max - rsi_min) * 100
+                stoch_rsi_val = stoch_rsi.iloc[-1]
+
+                # MACD(12,26)
+                macd = close.ewm(span=12, adjust=False).mean() - close.ewm(span=26, adjust=False).mean()
+                macd_val = macd.iloc[-1]
+
+                # Williams %R(14)
+                willr = (high14 - close) / (high14 - low14) * -100
+                willr_val = willr.iloc[-1]
+
+                # CCI(14)
+                tp = (high + low + close) / 3
+                sma_tp = tp.rolling(14).mean()
+                mad = tp.rolling(14).apply(lambda x: np.abs(x - x.mean()).mean(), raw=True)
+                cci = (tp - sma_tp) / (0.015 * mad)
+                cci_val = cci.iloc[-1]
+
+                # Awesome Oscillator(5,34)
+                median_price = (high + low) / 2
+                ao = median_price.rolling(5).mean() - median_price.rolling(34).mean()
+                ao_val = ao.iloc[-1]
+
+                def _sig_bounded(v, lo=30, hi=70):
+                    if v < lo: return "Quá bán"
+                    if v > hi: return "Quá mua"
+                    return "Mua" if v > 50 else "Bán"
+
+                def _sig_zero(v):
+                    return "Mua" if v > 0 else "Bán"
+
+                ind_rows = [
+                    ("RSI(14)",                  rsi_val,       _sig_bounded(rsi_val)),
+                    ("Stochastic(14,3)",         stoch_val,     _sig_bounded(stoch_val, 20, 80)),
+                    ("Stochastic RSI(14)",       stoch_rsi_val, _sig_bounded(stoch_rsi_val, 20, 80)),
+                    ("MACD(12,26)",              macd_val,      _sig_zero(macd_val)),
+                    ("WilliamR(14)",             willr_val,     _sig_bounded(willr_val, -80, -20)),
+                    ("CCI(14)",                  cci_val,       _sig_zero(cci_val)),
+                    ("Awesome Oscillator(5,34)", ao_val,        _sig_zero(ao_val)),
+                ]
+
+                # Moving averages
+                ma_periods = [5, 10, 20, 50, 100]
+                ma_rows = []
+                for p in ma_periods:
+                    sma_v = close.rolling(p).mean().iloc[-1]
+                    ema_v = close.ewm(span=p, adjust=False).mean().iloc[-1]
+                    ma_rows.append((
+                        f"MA{p}",
+                        sma_v, "Mua" if cur_price > sma_v else "Bán",
+                        ema_v, "Mua" if cur_price > ema_v else "Bán",
+                    ))
+
+                # ── Overall summary ──────────────────────────────
+                all_sigs = [r[2] for r in ind_rows] + [r[2] for r in ma_rows] + [r[4] for r in ma_rows]
+                n_buy  = sum(1 for s in all_sigs if "mua" in s.lower())
+                n_sell = sum(1 for s in all_sigs if "bán" in s.lower())
+                total = n_buy + n_sell
+                score = (n_buy - n_sell) / total if total else 0
+
+                if score <= -0.6: verdict, vcolor = "BÁN MẠNH", "#ef4444"
+                elif score <= -0.2: verdict, vcolor = "BÁN", "#f97316"
+                elif score < 0.2:   verdict, vcolor = "TRUNG LẬP", "#eab308"
+                elif score < 0.6:   verdict, vcolor = "MUA", "#84cc16"
+                else:                verdict, vcolor = "MUA MẠNH", "#22c55e"
+
+                def _verdict(buy, sell):
+                    t = buy + sell
+                    s = (buy - sell) / t if t else 0
+                    if s <= -0.6: return "BÁN MẠNH"
+                    if s <= -0.2: return "BÁN"
+                    if s < 0.2:   return "TRUNG LẬP"
+                    if s < 0.6:   return "MUA"
+                    return "MUA MẠNH"
+
+                ind_buy  = sum(1 for r in ind_rows if "mua" in r[2].lower())
+                ind_sell = sum(1 for r in ind_rows if "bán" in r[2].lower())
+                ma_sigs  = [r[2] for r in ma_rows] + [r[4] for r in ma_rows]
+                ma_buy   = sum(1 for s in ma_sigs if "mua" in s.lower())
+                ma_sell  = sum(1 for s in ma_sigs if "bán" in s.lower())
+
+                gc1, gc2 = st.columns([3, 2])
+                with gc1:
+                    st.markdown(
+                        f'<div style="margin-top:12px;">TỔNG HỢP: '
+                        f'<span style="background:{vcolor};color:white;font-weight:700;'
+                        f'padding:2px 10px;border-radius:4px;">{verdict}</span></div>',
+                        unsafe_allow_html=True)
+                    st.markdown(f"""
+| | | Mua | Bán |
+|---|---|---|---|
+| Đường trung bình | **{_verdict(ma_buy, ma_sell)}** | {ma_buy} | {ma_sell} |
+| Chỉ số kỹ thuật | **{_verdict(ind_buy, ind_sell)}** | {ind_buy} | {ind_sell} |
 """)
+                with gc2:
+                    fig_gauge = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=score,
+                        number={"valueformat": ".2f", "font": {"size": 20}},
+                        gauge={
+                            "axis": {"range": [-1, 1], "visible": False},
+                            "bar": {"color": "rgba(0,0,0,0)"},
+                            "bgcolor": "rgba(0,0,0,0)",
+                            "steps": [
+                                {"range": [-1, -0.6], "color": "#dc2626"},
+                                {"range": [-0.6, -0.2], "color": "#f97316"},
+                                {"range": [-0.2, 0.2], "color": "#eab308"},
+                                {"range": [0.2, 0.6], "color": "#84cc16"},
+                                {"range": [0.6, 1], "color": "#22c55e"},
+                            ],
+                            "threshold": {
+                                "line": {"color": "white", "width": 4},
+                                "thickness": 0.85,
+                                "value": score,
+                            },
+                        }))
+                    fig_gauge.update_layout(height=140, margin=dict(l=10, r=10, t=10, b=0),
+                                             font=dict(color="#f9fafb"))
+                    st.plotly_chart(fig_gauge, width="stretch")
+
+                st.caption("* Dữ liệu được tính toán tự động từ giá đóng cửa lịch sử")
+
+                # ── Pivot points ──────────────────────────────────
+                st.markdown("**Pivot Points**")
+                last = _ta.iloc[-1]
+                H, L, C, O = last["high"], last["low"], last["close"], last["open"]
+
+                P_c = (H + L + C) / 3
+                R1c, S1c = 2*P_c - L, 2*P_c - H
+                R2c, S2c = P_c + (H-L), P_c - (H-L)
+                R3c, S3c = H + 2*(P_c-L), L - 2*(H-P_c)
+
+                P_f = P_c
+                R1f, S1f = P_f + 0.382*(H-L), P_f - 0.382*(H-L)
+                R2f, S2f = P_f + 0.618*(H-L), P_f - 0.618*(H-L)
+                R3f, S3f = P_f + 1.0*(H-L),   P_f - 1.0*(H-L)
+
+                P_ca = (H + L + C) / 3
+                R1ca, S1ca = C + (H-L)*1.1/12, C - (H-L)*1.1/12
+                R2ca, S2ca = C + (H-L)*1.1/6,  C - (H-L)*1.1/6
+                R3ca, S3ca = C + (H-L)*1.1/4,  C - (H-L)*1.1/4
+
+                P_w = (H + L + 2*C) / 4
+                R1w, S1w = 2*P_w - L, 2*P_w - H
+                R2w, S2w = P_w + (H-L), P_w - (H-L)
+                R3w, S3w = H + 2*(P_w-L), L - 2*(H-P_w)
+
+                if C < O:   X = H + 2*L + C
+                elif C > O: X = 2*H + L + C
+                else:       X = H + L + 2*C
+                P_d = X / 4
+                R1d, S1d = X/2 - L, X/2 - H
+                R2d, S2d = P_d + (R1d-S1d), P_d - (R1d-S1d)
+                R3d, S3d = R1d + (H-L), S1d - (H-L)
+
+                pivot_df = pd.DataFrame({
+                    "S3":     [S3c, S3f, S3ca, S3w, S3d],
+                    "S2":     [S2c, S2f, S2ca, S2w, S2d],
+                    "S1":     [S1c, S1f, S1ca, S1w, S1d],
+                    "Points": [P_c, P_f, P_ca, P_w, P_d],
+                    "R1":     [R1c, R1f, R1ca, R1w, R1d],
+                    "R2":     [R2c, R2f, R2ca, R2w, R2d],
+                    "R3":     [R3c, R3f, R3ca, R3w, R3d],
+                }, index=["Classic", "Fibonacci", "Camarilla", "Woodie", "DeMark"]).round(2)
+                st.dataframe(pivot_df, width="stretch")
+
+                # ── Indicators & Moving averages ──────────────────
+                ic1, ic2 = st.columns(2)
+
+                def _color_action(val):
+                    if "mua" in str(val).lower():
+                        return "color: #22c55e; font-weight: 600"
+                    if "bán" in str(val).lower():
+                        return "color: #ef4444; font-weight: 600"
+                    return ""
+
+                with ic1:
+                    st.markdown("**Chỉ số kỹ thuật**")
+                    df_ind = pd.DataFrame(ind_rows, columns=["Tên", "Giá trị", "Hành động"])
+                    df_ind["Giá trị"] = df_ind["Giá trị"].round(2)
+                    st.dataframe(
+                        df_ind.style.map(_color_action, subset=["Hành động"]),
+                        width="stretch", hide_index=True)
+
+                with ic2:
+                    st.markdown("**Đường trung bình**")
+                    df_ma = pd.DataFrame(
+                        [(r[0], round(r[1], 2), r[2], round(r[3], 2), r[4]) for r in ma_rows],
+                        columns=["Tên", "Simple", "TH (S)", "Exponential", "TH (E)"])
+                    st.dataframe(
+                        df_ma.style.map(_color_action, subset=["TH (S)", "TH (E)"]),
+                        width="stretch", hide_index=True)
+            else:
+                st.info("Not enough price history to compute technical indicators.")
+
 
     st.divider()
 
@@ -3086,7 +3385,6 @@ if view == "Company Analysis":
     # ── Key ratios ─────────────────────────────────────────────
     if ttm:
         st.subheader("TTM Key Ratios")
-        r1, r2, r3, r4 = st.columns(4)
 
         gm  = gross_margin(ttm.get("gross_profit"), ttm.get("revenue"))
         nm  = net_margin(ttm.get("net_income"),     ttm.get("revenue"))
@@ -3097,43 +3395,39 @@ if view == "Company Analysis":
         de  = debt_to_equity(ttm.get("debt"),        ttm.get("equity"))
         pq  = profit_quality(ttm.get("operating_cf"), ttm.get("net_income"))
         fcfm = fcf_margin(ttm.get("fcf"),             ttm.get("revenue"))
+        qr  = quick_ratio(ttm.get("current_assets"), ttm.get("inventory"), ttm.get("current_liabilities"))
+        cashr = absolute_liquidity(ttm.get("cash"), ttm.get("current_liabilities"))
+        da  = debt_to_assets(ttm.get("debt"),        ttm.get("total_assets"))
+        ocf_cl = ocf_to_current_liabilities(ttm.get("operating_cf"), ttm.get("current_liabilities"))
 
-        with r1:
-            st.markdown("**Profitability**")
-            st.write(f"Gross margin: {fmt_pct(gm)}")
-            st.write(f"Operating margin: {fmt_pct(om)}")
-            st.write(f"Net margin: {fmt_pct(nm)}")
-        with r2:
-            st.markdown("**Returns**")
-            st.write(f"ROE: {fmt_pct(roe_val)}")
-            st.write(f"ROA: {fmt_pct(roa_val)}")
-        with r3:
-            st.markdown("**Cash Flow Quality**")
-            st.write(f"Profit quality (OCF/NI): {fmt_pct(pq)}")
-            st.write(f"FCF margin: {fmt_pct(fcfm)}")
-        with r4:
-            st.markdown("**Balance Sheet**")
-            st.write(f"Current ratio: {cr:.2f}x" if cr else "Current ratio: —")
-            st.write(f"Debt/Equity: {de:.2f}x" if de else "Debt/Equity: —")
+        def _x(value):
+            return f"{value:.2f}x" if value is not None else "—"
 
-    # ── Sensitivity table ──────────────────────────────────────
-    if dcf_result:
-        st.divider()
-        st.subheader("DCF Sensitivity (WACC × FCFF Growth)")
-        inp = dcf_result["inputs"]
-        grid = sensitivity_grid(
-            fcff_base      = inp["fcff_base"],
-            net_debt_bn    = inp["net_debt_bn"],
-            shares_millions= inp["shares_millions"],
-            wacc_range     = [0.10, 0.13, 0.146, 0.16, 0.18],
-            growth_range   = [0.05, 0.10, inp["fcff_growth_rate"], 0.20, 0.30],
-        )
-        grid_df = pd.DataFrame(grid)
-        pivot = grid_df.pivot(index="wacc", columns="growth", values="price")
-        pivot.index   = [f"{w*100:.1f}%" for w in pivot.index]
-        pivot.columns = [f"{g*100:.0f}%" for g in pivot.columns]
-        pivot = pivot.map(lambda x: f"{x:,.0f}" if x is not None else "—")
-        st.dataframe(pivot, width="stretch")
+        with st.container(border=True):
+            st.markdown("**Profitability & Returns**")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Gross margin", fmt_pct(gm))
+            c2.metric("Operating margin", fmt_pct(om))
+            c3.metric("Net margin", fmt_pct(nm))
+            c4.metric("ROE", fmt_pct(roe_val))
+            c5.metric("ROA", fmt_pct(roa_val))
+
+        with st.container(border=True):
+            st.markdown("**Liquidity**")
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Current ratio", _x(cr))
+            c2.metric("Quick ratio", _x(qr))
+            c3.metric("Cash ratio", _x(cashr))
+            c4.metric("OCF / current liab", _x(ocf_cl))
+            c5.metric("Profit quality (OCF/NI)", fmt_pct(pq))
+
+        with st.container(border=True):
+            st.markdown("**Leverage & Cash Flow**")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Debt / equity", _x(de))
+            c2.metric("Debt / assets", fmt_pct(da))
+            c3.metric("FCF margin", fmt_pct(fcfm))
+
 
     # ── Valuation Football Field ───────────────────────────────
     if valuations and current_price:
