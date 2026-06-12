@@ -155,7 +155,9 @@ def current_ratio(current_assets: float, current_liabilities: float) -> Optional
 
 def quick_ratio(current_assets: float, inventory: float, current_liabilities: float) -> Optional[float]:
     """(Current Assets - Inventory) / Current Liabilities. Benchmark ≥ 1.0."""
-    return _safe(current_assets - inventory, current_liabilities)
+    if current_assets is None:
+        return None
+    return _safe(current_assets - (inventory or 0), current_liabilities)
 
 
 def absolute_liquidity(cash: float, current_liabilities: float) -> Optional[float]:
