@@ -199,6 +199,18 @@ def load_prices(ticker: str) -> pd.DataFrame:
     return df_db
 
 
+@st.cache_data(ttl=30)
+def load_live_quote(ticker: str) -> dict | None:
+    """Return a live price snapshot during trading hours, else None.
+
+    Values are in thousands VND (same convention as Price.close).
+    """
+    from collectors.live_quote import is_market_hours_ict, fetch_live_quote
+    if not is_market_hours_ict():
+        return None
+    return fetch_live_quote(ticker)
+
+
 @st.cache_data(ttl=3600)
 def load_financials_q(ticker: str) -> pd.DataFrame:
     with get_session() as s:
@@ -1136,6 +1148,82 @@ def load_valuation_multiples(ticker: str) -> "pd.DataFrame":
     return pd.DataFrame(results)
 
 
+@st.cache_data(ttl=3600)
+def load_market_valuation_history() -> "pd.DataFrame":
+    """Median market-wide P/E and P/B per quarter, across all tickers.
+
+    For each ticker/quarter: TTM EPS = trailing-4Q net income / shares,
+    BVPS = equity / shares, price = last close on/before quarter-end.
+    P/E and P/B per ticker/quarter are then medianed across tickers.
+    """
+    import datetime
+    _qend = {1: (3, 31), 2: (6, 30), 3: (9, 30), 4: (12, 31)}
+
+    with get_session() as s:
+        fin_rows = s.execute(
+            select(Financial.ticker, Financial.period, Financial.net_income,
+                   Financial.equity, Financial.shares_outstanding)
+            .where(Financial.period_type == "Q")
+            .order_by(Financial.ticker, Financial.period)
+        ).all()
+        price_rows = s.execute(
+            select(Price.ticker, Price.date, Price.close)
+            .order_by(Price.ticker, Price.date)
+        ).all()
+
+    if not fin_rows or not price_rows:
+        return pd.DataFrame()
+
+    fin_df = pd.DataFrame(fin_rows, columns=["ticker", "period", "net_income", "equity", "shares"])
+    fin_df["year"]  = fin_df["period"].str[:4].astype(int)
+    fin_df["qnum"]  = fin_df["period"].str[6].astype(int)
+    fin_df["qend"]  = fin_df.apply(lambda r: pd.Timestamp(datetime.date(r["year"], *_qend[r["qnum"]])), axis=1)
+    fin_df = fin_df.sort_values(["ticker", "qend"])
+    # TTM net income = trailing 4 quarters (per ticker)
+    fin_df["ttm_ni"] = fin_df.groupby("ticker")["net_income"].transform(
+        lambda s: s.rolling(4, min_periods=4).sum())
+    fin_df["ttm_eps"] = np.where(
+        (fin_df["shares"] > 0) & fin_df["ttm_ni"].notna() & (fin_df["ttm_ni"] != 0),
+        fin_df["ttm_ni"] * 1000 / fin_df["shares"], np.nan)
+    fin_df["bvps"] = np.where(
+        (fin_df["shares"] > 0) & (fin_df["equity"] > 0),
+        fin_df["equity"] * 1000 / fin_df["shares"], np.nan)
+
+    price_df = pd.DataFrame(price_rows, columns=["ticker", "date", "close"])
+    price_df["date"]  = pd.to_datetime(price_df["date"])
+    price_df["close"] = price_df["close"] * 1000
+
+    out = []
+    for tkr, fin_g in fin_df.groupby("ticker"):
+        px = price_df[price_df["ticker"] == tkr]
+        if px.empty:
+            continue
+        merged = pd.merge_asof(
+            fin_g.sort_values("qend"), px.sort_values("date")[["date", "close"]],
+            left_on="qend", right_on="date", direction="backward")
+        merged["pe"] = np.where(merged["ttm_eps"].notna() & (merged["ttm_eps"] > 0),
+                                 merged["close"] / merged["ttm_eps"], np.nan)
+        merged["pb"] = np.where(merged["bvps"].notna() & (merged["bvps"] > 0),
+                                 merged["close"] / merged["bvps"], np.nan)
+        out.append(merged[["period", "qend", "pe", "pb"]])
+
+    if not out:
+        return pd.DataFrame()
+
+    all_df = pd.concat(out, ignore_index=True)
+    # Drop unreasonable outliers before taking the median
+    all_df.loc[(all_df["pe"] <= 0) | (all_df["pe"] > 100), "pe"] = np.nan
+    all_df.loc[(all_df["pb"] <= 0) | (all_df["pb"] > 20),  "pb"] = np.nan
+
+    agg = (all_df.groupby(["period", "qend"])
+                  .agg(median_pe=("pe", "median"), median_pb=("pb", "median"),
+                       n_pe=("pe", "count"), n_pb=("pb", "count"))
+                  .reset_index()
+                  .sort_values("qend"))
+    agg = agg[(agg["n_pe"] >= 10) | (agg["n_pb"] >= 10)]
+    return agg
+
+
 # ─────────────────────────────────────────────
 # Sidebar navigation
 # ─────────────────────────────────────────────
@@ -1321,6 +1409,16 @@ if view == "Company Analysis":
     _prev_c   = float(prices_df["close"].iloc[-2]) * 1000 if len(prices_df) > 1 else current_price
     _high_d   = float(_last["high"]) * 1000
     _low_d    = float(_last["low"])  * 1000
+
+    # During trading hours, overlay a live quote on top of the last stored
+    # (previous-day) EOD bar — DB is only refreshed after market close.
+    from collectors.live_quote import apply_live_overlay
+    _overlay = apply_live_overlay(current_price, _prev_c, _high_d, _low_d, load_live_quote(ticker))
+    current_price, _prev_c, _high_d, _low_d, _live_as_of = (
+        _overlay["current_price"], _overlay["prev_close"],
+        _overlay["high"], _overlay["low"], _overlay["as_of"],
+    )
+
     _chg      = current_price - _prev_c
     _chg_pct  = _chg / _prev_c * 100 if _prev_c else 0
     _chg_disp = f"+{_chg:,.0f}" if _chg >= 0 else f"{_chg:,.0f}"
@@ -1372,6 +1470,14 @@ if view == "Company Analysis":
     _rng_pct  = round((current_price - _low_d) / (_high_d - _low_d) * 100) if _high_d > _low_d else 50
     _rng_pct  = max(2, min(98, _rng_pct))  # keep dot inside bar
 
+    _live_badge = (
+        f'<span style="font-size:13px;background:#7f1d1d;color:#fca5a5;padding:3px 10px;'
+        f'border-radius:8px;font-weight:600;">🔴 LIVE · {_live_as_of}</span>'
+        if _live_as_of else
+        f'<span style="font-size:13px;background:#374151;color:#9ca3af;padding:3px 10px;'
+        f'border-radius:8px;font-weight:600;">EOD</span>'
+    )
+
     def _hv(v, sfx=""):
         return f"{v:,.0f}{sfx}" if v is not None else "—"
 
@@ -1407,6 +1513,7 @@ if view == "Company Analysis":
         f'<span style="font-size:22px;color:{_cc};font-weight:600;">{_chg_disp}</span>'
         f'<span style="font-size:18px;background:{_cbg};color:{_cc};padding:3px 12px;'
         f'border-radius:8px;font-weight:600;">{_arrow}{abs(_chg_pct):.2f}%</span>'
+        f'{_live_badge}'
         f'</div>'
         f'<div style="margin-top:10px;width:100%;">'
         f'<div style="display:flex;justify-content:space-between;font-size:16px;color:#9ca3af;margin-bottom:5px;">'
@@ -1761,20 +1868,21 @@ if view == "Company Analysis":
                         x=_ff20["dlabel"], y=_ff20["net_bn"], marker_color=_ff_colors,
                         name="GTNN mua ròng (tỷ)",
                         customdata=list(zip(_ff20["buy_val"] / 1e9, _ff20["sell_val"] / 1e9)),
-                        hovertemplate=("<b>%{x}</b><br>Net: %{y:,.2f} tỷ<br>"
-                                       "Buy: %{customdata[0]:,.2f} tỷ<br>"
-                                       "Sell: %{customdata[1]:,.2f} tỷ<extra></extra>")),
+                        hovertemplate=("Net: %{y:,.2f} tỷ · Buy: %{customdata[0]:,.2f} tỷ · "
+                                       "Sell: %{customdata[1]:,.2f} tỷ<extra>GTNN ròng</extra>")),
                         secondary_y=False)
                     if "close" in _ff20.columns and _ff20["close"].notna().any():
                         fig_nn.add_trace(go.Scatter(
                             x=_ff20["dlabel"], y=_ff20["close"], mode="lines",
                             line=dict(color="#60a5fa", width=2), name="Giá đóng cửa",
                             connectgaps=True,
-                            hovertemplate="<b>%{x}</b><br>Giá: %{y:,.1f}<extra></extra>"),
+                            hovertemplate="%{y:,.1f}<extra>Giá đóng cửa</extra>"),
                             secondary_y=True)
                     fig_nn.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
                     fig_nn.update_layout(
                         height=280, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+                        hovermode="x unified",
+                        hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
                         xaxis=dict(type="category", showgrid=False, tickfont=dict(size=10)),
                         legend=dict(orientation="h", y=1.1, x=0))
                     fig_nn.update_yaxes(title_text="GTNN ròng (tỷ)", showgrid=True,
@@ -1985,7 +2093,7 @@ if view == "Company Analysis":
                 ]
 
                 # Moving averages
-                ma_periods = [5, 10, 20, 50, 100]
+                ma_periods = [p for p in [5, 10, 20, 50, 100, 150, 200] if len(_ta) > p]
                 ma_rows = []
                 for p in ma_periods:
                     sma_v = close.rolling(p).mean().iloc[-1]
@@ -2063,6 +2171,18 @@ if view == "Company Analysis":
                                              font=dict(color="#f9fafb"))
                     st.plotly_chart(fig_gauge, width="stretch")
 
+                st.markdown(
+                    '<div style="background:#1e293b;border-left:4px solid #3b82f6;'
+                    'border-radius:6px;padding:10px 14px;margin-top:8px;font-size:12.5px;'
+                    'color:#94a3b8;line-height:1.7;">'
+                    '💡 <b style="color:#cbd5e1;">TỔNG HỢP</b> = tổng hợp tất cả tín hiệu '
+                    'Mua/Bán từ 7 chỉ số kỹ thuật và các đường trung bình '
+                    '(Simple &amp; Exponential) bên dưới.<br>'
+                    '📊 <b style="color:#cbd5e1;">Điểm gauge</b> chạy từ -1 (Bán mạnh) đến '
+                    '+1 (Mua mạnh) = (Số tín hiệu Mua − Số tín hiệu Bán) / Tổng số tín hiệu. '
+                    '0 = cân bằng giữa Mua và Bán.'
+                    '</div>',
+                    unsafe_allow_html=True)
                 st.caption("* Dữ liệu được tính toán tự động từ giá đóng cửa lịch sử")
 
                 # ── Pivot points ──────────────────────────────────
@@ -2107,7 +2227,14 @@ if view == "Company Analysis":
                     "R2":     [R2c, R2f, R2ca, R2w, R2d],
                     "R3":     [R3c, R3f, R3ca, R3w, R3d],
                 }, index=["Classic", "Fibonacci", "Camarilla", "Woodie", "DeMark"]).round(2)
-                st.dataframe(pivot_df, width="stretch")
+                st.dataframe(
+                    pivot_df.style
+                    .format("{:.2f}")
+                    .set_properties(subset=["S1", "S2", "S3"], **{"color": "#4ade80"})
+                    .set_properties(subset=["R1", "R2", "R3"], **{"color": "#f87171"})
+                    .set_properties(subset=["Points"], **{"color": "#facc15", "font-weight": "700"}),
+                    width="stretch")
+                st.caption("S = Hỗ trợ (xanh) · R = Kháng cự (đỏ) · Points = Điểm xoay (vàng)")
 
                 # ── Indicators & Moving averages ──────────────────
                 ic1, ic2 = st.columns(2)
@@ -2121,20 +2248,23 @@ if view == "Company Analysis":
 
                 with ic1:
                     st.markdown("**Chỉ số kỹ thuật**")
-                    df_ind = pd.DataFrame(ind_rows, columns=["Tên", "Giá trị", "Hành động"])
-                    df_ind["Giá trị"] = df_ind["Giá trị"].round(2)
-                    st.dataframe(
-                        df_ind.style.map(_color_action, subset=["Hành động"]),
-                        width="stretch", hide_index=True)
+                    df_ind = pd.DataFrame(ind_rows, columns=["Tên", "Giá trị", "Tín hiệu"])
+                    st.table(
+                        df_ind.style
+                        .format({"Giá trị": "{:.2f}"})
+                        .map(_color_action, subset=["Tín hiệu"])
+                        .set_properties(subset=["Tín hiệu"], **{"white-space": "nowrap"})
+                        .hide(axis="index"))
 
                 with ic2:
                     st.markdown("**Đường trung bình**")
                     df_ma = pd.DataFrame(
-                        [(r[0], round(r[1], 2), r[2], round(r[3], 2), r[4]) for r in ma_rows],
-                        columns=["Tên", "Simple", "TH (S)", "Exponential", "TH (E)"])
-                    st.dataframe(
-                        df_ma.style.map(_color_action, subset=["TH (S)", "TH (E)"]),
-                        width="stretch", hide_index=True)
+                        [(r[0], f"{r[1]:.2f} ({r[2]})", f"{r[3]:.2f} ({r[4]})") for r in ma_rows],
+                        columns=["Tên", "Simple", "Exponential"])
+                    st.table(
+                        df_ma.style
+                        .map(_color_action, subset=["Simple", "Exponential"])
+                        .hide(axis="index"))
             else:
                 st.info("Not enough price history to compute technical indicators.")
 
@@ -3702,6 +3832,26 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
                 f"<div style='font-size:11px;color:#9ca3af;'>{_sig}</div></div>",
                 unsafe_allow_html=True)
 
+        # ── Top Picks — best Strong Buy / Buy by Quality ────────
+        st.write("")
+        _picks = (_an[_an["_signal_clean"].isin(["Strong Buy", "Buy"])]
+                  .sort_values(["_qs_raw", "_avg_upside_raw"], ascending=False).head(5))
+        if not _picks.empty:
+            st.markdown("**Top Picks** · highest Quality among Buy / Strong Buy")
+            _pk_cols = st.columns(len(_picks))
+            for _col, (_, _r) in zip(_pk_cols, _picks.iterrows()):
+                _clr = _sig_colors_map[_r["_signal_clean"]]
+                _col.markdown(
+                    f"<div style='text-align:center;padding:10px 6px;border-radius:8px;"
+                    f"background:rgba(255,255,255,0.03);border:1px solid {_clr}44;'>"
+                    f"<div style='font-size:16px;font-weight:800;color:#f9fafb;'>{_r['Ticker']}</div>"
+                    f"<div style='font-size:11px;color:#9ca3af;margin-bottom:4px;'>{_r['Sector']}</div>"
+                    f"<div style='font-size:13px;color:{_clr};font-weight:700;'>+{_r['_avg_upside_raw']*100:.0f}%</div>"
+                    f"<div style='font-size:11px;color:#9ca3af;'>Upside</div>"
+                    f"<div style='font-size:13px;color:#f9fafb;margin-top:4px;'>Q{int(round(_r['_qs_raw']))}</div>"
+                    f"<div style='font-size:11px;color:#9ca3af;'>Quality</div>"
+                    f"</div>", unsafe_allow_html=True)
+
         st.write("")
         _c1, _c2 = st.columns(2)
 
@@ -3751,11 +3901,37 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
             else:
                 st.info("No Buy/Strong Buy tickers in current filter.")
 
+        # ── Chart 2b: Avg Upside by Sector ───────────────────────
+        st.subheader("Avg Upside by Sector")
+        _sec_up = (_an.dropna(subset=["_avg_upside_raw"])
+                      .groupby("Sector")["_avg_upside_raw"].median()
+                      .sort_values())
+        if not _sec_up.empty:
+            _sec_up_pct = (_sec_up * 100)
+            fig_sec_up = go.Figure(go.Bar(
+                y=_sec_up_pct.index, x=_sec_up_pct.values, orientation="h",
+                marker_color=["#22c55e" if v >= 0 else "#ef4444" for v in _sec_up_pct.values],
+                hovertemplate="%{y}: %{x:.1f}%<extra></extra>"))
+            fig_sec_up.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.4)
+            fig_sec_up.update_layout(
+                height=max(340, 24 * len(_sec_up_pct)), margin=dict(l=0, r=10, t=10, b=0),
+                dragmode=False, xaxis_title="Median Avg Upside %")
+            st.plotly_chart(fig_sec_up, width="stretch")
+            st.caption("Median of 'Avg Estimate' upside across tickers in each sector — "
+                       "negative = sector trading above estimated fair value.")
+
         # ── Chart 3: Quality vs Upside scatter ──────────────────
         st.subheader("Quality vs Avg Upside (all filtered tickers)")
         _sc = _an.dropna(subset=["_qs_raw", "_avg_upside_raw"]).copy()
         _sc["_upside_pct"] = _sc["_avg_upside_raw"] * 100
-        _sc["_upside_clip"] = _sc["_upside_pct"].clip(-100, 200)
+        _CLIP_LO, _CLIP_HI = -100, 150
+        _n_clipped = int(((_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)).sum())
+        _sc["_upside_clip"] = _sc["_upside_pct"].clip(_CLIP_LO, _CLIP_HI)
+        # Jitter points sitting exactly on the clip edge so they don't form a solid wall
+        _is_clipped = (_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)
+        if _is_clipped.any():
+            _rng = np.random.default_rng(42)
+            _sc.loc[_is_clipped, "_upside_clip"] += _rng.uniform(-4, 4, size=int(_is_clipped.sum()))
         fig_qs = go.Figure(go.Scatter(
             x=_sc["_upside_clip"], y=_sc["_qs_raw"],
             mode="markers",
@@ -3771,17 +3947,47 @@ div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
         # Quadrant reference lines
         fig_qs.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.4)
         fig_qs.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.4)
-        fig_qs.add_annotation(x=100, y=85, text="★ Cheap & Quality", showarrow=False,
+        fig_qs.add_annotation(x=75, y=85, text="★ Cheap & Quality", showarrow=False,
                               font=dict(color="#22c55e", size=12))
         fig_qs.add_annotation(x=-50, y=15, text="Avoid", showarrow=False,
                               font=dict(color="#ef4444", size=12))
         fig_qs.update_layout(
             height=420, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
-            xaxis_title="Avg Upside % (clipped ±)", yaxis_title="Quality Score",
+            xaxis_title=f"Avg Upside % (clipped to {_CLIP_LO}…{_CLIP_HI}%)", yaxis_title="Quality Score",
             hovermode="closest")
         st.plotly_chart(fig_qs, width="stretch")
+        _clip_note = (f" · {_n_clipped} tickers off-chart (upside outside "
+                       f"{_CLIP_LO}%…{_CLIP_HI}%, jittered at the edge)" if _n_clipped else "")
         st.caption("Top-right quadrant = undervalued + high quality (best opportunities). "
-                   "Bubble color = signal.")
+                   f"Bubble color = signal.{_clip_note}")
+
+        # ── Chart 4: Upside distribution histogram ──────────────
+        st.subheader("Avg Upside Distribution")
+        _n_offrange = int(((_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)).sum())
+        _bin_size = 10
+        _bin_edges = np.arange(_CLIP_LO, _CLIP_HI + _bin_size, _bin_size)
+        _counts, _ = np.histogram(_sc["_upside_pct"], bins=_bin_edges)
+        _bin_centers = (_bin_edges[:-1] + _bin_edges[1:]) / 2
+        # Red = expensive (negative upside) -> Green = cheap (positive upside)
+        _bin_colors = ["#ef4444" if c < 0 else "#22c55e" for c in _bin_centers]
+        fig_hist = go.Figure(go.Bar(
+            x=_bin_centers, y=_counts, marker_color=_bin_colors, width=_bin_size * 0.9,
+            customdata=np.stack([_bin_edges[:-1], _bin_edges[1:]], axis=-1),
+            hovertemplate="%{customdata[0]:.0f}% to %{customdata[1]:.0f}%: %{y} tickers<extra></extra>",
+        ))
+        fig_hist.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.6)
+        fig_hist.update_layout(
+            height=260, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+            xaxis=dict(title="Avg Upside %", range=[_CLIP_LO, _CLIP_HI]),
+            yaxis_title="# Tickers", bargap=0.05)
+        st.plotly_chart(fig_hist, width="stretch")
+        _offrange_note = (f" - {_n_offrange} tickers with upside outside "
+                          f"{_CLIP_LO}%...{_CLIP_HI}% not shown" if _n_offrange else "")
+        st.caption(
+            "Mỗi cột = số mã có mức upside trong khoảng đó. "
+            "🟢 Xanh (bên phải vạch 0) = đang bị định giá thấp, có thể tăng giá. "
+            "🔴 Đỏ (bên trái vạch 0) = đang đắt hơn giá trị ước tính, có thể giảm giá."
+            f"{_offrange_note}")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -4784,6 +4990,84 @@ elif view == "Market Overview":
             f"<span style='color:#eab308'>—{n_flat}</span>  "
             f"<span style='color:#ef4444'>▼{n_dn}</span>  "
             f"of {total} tickers</div>", unsafe_allow_html=True)
+
+    st.divider()
+
+    # ── Market-wide P/E & P/B vs history ────────────────────────
+    st.subheader("Market Valuation (P/E & P/B) vs History")
+    _mv = load_market_valuation_history()
+    if not _mv.empty:
+        def _fmt_q(p: str) -> str:
+            try:
+                yr, q = p.split("-Q")
+                return f"Q{q}/{yr[2:]}"
+            except Exception:
+                return p
+        _mv_lbl = [_fmt_q(p) for p in _mv["period"]]
+        _cur_pe, _cur_pb = _mv["median_pe"].iloc[-1], _mv["median_pb"].iloc[-1]
+        _avg_pe, _avg_pb = _mv["median_pe"].mean(), _mv["median_pb"].mean()
+
+        _vc1, _vc2 = st.columns(2)
+        with _vc1:
+            _pe_diff = (_cur_pe / _avg_pe - 1) * 100 if _avg_pe else 0
+            _pe_clr  = "#ef4444" if _pe_diff > 5 else "#22c55e" if _pe_diff < -5 else "#eab308"
+            fig_mpe = go.Figure(go.Scatter(
+                x=_mv_lbl, y=_mv["median_pe"], mode="lines", name="Median P/E",
+                line=dict(color="#60a5fa", width=2), fill="tozeroy",
+                fillcolor="rgba(96,165,250,0.08)",
+                hovertemplate="P/E: %{y:.1f}x<extra></extra>"))
+            fig_mpe.add_trace(go.Scatter(
+                x=_mv_lbl, y=[_avg_pe] * len(_mv_lbl), mode="lines", name="Trung bình",
+                line=dict(color="gray", width=1, dash="dot"),
+                hovertemplate=f"Trung bình: {_avg_pe:.1f}x<extra></extra>"))
+            fig_mpe.add_trace(go.Scatter(
+                x=_mv_lbl, y=[_cur_pe] * len(_mv_lbl), mode="lines", name="Hiện tại",
+                line=dict(color=_pe_clr, width=1, dash="dash"),
+                hovertemplate=f"Hiện tại: {_cur_pe:.1f}x<extra></extra>"))
+            fig_mpe.update_layout(
+                height=300, margin=dict(l=0, r=0, t=30, b=0), dragmode=False,
+                hovermode="x unified",
+                hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
+                title=dict(text=f"P/E hiện tại: <span style='color:{_pe_clr}'>{_cur_pe:.1f}x "
+                                f"({_pe_diff:+.0f}% so TB)</span>", font=dict(size=14)),
+                legend=dict(orientation="h", y=-0.15),
+                xaxis=dict(type="category", nticks=8, showgrid=False),
+                yaxis=dict(title="P/E (x)", showgrid=True, gridcolor="rgba(255,255,255,0.06)"))
+            st.plotly_chart(fig_mpe, width="stretch")
+
+        with _vc2:
+            _pb_diff = (_cur_pb / _avg_pb - 1) * 100 if _avg_pb else 0
+            _pb_clr  = "#ef4444" if _pb_diff > 5 else "#22c55e" if _pb_diff < -5 else "#eab308"
+            fig_mpb = go.Figure(go.Scatter(
+                x=_mv_lbl, y=_mv["median_pb"], mode="lines", name="Median P/B",
+                line=dict(color="#fb923c", width=2), fill="tozeroy",
+                fillcolor="rgba(251,146,60,0.08)",
+                hovertemplate="P/B: %{y:.2f}x<extra></extra>"))
+            fig_mpb.add_trace(go.Scatter(
+                x=_mv_lbl, y=[_avg_pb] * len(_mv_lbl), mode="lines", name="Trung bình",
+                line=dict(color="gray", width=1, dash="dot"),
+                hovertemplate=f"Trung bình: {_avg_pb:.2f}x<extra></extra>"))
+            fig_mpb.add_trace(go.Scatter(
+                x=_mv_lbl, y=[_cur_pb] * len(_mv_lbl), mode="lines", name="Hiện tại",
+                line=dict(color=_pb_clr, width=1, dash="dash"),
+                hovertemplate=f"Hiện tại: {_cur_pb:.2f}x<extra></extra>"))
+            fig_mpb.update_layout(
+                height=300, margin=dict(l=0, r=0, t=30, b=0), dragmode=False,
+                hovermode="x unified",
+                hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
+                title=dict(text=f"P/B hiện tại: <span style='color:{_pb_clr}'>{_cur_pb:.2f}x "
+                                f"({_pb_diff:+.0f}% so TB)</span>", font=dict(size=14)),
+                legend=dict(orientation="h", y=-0.15),
+                xaxis=dict(type="category", nticks=8, showgrid=False),
+                yaxis=dict(title="P/B (x)", showgrid=True, gridcolor="rgba(255,255,255,0.06)"))
+            st.plotly_chart(fig_mpb, width="stretch")
+
+        st.caption(
+            "P/E, P/B = trung vị (median) của toàn bộ mã có dữ liệu mỗi quý. "
+            "Đường chấm = trung bình toàn bộ giai đoạn. Giá trị hiện tại cao hơn đường trung bình "
+            "→ thị trường đang đắt hơn so với quá khứ; thấp hơn → đang rẻ hơn.")
+    else:
+        st.info("Not enough data to compute market-wide P/E and P/B history.")
 
     st.divider()
 
