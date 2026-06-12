@@ -1224,6 +1224,52 @@ def load_market_valuation_history() -> "pd.DataFrame":
     return agg
 
 
+_INDEX_SYMBOLS = ["VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30", "HNX30"]
+
+
+@st.cache_data(ttl=60)
+def load_index_intraday() -> dict:
+    """Today's 1-minute OHLCV for the main indices, via vnstock VCI source.
+
+    Returns {symbol: {"intraday": df, "current", "open", "prev_close",
+    "chg", "chg_pct", "volume"}}. Symbols with no data are omitted.
+    """
+    import datetime
+    from vnstock import Quote
+
+    today    = datetime.date.today()
+    week_ago = today - datetime.timedelta(days=10)
+    out = {}
+    for sym in _INDEX_SYMBOLS:
+        try:
+            q = Quote(symbol=sym, source="VCI")
+            intraday = q.history(start=today.isoformat(), end=today.isoformat(), interval="1m")
+            if intraday.empty:
+                continue
+            daily = q.history(start=week_ago.isoformat(), end=today.isoformat(), interval="1D")
+            current  = float(intraday["close"].iloc[-1])
+            day_open = float(intraday["open"].iloc[0])
+            prev_close = day_open
+            if not daily.empty:
+                daily_dates = pd.to_datetime(daily["time"]).dt.date
+                prior = daily[daily_dates < today]
+                if not prior.empty:
+                    prev_close = float(prior["close"].iloc[-1])
+            chg = current - prev_close
+            out[sym] = {
+                "intraday": intraday,
+                "current": current,
+                "open": day_open,
+                "prev_close": prev_close,
+                "chg": chg,
+                "chg_pct": (chg / prev_close * 100) if prev_close else 0.0,
+                "volume": float(intraday["volume"].sum()),
+            }
+        except Exception:
+            continue
+    return out
+
+
 # ─────────────────────────────────────────────
 # Sidebar navigation
 # ─────────────────────────────────────────────
@@ -4927,6 +4973,50 @@ elif view == "Portfolio Tracker":
 # ═══════════════════════════════════════════════════════════════
 elif view == "Market Overview":
     st.title("Market Overview")
+
+    # ── Intraday index ticker bar ───────────────────────────────
+    _idx_data = load_index_intraday()
+    if _idx_data:
+        _idx_labels = {
+            "VNINDEX": "VNINDEX", "HNXINDEX": "HNXINDEX", "UPCOMINDEX": "UPINDEX",
+            "VN30": "VN30", "HNX30": "HNX30",
+        }
+        _idx_cols = st.columns(len(_idx_data))
+        for _col, (_sym, _d) in zip(_idx_cols, _idx_data.items()):
+            _up   = _d["chg"] >= 0
+            _clr  = "#22c55e" if _up else "#ef4444"
+            _fclr = "rgba(34,197,94,0.13)" if _up else "rgba(239,68,68,0.13)"
+            _ia  = _d["intraday"].copy()
+            _ia["tlabel"] = pd.to_datetime(_ia["time"]).dt.strftime("%H:%M")
+            _fig_i = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3],
+                                    vertical_spacing=0.05)
+            _fig_i.add_trace(go.Scatter(
+                x=_ia["tlabel"], y=[_d["open"]] * len(_ia), mode="lines",
+                line=dict(color="gray", width=1, dash="dot"), hoverinfo="skip"), row=1, col=1)
+            _fig_i.add_trace(go.Scatter(
+                x=_ia["tlabel"], y=_ia["close"], mode="lines",
+                line=dict(color=_clr, width=1.5), fill="tonexty",
+                fillcolor=_fclr,
+                hovertemplate="%{y:,.2f}<extra></extra>"), row=1, col=1)
+            _fig_i.add_trace(go.Bar(
+                x=_ia["tlabel"], y=_ia["volume"], marker_color=_clr, opacity=0.5,
+                hovertemplate="KL: %{y:,.0f}<extra></extra>"), row=2, col=1)
+            _fig_i.update_layout(
+                height=160, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
+                showlegend=False, hovermode="x unified",
+                hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb"))
+            _fig_i.update_xaxes(showticklabels=False, showgrid=False)
+            _fig_i.update_yaxes(showticklabels=False, showgrid=False)
+            with _col:
+                st.markdown(
+                    f"<div style='text-align:center;'>"
+                    f"<div style='font-size:13px;color:#9ca3af;font-weight:600;'>{_idx_labels.get(_sym, _sym)}</div>"
+                    f"<div style='font-size:18px;font-weight:800;color:{_clr};'>{_d['current']:,.2f}</div>"
+                    f"<div style='font-size:12px;color:{_clr};'>{_d['chg']:+.2f} ({_d['chg_pct']:+.2f}%)</div>"
+                    f"</div>", unsafe_allow_html=True)
+                st.plotly_chart(_fig_i, width="stretch", config={"displayModeBar": False})
+        st.caption("Đường chấm xám = giá mở cửa. Xanh = đang tăng so với hôm trước, đỏ = đang giảm.")
+        st.divider()
 
     with st.spinner("Loading market data..."):
         snap_df = load_market_snapshot()
