@@ -2856,15 +2856,15 @@ if view == "Company Analysis":
                 other_r4 = [max(0, (ta or 0) - (c or 0) - (l or 0))
                             for ta, c, l in zip(ta_r4, cash_r4, loans_r4)]
                 fig10b = go.Figure()
-                fig10b.add_trace(go.Bar(x=labels, y=cash_r4, name="Cash & SBV",
-                    marker_color="#5bc0de", hovertemplate="%{y:,.0f} bn<extra></extra>"))
-                fig10b.add_trace(go.Bar(x=labels, y=loans_r4, name="Loan Book",
-                    marker_color="#5b9bd5", hovertemplate="%{y:,.0f} bn<extra></extra>"))
-                fig10b.add_trace(go.Bar(x=labels, y=other_r4, name="Securities & Other",
-                    marker_color="#9467bd", hovertemplate="%{y:,.0f} bn<extra></extra>"))
-                fig10b.update_layout(title="Asset Mix", height=_CHART_H, margin=_CHART_M,
+                fig10b.add_trace(go.Bar(x=labels, y=cash_r4, name="Tiền mặt & NHNN",
+                    marker_color="#5bc0de", hovertemplate="%{y:,.0f} tỷ<extra></extra>"))
+                fig10b.add_trace(go.Bar(x=labels, y=loans_r4, name="Dư nợ cho vay",
+                    marker_color="#5b9bd5", hovertemplate="%{y:,.0f} tỷ<extra></extra>"))
+                fig10b.add_trace(go.Bar(x=labels, y=other_r4, name="Chứng khoán & Khác",
+                    marker_color="#9467bd", hovertemplate="%{y:,.0f} tỷ<extra></extra>"))
+                fig10b.update_layout(title="Cơ cấu tài sản", height=_CHART_H, margin=_CHART_M,
                     barmode="stack", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
-                fig10b.update_yaxes(title_text="bn VND")
+                fig10b.update_yaxes(title_text="tỷ VND")
                 st.plotly_chart(fig10b, width="stretch")
 
             with r4c2:
@@ -2872,17 +2872,17 @@ if view == "Company Analysis":
                 other_fund = [max(0, (ta or 0) - (d or 0) - (ib or 0) - (e or 0))
                               for ta, d, ib, e in zip(ta_r4, dep_r4, ib_r4, eq_r4)]
                 fig11b = go.Figure()
-                fig11b.add_trace(go.Bar(x=labels, y=dep_r4, name="Customer Deposits",
-                    marker_color="#60a5fa", hovertemplate="%{y:,.0f} bn<extra></extra>"))
-                fig11b.add_trace(go.Bar(x=labels, y=ib_r4, name="Interbank & SBV",
-                    marker_color="#1e40af", hovertemplate="%{y:,.0f} bn<extra></extra>"))
-                fig11b.add_trace(go.Bar(x=labels, y=eq_r4, name="Equity",
-                    marker_color="#22c55e", hovertemplate="%{y:,.0f} bn<extra></extra>"))
-                fig11b.add_trace(go.Bar(x=labels, y=other_fund, name="Other Liabilities",
-                    marker_color="#6b7280", hovertemplate="%{y:,.0f} bn<extra></extra>"))
-                fig11b.update_layout(title="Funding Structure", height=_CHART_H, margin=_CHART_M,
+                fig11b.add_trace(go.Bar(x=labels, y=dep_r4, name="Tiền gửi khách hàng",
+                    marker_color="#60a5fa", hovertemplate="%{y:,.0f} tỷ<extra></extra>"))
+                fig11b.add_trace(go.Bar(x=labels, y=ib_r4, name="Liên ngân hàng & NHNN",
+                    marker_color="#1e40af", hovertemplate="%{y:,.0f} tỷ<extra></extra>"))
+                fig11b.add_trace(go.Bar(x=labels, y=eq_r4, name="Vốn chủ sở hữu",
+                    marker_color="#22c55e", hovertemplate="%{y:,.0f} tỷ<extra></extra>"))
+                fig11b.add_trace(go.Bar(x=labels, y=other_fund, name="Nợ phải trả khác",
+                    marker_color="#6b7280", hovertemplate="%{y:,.0f} tỷ<extra></extra>"))
+                fig11b.update_layout(title="Cơ cấu nguồn vốn", height=_CHART_H, margin=_CHART_M,
                     barmode="stack", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
-                fig11b.update_yaxes(title_text="bn VND")
+                fig11b.update_yaxes(title_text="tỷ VND")
                 st.plotly_chart(fig11b, width="stretch")
 
             with r4c3:
@@ -2892,15 +2892,15 @@ if view == "Company Analysis":
                 cd_r4   = [_pct(c, d)  for c, d  in zip(cash_r4, dep_r4)]
                 fig12b = go.Figure()
                 for vals, name, color in [
-                    (ldr_r4, "LDR %",          "#f59e0b"),
-                    (la_r4,  "Loan/Asset %",   "#60a5fa"),
-                    (cd_r4,  "Cash/Deposit %", "#22c55e"),
+                    (ldr_r4, "LDR % (Vay/Huy động)",     "#f59e0b"),
+                    (la_r4,  "Dư nợ/Tổng tài sản %",      "#60a5fa"),
+                    (cd_r4,  "Tiền mặt/Huy động %",       "#22c55e"),
                 ]:
                     if any(v is not None for v in vals):
                         fig12b.add_trace(go.Scatter(x=labels, y=vals, name=name,
                             mode="lines+markers", line=dict(width=2), marker=dict(size=5),
                             hovertemplate="%{y:.1f}%<extra></extra>"))
-                fig12b.update_layout(title="Liquidity Ratios", height=_CHART_H, margin=_CHART_M,
+                fig12b.update_layout(title="Chỉ số thanh khoản", height=_CHART_H, margin=_CHART_M,
                     yaxis_title="%", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
                 st.plotly_chart(fig12b, width="stretch")
 
@@ -2929,58 +2929,58 @@ if view == "Company Analysis":
             with r4c1:
                 fig10 = go.Figure()
                 for vals, name, color in [
-                    (cash_v,     "Cash & Equivalents",   "#5bc0de"),
-                    (recv_v,     "Receivables",          "#f0ad4e"),
-                    (inv_v,      "Inventory",            "#5cb85c"),
-                    (other_curr, "Other Current",        "#9b59b6"),
-                    (non_curr,   "Non-current Assets",   "#e74c3c"),
+                    (cash_v,     "Tiền & tương đương",   "#5bc0de"),
+                    (recv_v,     "Phải thu",             "#f0ad4e"),
+                    (inv_v,      "Hàng tồn kho",         "#5cb85c"),
+                    (other_curr, "TS ngắn hạn khác",     "#9b59b6"),
+                    (non_curr,   "TS dài hạn",           "#e74c3c"),
                 ]:
                     if any(v is not None and v > 0 for v in vals):
                         fig10.add_trace(go.Bar(x=labels, y=vals, name=name,
-                            marker_color=color, hovertemplate="%{y:,.0f} bn<extra></extra>"))
-                fig10.update_layout(title="Asset Structure", height=_CHART_H, margin=_CHART_M,
+                            marker_color=color, hovertemplate="%{y:,.0f} tỷ<extra></extra>"))
+                fig10.update_layout(title="Cấu trúc tài sản", height=_CHART_H, margin=_CHART_M,
                     barmode="stack", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
-                fig10.update_yaxes(title_text="bn VND")
+                fig10.update_yaxes(title_text="tỷ VND")
                 st.plotly_chart(fig10, width="stretch")
 
             with r4c2:
                 fig11 = go.Figure()
                 for vals, name, color in [
-                    (equity_v,   "Equity",             "#2ca02c"),
-                    (lt_borrow,  "LT Borrowings",      "#d62728"),
-                    (st_borrow,  "ST Borrowings",      "#ff7f0e"),
-                    (payable_v,  "Trade Payables",     "#1f77b4"),
-                    (other_liab, "Other Liabilities",  "#9467bd"),
+                    (equity_v,   "Vốn chủ sở hữu",      "#2ca02c"),
+                    (lt_borrow,  "Vay dài hạn",          "#d62728"),
+                    (st_borrow,  "Vay ngắn hạn",         "#ff7f0e"),
+                    (payable_v,  "Phải trả người bán",   "#1f77b4"),
+                    (other_liab, "Nợ phải trả khác",     "#9467bd"),
                 ]:
                     if any(v is not None and v > 0 for v in vals):
                         fig11.add_trace(go.Bar(x=labels, y=vals, name=name,
-                            marker_color=color, hovertemplate="%{y:,.0f} bn<extra></extra>"))
-                fig11.update_layout(title="Capital Structure", height=_CHART_H, margin=_CHART_M,
+                            marker_color=color, hovertemplate="%{y:,.0f} tỷ<extra></extra>"))
+                fig11.update_layout(title="Cấu trúc nguồn vốn", height=_CHART_H, margin=_CHART_M,
                     barmode="stack", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
-                fig11.update_yaxes(title_text="bn VND")
+                fig11.update_yaxes(title_text="tỷ VND")
                 st.plotly_chart(fig11, width="stretch")
 
             with r4c3:
                 fig12 = make_subplots(specs=[[{"secondary_y": True}]])
                 for vals, name, color in [
-                    (cash_v, "Cash & Equivalents", "#5bc0de"),
-                    (recv_v, "Receivables",        "#f0ad4e"),
+                    (cash_v, "Tiền & tương đương", "#5bc0de"),
+                    (recv_v, "Phải thu",           "#f0ad4e"),
                 ]:
                     if any(v is not None for v in vals):
                         fig12.add_trace(go.Bar(x=labels, y=vals, name=name,
-                            marker_color=color, hovertemplate="%{y:,.0f} bn<extra></extra>"),
+                            marker_color=color, hovertemplate="%{y:,.0f} tỷ<extra></extra>"),
                             secondary_y=False)
                 if any(v is not None for v in cash_pct):
-                    fig12.add_trace(go.Scatter(x=labels, y=cash_pct, name="Cash/Assets %",
+                    fig12.add_trace(go.Scatter(x=labels, y=cash_pct, name="Tiền/Tổng TS %",
                         mode="lines", line=dict(color="#c00000", width=2),
                         hovertemplate="%{y:.1f}%<extra></extra>"), secondary_y=True)
                 if any(v is not None for v in recv_pct):
-                    fig12.add_trace(go.Scatter(x=labels, y=recv_pct, name="Recv/Assets %",
+                    fig12.add_trace(go.Scatter(x=labels, y=recv_pct, name="Phải thu/Tổng TS %",
                         mode="lines", line=dict(color="#2c7bb6", width=2),
                         hovertemplate="%{y:.1f}%<extra></extra>"), secondary_y=True)
-                fig12.update_layout(title="Liquid Assets", height=_CHART_H, margin=_CHART_M,
+                fig12.update_layout(title="Tài sản thanh khoản", height=_CHART_H, margin=_CHART_M,
                     barmode="stack", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
-                fig12.update_yaxes(title_text="bn VND", secondary_y=False)
+                fig12.update_yaxes(title_text="tỷ VND", secondary_y=False)
                 fig12.update_yaxes(title_text="%", secondary_y=True, showgrid=False)
                 st.plotly_chart(fig12, width="stretch")
 
@@ -3000,19 +3000,19 @@ if view == "Company Analysis":
                 # Loan Book: net loans + YoY growth
                 loans_yoy = _yoy_full("receivables")
                 fig13b = make_subplots(specs=[[{"secondary_y": True}]])
-                fig13b.add_trace(go.Bar(x=labels, y=loans_r5, name="Loan Book (net)",
-                    marker_color="#5b9bd5", hovertemplate="%{y:,.0f} bn<extra></extra>"),
+                fig13b.add_trace(go.Bar(x=labels, y=loans_r5, name="Dư nợ cho vay (ròng)",
+                    marker_color="#5b9bd5", hovertemplate="%{y:,.0f} tỷ<extra></extra>"),
                     secondary_y=False)
-                fig13b.add_trace(go.Scatter(x=labels, y=loans_yoy, name="YoY Growth %",
+                fig13b.add_trace(go.Scatter(x=labels, y=loans_yoy, name="Tăng trưởng YoY %",
                     mode="lines+markers", line=dict(color="#f5c518", width=2),
                     marker=dict(size=5), hovertemplate="%{y:.1f}%<extra></extra>"),
                     secondary_y=True)
                 fig13b.add_hline(y=0, line_dash="dot", line_color="gray",
                                  opacity=0.4, secondary_y=True)
-                fig13b.update_layout(title="Loan Book", height=_CHART_H, margin=_CHART_M,
+                fig13b.update_layout(title="Dư nợ cho vay", height=_CHART_H, margin=_CHART_M,
                     legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
-                fig13b.update_yaxes(title_text="bn VND", secondary_y=False)
-                fig13b.update_yaxes(title_text="YoY %", secondary_y=True, showgrid=False)
+                fig13b.update_yaxes(title_text="tỷ VND", secondary_y=False)
+                fig13b.update_yaxes(title_text="Tăng trưởng %", secondary_y=True, showgrid=False)
                 st.plotly_chart(fig13b, width="stretch")
 
             with r5c2:
@@ -3022,39 +3022,39 @@ if view == "Company Analysis":
                     for p in prov_r5
                 ]
                 _prov_labels = [
-                    f"{'Reversal' if (p or 0) < 0 else 'Provision'}: {abs(p or 0):,.0f} bn"
+                    f"{'Hoàn nhập' if (p or 0) < 0 else 'Trích lập'}: {abs(p or 0):,.0f} tỷ"
                     for p in prov_r5
                 ]
                 cc_r5 = [_pct((p or 0) * 4, l) for p, l in zip(prov_r5, loans_r5)]
 
                 fig14b = make_subplots(specs=[[{"secondary_y": True}]])
                 fig14b.add_trace(go.Bar(
-                    x=labels, y=prov_r5, name="Provisions / Reversals",
+                    x=labels, y=prov_r5, name="Trích lập / Hoàn nhập",
                     marker_color=_prov_colors,
-                    text=["★ REVERSAL" if (p or 0) < 0 else "" for p in prov_r5],
+                    text=["★ HOÀN NHẬP" if (p or 0) < 0 else "" for p in prov_r5],
                     textposition="outside",
                     textfont=dict(color="#22c55e", size=10),
-                    hovertemplate="%{x}: %{y:,.0f} bn<extra></extra>",
+                    hovertemplate="%{x}: %{y:,.0f} tỷ<extra></extra>",
                 ), secondary_y=False)
                 fig14b.add_hline(y=0, line_dash="dot", line_color="gray",
                                  opacity=0.5, secondary_y=False)
                 fig14b.add_trace(go.Scatter(
-                    x=labels, y=cc_r5, name="Credit Cost % (ann.)",
+                    x=labels, y=cc_r5, name="Chi phí tín dụng % (năm hóa)",
                     mode="lines+markers", line=dict(color="#f5c518", width=2),
                     marker=dict(size=5), hovertemplate="CoC %{y:.2f}%<extra></extra>",
                 ), secondary_y=True)
                 fig14b.update_layout(
-                    title="Provisions & Reversals", height=_CHART_H, margin=_CHART_M,
+                    title="Trích lập & hoàn nhập dự phòng", height=_CHART_H, margin=_CHART_M,
                     legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False,
                     annotations=[dict(
-                        text="Green = Reversal (hoàn nhập) | Red = New provision",
+                        text="Xanh = Hoàn nhập | Đỏ = Trích lập mới",
                         x=0, xref="paper", y=-0.28, yref="paper",
                         xanchor="left", font=dict(size=10, color="#6b7280"),
                         showarrow=False,
                     )]
                 )
-                fig14b.update_yaxes(title_text="bn VND", secondary_y=False)
-                fig14b.update_yaxes(title_text="Credit Cost %", secondary_y=True, showgrid=False)
+                fig14b.update_yaxes(title_text="tỷ VND", secondary_y=False)
+                fig14b.update_yaxes(title_text="Chi phí tín dụng %", secondary_y=True, showgrid=False)
                 st.plotly_chart(fig14b, width="stretch")
 
             with r5c3:
@@ -3064,15 +3064,15 @@ if view == "Company Analysis":
                 roe_r5 = [_pct((r.net_income or 0) * 4, r.equity) for _, r in df_q.iterrows()]
                 fig15b = go.Figure()
                 for vals, name, color in [
-                    (ea_r5,  "Equity/Assets %", "#60a5fa"),
-                    (el_r5,  "Equity/Loans %",  "#f59e0b"),
-                    (roe_r5, "ROE % (ann.)",    "#22c55e"),
+                    (ea_r5,  "Vốn CSH/Tổng TS %", "#60a5fa"),
+                    (el_r5,  "Vốn CSH/Dư nợ %",   "#f59e0b"),
+                    (roe_r5, "ROE % (năm hóa)",   "#22c55e"),
                 ]:
                     if any(v is not None for v in vals):
                         fig15b.add_trace(go.Scatter(x=labels, y=vals, name=name,
                             mode="lines+markers", line=dict(width=2), marker=dict(size=5),
                             hovertemplate="%{y:.1f}%<extra></extra>"))
-                fig15b.update_layout(title="Capital Ratios", height=_CHART_H, margin=_CHART_M,
+                fig15b.update_layout(title="Chỉ số vốn", height=_CHART_H, margin=_CHART_M,
                     yaxis_title="%", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
                 st.plotly_chart(fig15b, width="stretch")
 
@@ -3096,30 +3096,30 @@ if view == "Company Analysis":
 
                 fig13 = go.Figure()
                 for vals, name, color in [
-                    (r_trade,      "Trade Receivables",      "#5bc0de"),
-                    (r_other,      "Other ST Receivables",   "#f0ad4e"),
-                    (r_lt,         "LT Receivables",         "#555555"),
-                    (r_prov_st_neg,"ST Doubtful Provision",  "#d9534f"),
-                    (r_prov_lt_neg,"LT Doubtful Provision",  "#e87c6e"),
+                    (r_trade,      "Phải thu khách hàng",       "#5bc0de"),
+                    (r_other,      "Phải thu ngắn hạn khác",    "#f0ad4e"),
+                    (r_lt,         "Phải thu dài hạn",          "#555555"),
+                    (r_prov_st_neg,"DP phải thu ngắn hạn",      "#d9534f"),
+                    (r_prov_lt_neg,"DP phải thu dài hạn",       "#e87c6e"),
                 ]:
                     if any(v is not None and v != 0 for v in vals):
                         fig13.add_trace(go.Bar(
                             x=labels, y=vals, name=name, marker_color=color,
-                            hovertemplate="%{y:,.0f} bn<extra></extra>",
+                            hovertemplate="%{y:,.0f} tỷ<extra></extra>",
                         ))
                 if any(v != 0 for v in r_net):
                     fig13.add_trace(go.Scatter(
-                        x=labels, y=r_net, name="Net Total",
+                        x=labels, y=r_net, name="Tổng ròng",
                         mode="lines", line=dict(color="#c00000", width=2),
-                        hovertemplate="%{y:,.0f} bn<extra></extra>",
+                        hovertemplate="%{y:,.0f} tỷ<extra></extra>",
                     ))
                 fig13.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4)
                 fig13.update_layout(
-                    title="Receivables", height=_CHART_H, margin=_CHART_M,
+                    title="Các khoản phải thu", height=_CHART_H, margin=_CHART_M,
                     barmode="relative", legend=_LEG_LAYOUT, hovermode="x unified",
                     dragmode=False,
                 )
-                fig13.update_yaxes(title_text="bn VND")
+                fig13.update_yaxes(title_text="tỷ VND")
                 st.plotly_chart(fig13, width="stretch")
 
             # Chart 14 — Inventory / Trading Securities (for securities firms)
@@ -3134,18 +3134,18 @@ if view == "Company Analysis":
                     _ts_qoq = _yoy(pd.Series(_ts), lag=1)  # QoQ: starts from 2nd bar
                     fig14 = make_subplots(specs=[[{"secondary_y": True}]])
                     if any(v is not None and v != 0 for v in _ts):
-                        fig14.add_trace(go.Bar(x=labels, y=_ts, name="Trading Securities",
+                        fig14.add_trace(go.Bar(x=labels, y=_ts, name="Tài sản tài chính (FVTPL/AFS)",
                             marker_color="#5b9bd5",
-                            hovertemplate="%{y:,.0f} bn<extra></extra>"), secondary_y=False)
+                            hovertemplate="%{y:,.0f} tỷ<extra></extra>"), secondary_y=False)
                     if any(v is not None for v in _ts_qoq):
-                        fig14.add_trace(go.Scatter(x=labels, y=_ts_qoq, name="QoQ %",
+                        fig14.add_trace(go.Scatter(x=labels, y=_ts_qoq, name="Tăng trưởng QoQ %",
                             mode="lines+markers", line=dict(color="#f5c518", width=2),
                             marker=dict(size=5),
                             hovertemplate="%{y:.1f}%<extra></extra>"), secondary_y=True)
-                    fig14.update_layout(title="Trading Securities Portfolio", height=_CHART_H,
+                    fig14.update_layout(title="Danh mục tài sản tài chính", height=_CHART_H,
                         margin=_CHART_M, legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
-                    fig14.update_yaxes(title_text="bn VND", secondary_y=False)
-                    fig14.update_yaxes(title_text="QoQ %", secondary_y=True, showgrid=False)
+                    fig14.update_yaxes(title_text="tỷ VND", secondary_y=False)
+                    fig14.update_yaxes(title_text="Tăng trưởng %", secondary_y=True, showgrid=False)
                     st.plotly_chart(fig14, width="stretch")
                 else:
                     inv_gross = _ser(bal_raw, ["inventories"],                        periods_r3)
@@ -3156,25 +3156,25 @@ if view == "Company Analysis":
                                for n, t in zip(inv_net, total_v)]
                     fig14 = make_subplots(specs=[[{"secondary_y": True}]])
                     if any(v is not None and v > 0 for v in inv_gross):
-                        fig14.add_trace(go.Bar(x=labels, y=inv_gross, name="Gross Inventory",
+                        fig14.add_trace(go.Bar(x=labels, y=inv_gross, name="Hàng tồn kho (gộp)",
                             marker_color="#f0ad4e",
-                            hovertemplate="%{y:,.0f} bn<extra></extra>"), secondary_y=False)
+                            hovertemplate="%{y:,.0f} tỷ<extra></extra>"), secondary_y=False)
                     elif any(v is not None and v > 0 for v in inv_net):
-                        fig14.add_trace(go.Bar(x=labels, y=inv_net, name="Net Inventory",
+                        fig14.add_trace(go.Bar(x=labels, y=inv_net, name="Hàng tồn kho (ròng)",
                             marker_color="#f0ad4e",
-                            hovertemplate="%{y:,.0f} bn<extra></extra>"), secondary_y=False)
+                            hovertemplate="%{y:,.0f} tỷ<extra></extra>"), secondary_y=False)
                     if any(v is not None and v != 0 for v in inv_prov_neg):
-                        fig14.add_trace(go.Bar(x=labels, y=inv_prov_neg, name="Inventory Provision",
+                        fig14.add_trace(go.Bar(x=labels, y=inv_prov_neg, name="DP giảm giá hàng tồn kho",
                             marker_color="#d9534f",
-                            hovertemplate="%{y:,.0f} bn<extra></extra>"), secondary_y=False)
+                            hovertemplate="%{y:,.0f} tỷ<extra></extra>"), secondary_y=False)
                     if any(v is not None for v in inv_pct):
-                        fig14.add_trace(go.Scatter(x=labels, y=inv_pct, name="Inventory/Assets %",
+                        fig14.add_trace(go.Scatter(x=labels, y=inv_pct, name="Tồn kho/Tổng TS %",
                             mode="lines", line=dict(color="#c00000", width=2),
                             hovertemplate="%{y:.1f}%<extra></extra>"), secondary_y=True)
                     fig14.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4, secondary_y=False)
-                    fig14.update_layout(title="Inventory", height=_CHART_H, margin=_CHART_M,
+                    fig14.update_layout(title="Hàng tồn kho", height=_CHART_H, margin=_CHART_M,
                         barmode="relative", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
-                    fig14.update_yaxes(title_text="bn VND", secondary_y=False)
+                    fig14.update_yaxes(title_text="tỷ VND", secondary_y=False)
                     fig14.update_yaxes(title_text="%", secondary_y=True, showgrid=False)
                     st.plotly_chart(fig14, width="stretch")
 
@@ -3196,28 +3196,28 @@ if view == "Company Analysis":
 
                 fig15 = make_subplots(specs=[[{"secondary_y": True}]])
                 for vals, name, color in [
-                    (d_st,    "ST Borrowings",      "#ff7f0e"),
-                    (d_lt,    "LT Borrowings",      "#1f77b4"),
-                    (d_bonds, "Convertible Bonds",  "#e74c3c"),
-                    (d_other, "Other LT Payables",  "#9467bd"),
+                    (d_st,    "Vay ngắn hạn",         "#ff7f0e"),
+                    (d_lt,    "Vay dài hạn",          "#1f77b4"),
+                    (d_bonds, "Trái phiếu chuyển đổi", "#e74c3c"),
+                    (d_other, "Phải trả dài hạn khác", "#9467bd"),
                 ]:
                     if any(v is not None and v > 0 for v in vals):
                         fig15.add_trace(go.Bar(
                             x=labels, y=vals, name=name, marker_color=color,
-                            hovertemplate="%{y:,.0f} bn<extra></extra>",
+                            hovertemplate="%{y:,.0f} tỷ<extra></extra>",
                         ), secondary_y=False)
                 if any(v is not None for v in de_ratio):
                     fig15.add_trace(go.Scatter(
-                        x=labels, y=de_ratio, name="D/E Ratio",
+                        x=labels, y=de_ratio, name="Tỷ số Nợ/VCSH (D/E)",
                         mode="lines", line=dict(color="#c00000", width=2),
                         hovertemplate="%{y:.2f}x<extra></extra>",
                     ), secondary_y=True)
                 fig15.update_layout(
-                    title="Financial Leverage", height=_CHART_H, margin=_CHART_M,
+                    title="Đòn bẩy tài chính", height=_CHART_H, margin=_CHART_M,
                     barmode="stack", legend=_LEG_LAYOUT, hovermode="x unified",
                     dragmode=False,
                 )
-                fig15.update_yaxes(title_text="bn VND", secondary_y=False)
+                fig15.update_yaxes(title_text="tỷ VND", secondary_y=False)
                 fig15.update_yaxes(title_text="D/E (x)", secondary_y=True, showgrid=False)
                 st.plotly_chart(fig15, width="stretch")
 
@@ -3237,29 +3237,29 @@ if view == "Company Analysis":
 
             fig16 = make_subplots(specs=[[{"secondary_y": True}]])
             for vals, name, color in [
-                (ocf_v, "Operating CF",  "#2ca02c"),
-                (icf_v, "Investing CF",  "#1f77b4"),
-                (fcf_v, "Financing CF",  "#ffc000"),
+                (ocf_v, "Dòng tiền HĐKD",  "#2ca02c"),
+                (icf_v, "Dòng tiền đầu tư", "#1f77b4"),
+                (fcf_v, "Dòng tiền tài chính", "#ffc000"),
             ]:
                 if any(v is not None for v in vals):
                     fig16.add_trace(go.Bar(
                         x=labels, y=vals, name=name, marker_color=color,
-                        hovertemplate="%{y:,.0f} bn<extra></extra>",
+                        hovertemplate="%{y:,.0f} tỷ<extra></extra>",
                     ), secondary_y=False)
             if any(v is not None for v in cash_v):
                 fig16.add_trace(go.Scatter(
-                    x=labels, y=cash_v, name="Cash (EOP)",
+                    x=labels, y=cash_v, name="Tiền cuối kỳ",
                     mode="lines", line=dict(color="#d62728", width=2),
-                    hovertemplate="%{y:,.0f} bn<extra></extra>",
+                    hovertemplate="%{y:,.0f} tỷ<extra></extra>",
                 ), secondary_y=True)
             fig16.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4, secondary_y=False)
             fig16.update_layout(
-                title="Cash Flow", height=_CHART_H, margin=_CHART_M,
+                title="Dòng tiền", height=_CHART_H, margin=_CHART_M,
                 barmode="relative", legend=_LEG_LAYOUT, hovermode="x unified",
                 dragmode=False,
             )
-            fig16.update_yaxes(title_text="bn VND", secondary_y=False)
-            fig16.update_yaxes(title_text="Cash bn", secondary_y=True, showgrid=False)
+            fig16.update_yaxes(title_text="tỷ VND", secondary_y=False)
+            fig16.update_yaxes(title_text="Tiền (tỷ)", secondary_y=True, showgrid=False)
             st.plotly_chart(fig16, width="stretch")
 
         # Chart 17 — Dividends (annual)
@@ -3292,22 +3292,22 @@ if view == "Company Analysis":
             fig17 = make_subplots(specs=[[{"secondary_y": True}]])
             if any(v > 0 for v in div_vals):
                 fig17.add_trace(go.Bar(
-                    x=ylabels, y=div_vals, name="Cash Dividends",
+                    x=ylabels, y=div_vals, name="Cổ tức tiền mặt",
                     marker_color="#5bc0de",
-                    hovertemplate="%{y:,.0f} bn<extra></extra>",
+                    hovertemplate="%{y:,.0f} tỷ<extra></extra>",
                 ), secondary_y=False)
             if any(v is not None for v in payout):
                 fig17.add_trace(go.Scatter(
-                    x=ylabels, y=payout, name="Payout Ratio %",
+                    x=ylabels, y=payout, name="Tỷ lệ chi trả %",
                     mode="lines", line=dict(color="#c00000", width=2),
                     hovertemplate="%{y:.1f}%<extra></extra>",
                 ), secondary_y=True)
             fig17.update_layout(
-                title="Dividends (Annual)", height=_CHART_H, margin=_CHART_M,
+                title="Cổ tức (hàng năm)", height=_CHART_H, margin=_CHART_M,
                 legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False,
             )
-            fig17.update_yaxes(title_text="bn VND", secondary_y=False)
-            fig17.update_yaxes(title_text="Payout %", secondary_y=True, showgrid=False)
+            fig17.update_yaxes(title_text="tỷ VND", secondary_y=False)
+            fig17.update_yaxes(title_text="Tỷ lệ chi trả %", secondary_y=True, showgrid=False)
             st.plotly_chart(fig17, width="stretch")
 
         # Chart 18 — Valuation Multiples (P/E primary, P/B secondary axis)
@@ -3353,7 +3353,7 @@ if view == "Company Analysis":
             else:
                 _ymax, _ymin = 50, -25
             fig18.update_layout(
-                title="Valuation (P/E & P/B)", height=_CHART_H, margin=_CHART_M,
+                title="Định giá (P/E & P/B)", height=_CHART_H, margin=_CHART_M,
                 legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False,
             )
             fig18.update_yaxes(title_text="P/E (x)", secondary_y=False,
@@ -3380,17 +3380,17 @@ if view == "Company Analysis":
                            for ni, rv in zip(ni_act, rev_act)]
 
                 fig19.add_trace(go.Bar(
-                    x=act_yrs, y=rev_act, name="Revenue",
+                    x=act_yrs, y=rev_act, name="Doanh thu",
                     marker_color="#1f77b4",
-                    hovertemplate="%{y:,.0f} bn<extra></extra>",
+                    hovertemplate="%{y:,.0f} tỷ<extra></extra>",
                 ), secondary_y=False)
                 fig19.add_trace(go.Bar(
-                    x=act_yrs, y=ni_act, name="Net Income",
+                    x=act_yrs, y=ni_act, name="Lợi nhuận sau thuế",
                     marker_color="#aec7e8",
-                    hovertemplate="%{y:,.0f} bn<extra></extra>",
+                    hovertemplate="%{y:,.0f} tỷ<extra></extra>",
                 ), secondary_y=False)
                 fig19.add_trace(go.Scatter(
-                    x=act_yrs, y=mgn_act, name="Net Margin %",
+                    x=act_yrs, y=mgn_act, name="Biên lợi nhuận thuần %",
                     mode="lines+markers",
                     line=dict(color="#f59e0b", width=2),
                     marker=dict(size=5),
@@ -3412,21 +3412,21 @@ if view == "Company Analysis":
                     _cr_str = f"{cagr_r * 100:.1f}"
                     _cn_str = f"{cagr_n * 100:.1f}"
                     fig19.add_trace(go.Bar(
-                        x=proj_yrs, y=proj_rev, name="Revenue (F)",
+                        x=proj_yrs, y=proj_rev, name="Doanh thu (DB)",
                         marker=dict(color="#1f77b4", opacity=0.7,
                                     pattern=dict(shape="/", size=6, solidity=0.4)),
                         showlegend=False,
-                        hovertemplate=f"%{{x}}: %{{y:,.0f}} bn (CAGR {_cr_str}%)<extra></extra>",
+                        hovertemplate=f"%{{x}}: %{{y:,.0f}} tỷ (CAGR {_cr_str}%)<extra></extra>",
                     ), secondary_y=False)
                     fig19.add_trace(go.Bar(
-                        x=proj_yrs, y=proj_ni, name="Net Income (F)",
+                        x=proj_yrs, y=proj_ni, name="LNST (DB)",
                         marker=dict(color="#aec7e8", opacity=0.7,
                                     pattern=dict(shape="/", size=6, solidity=0.4)),
                         showlegend=False,
-                        hovertemplate=f"%{{x}}: %{{y:,.0f}} bn (CAGR {_cn_str}%)<extra></extra>",
+                        hovertemplate=f"%{{x}}: %{{y:,.0f}} tỷ (CAGR {_cn_str}%)<extra></extra>",
                     ), secondary_y=False)
                     fig19.add_trace(go.Scatter(
-                        x=proj_yrs, y=proj_mgn, name="Net Margin % (F)",
+                        x=proj_yrs, y=proj_mgn, name="Biên LN thuần % (DB)",
                         mode="lines+markers",
                         line=dict(color="#f59e0b", width=2, dash="dash"),
                         marker=dict(size=5),
@@ -3437,12 +3437,12 @@ if view == "Company Analysis":
             fig19.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4,
                             secondary_y=False)
             fig19.update_layout(
-                title="Business Projection", height=_CHART_H, margin=_CHART_M,
+                title="Dự báo kinh doanh", height=_CHART_H, margin=_CHART_M,
                 barmode="group", legend=_LEG_LAYOUT, hovermode="x unified",
                 dragmode=False,
             )
-            fig19.update_yaxes(title_text="bn VND", secondary_y=False)
-            fig19.update_yaxes(title_text="Net Margin %", secondary_y=True, showgrid=False)
+            fig19.update_yaxes(title_text="tỷ VND", secondary_y=False)
+            fig19.update_yaxes(title_text="Biên LN thuần %", secondary_y=True, showgrid=False)
             st.plotly_chart(fig19, width="stretch")
 
         # Chart 20 — Price vs Avg Intrinsic Value
@@ -3457,7 +3457,7 @@ if view == "Company Analysis":
                 _p20["price_vnd"] = _p20["close"] * 1000  # thousands VND → raw VND
                 fig20.add_trace(go.Scatter(
                     x=_p20["date"], y=_p20["price_vnd"],
-                    name="Market Price", mode="lines",
+                    name="Giá thị trường", mode="lines",
                     line=dict(color="#1f77b4", width=1.5),
                     fill="tozeroy", fillcolor="rgba(31,119,180,0.12)",
                     hovertemplate="%{y:,.0f} VND<extra></extra>",
@@ -3473,15 +3473,15 @@ if view == "Company Analysis":
                     _v20["avg"] = _v20["avg"].interpolate(method="linear").ffill().bfill()
                     fig20.add_trace(go.Scatter(
                         x=_v20["date"], y=_v20["avg"],
-                        name="Avg Intrinsic Value", mode="lines",
+                        name="Giá trị nội tại TB", mode="lines",
                         line=dict(color="#c00000", width=2, dash="dash"),
                         hovertemplate="%{y:,.0f} VND<extra></extra>",
                     ))
             fig20.update_layout(
-                title="Price vs Intrinsic Value", height=_CHART_H, margin=_CHART_M,
+                title="Giá so với giá trị nội tại", height=_CHART_H, margin=_CHART_M,
                 legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False,
             )
-            fig20.update_yaxes(title_text="Price (VND)")
+            fig20.update_yaxes(title_text="Giá (VND)")
             st.plotly_chart(fig20, width="stretch")
 
         # Chart 21 — Commodity Input/Output Prices (sector-based) or Analyst Rec fallback
@@ -3514,7 +3514,7 @@ if view == "Company Analysis":
                 fig21.update_layout(
                     title=_comm_def["title"], height=_CHART_H, margin=_CHART_M,
                     legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False,
-                    yaxis_title="Index (base=100)",
+                    yaxis_title="Chỉ số (gốc=100)",
                     xaxis=dict(type="category", tickangle=-45, nticks=8),
                 )
             else:
@@ -3562,8 +3562,8 @@ if view == "Company Analysis":
                         x=_vm_names, y=[current_price] * len(_vm_names),
                         mode="lines",
                         line=dict(color="#f59e0b", width=2, dash="dash"),
-                        name=f"Market {current_price:,.0f}",
-                        hovertemplate=f"Market: {current_price:,.0f} VND<extra></extra>",
+                        name=f"Thị giá {current_price:,.0f}",
+                        hovertemplate=f"Thị giá: {current_price:,.0f} VND<extra></extra>",
                     ))
                 if _vm_vals:
                     _avg21 = sum(_vm_vals) / len(_vm_vals)
@@ -3575,11 +3575,11 @@ if view == "Company Analysis":
                         x=_vm_names, y=[_avg21] * len(_vm_names),
                         mode="lines",
                         line=dict(color="#f87171", width=2, dash="dot"),
-                        name=f"Avg Est {_avg21:,.0f}",
-                        hovertemplate=f"Avg Est: {_avg21:,.0f} VND ({_avg_pct})<extra></extra>",
+                        name=f"TB ước tính {_avg21:,.0f}",
+                        hovertemplate=f"TB ước tính: {_avg21:,.0f} VND ({_avg_pct})<extra></extra>",
                     ))
                 fig21.update_layout(
-                    title="Valuation Estimates vs Market Price",
+                    title="Các phương pháp định giá so với thị giá",
                     height=_CHART_H, margin=_CHART_M,
                     showlegend=False, dragmode=False,
                     hovermode="x unified",
