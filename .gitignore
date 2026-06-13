@@ -10,3 +10,4 @@ venv/
 *.egg-info/
 dist/
 .streamlit/secrets.toml
+data/macro_seen.json

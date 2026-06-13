@@ -176,3 +176,20 @@ class PinnedTicker(Base):
     ticker      = Column(String(10), ForeignKey("companies.ticker"), nullable=False, unique=True)
     note        = Column(String(200), default="")
     added_date  = Column(Date, nullable=False)
+
+
+class MacroIndicator(Base):
+    """Time series of Vietnam macroeconomic indicators (e.g. CPI YoY/MoM)."""
+    __tablename__ = "macro_indicators"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    indicator   = Column(String(30), nullable=False)   # e.g. "cpi_mom", "cpi_yoy"
+    period      = Column(Date, nullable=False)         # first day of the reference month
+    value       = Column(Float, nullable=False)
+    unit        = Column(String(10), default="%")
+    source_url  = Column(String(500))
+
+    __table_args__ = (
+        UniqueConstraint("indicator", "period", name="uq_macro_indicator_period"),
+        Index("ix_macro_indicator_period", "indicator", "period"),
+    )

@@ -94,6 +94,7 @@ _SECTOR_COMMODITIES = {
 }
 
 import io
+import json
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -102,7 +103,7 @@ import streamlit as st
 from sqlalchemy import select, func as sqlfunc
 
 from models.database import get_session
-from models.schema import Financial, Price, Company, Valuation, PinnedTicker
+from models.schema import Financial, Price, Company, Valuation, PinnedTicker, MacroIndicator
 from valuation.inputs import compute_ttm, compute_fcff_ttm, prepare_dcf_inputs, build_quarter_history
 from valuation.dcf import dcf_valuation
 from valuation.graham import graham_number, bvps_from_financials
@@ -209,6 +210,60 @@ def load_live_quote(ticker: str) -> dict | None:
     if not is_market_hours_ict():
         return None
     return fetch_live_quote(ticker)
+
+
+@st.cache_data(ttl=3600)
+def load_macro_indicator(indicator: str) -> pd.DataFrame:
+    with get_session() as s:
+        rows = s.execute(
+            select(MacroIndicator)
+            .where(MacroIndicator.indicator == indicator)
+            .order_by(MacroIndicator.period.asc())
+        ).scalars().all()
+        return pd.DataFrame([{"period": r.period, "value": r.value, "unit": r.unit} for r in rows])
+
+
+_MACRO_INDICATOR_LABELS = {
+    "gdp_growth": "Tăng trưởng GDP",
+    "cpi_yoy": "Lạm phát (so với cùng kỳ năm trước)",
+    "cpi_mom": "Lạm phát (so với tháng trước)",
+    "trade_balance": "Cán cân thương mại",
+    "retail_sales_growth": "Tăng trưởng bán lẻ",
+    "fdi": "FDI",
+}
+_MACRO_SEEN_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "macro_seen.json")
+
+
+@st.cache_data(ttl=300)
+def load_macro_latest_periods() -> dict[str, str]:
+    """Most recent data period per macro indicator, as ISO date strings."""
+    with get_session() as s:
+        rows = s.execute(
+            select(MacroIndicator.indicator, sqlfunc.max(MacroIndicator.period))
+            .group_by(MacroIndicator.indicator)
+        ).all()
+        return {indicator: period.isoformat() for indicator, period in rows if period}
+
+
+def check_macro_updates() -> list[str]:
+    """Compare latest macro data periods to the last-seen snapshot.
+
+    Returns the indicators (keys of _MACRO_INDICATOR_LABELS) that have newer data
+    than last time this was checked, and records the new snapshot.
+    """
+    latest = {k: v for k, v in load_macro_latest_periods().items() if k in _MACRO_INDICATOR_LABELS}
+    try:
+        with open(_MACRO_SEEN_PATH, encoding="utf-8") as f:
+            seen = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        seen = {}
+
+    updated = [k for k, v in latest.items() if v != seen.get(k)]
+    if updated:
+        os.makedirs(os.path.dirname(_MACRO_SEEN_PATH), exist_ok=True)
+        with open(_MACRO_SEEN_PATH, "w", encoding="utf-8") as f:
+            json.dump(latest, f)
+    return updated
 
 
 @st.cache_data(ttl=3600)
@@ -1234,13 +1289,28 @@ def _fetch_one_index_intraday(sym: str, today, week_ago) -> tuple[str, dict | No
         intraday = q.history(start=today.isoformat(), end=today.isoformat(), interval="1m")
         if intraday.empty:
             return sym, None
+        intraday_date = pd.to_datetime(intraday["time"]).dt.date.iloc[-1]
+        if intraday_date != today:
+            # Weekend/holiday: vnstock returns just the last 1-minute bar of
+            # the most recent session — re-fetch and keep only that session's rows
+            # (vnstock's 1m interval ignores the single-day range and may
+            # return a wider recent window).
+            intraday = q.history(start=intraday_date.isoformat(), end=intraday_date.isoformat(), interval="1m")
+            intraday = intraday[pd.to_datetime(intraday["time"]).dt.date == intraday_date]
+            if intraday.empty:
+                return sym, None
         daily = q.history(start=week_ago.isoformat(), end=today.isoformat(), interval="1D")
         current  = float(intraday["close"].iloc[-1])
         day_open = float(intraday["open"].iloc[0])
         prev_close = day_open
         if not daily.empty:
+            # Use the actual session date returned by the intraday call (not
+            # `today`) — on weekends/holidays vnstock returns the most recent
+            # trading day's intraday data, so prev_close must come from the
+            # day BEFORE that session, not the day before today.
+            intraday_date = pd.to_datetime(intraday["time"]).dt.date.iloc[-1]
             daily_dates = pd.to_datetime(daily["time"]).dt.date
-            prior = daily[daily_dates < today]
+            prior = daily[daily_dates < intraday_date]
             if not prior.empty:
                 prev_close = float(prior["close"].iloc[-1])
         chg = current - prev_close
@@ -1334,6 +1404,7 @@ VIEWS = [
     "Undervalued Watchlist",
     "Portfolio Tracker",
     "Market Overview",
+    "Macro",
 ]
 # Handle navigation from popup buttons (must be before radio renders)
 if st.session_state.get("hm_navigate_to"):
@@ -5028,11 +5099,11 @@ elif view == "Market Overview":
             _fig_i.add_trace(go.Scatter(
                 x=_ia["tlabel"], y=_ia["close"], mode="lines",
                 line=dict(color=_clr, width=1.5), fill="tonexty",
-                fillcolor=_fclr,
-                hovertemplate="%{y:,.2f}<extra></extra>"), row=1, col=1)
+                fillcolor=_fclr, customdata=_ia["volume"],
+                hovertemplate="%{y:,.2f}<br>KL: %{customdata:,.0f}<extra></extra>"), row=1, col=1)
             _fig_i.add_trace(go.Bar(
                 x=_ia["tlabel"], y=_ia["volume"], marker_color=_clr, opacity=0.5,
-                hovertemplate="KL: %{y:,.0f}<extra></extra>"), row=2, col=1)
+                hoverinfo="skip"), row=2, col=1)
             _fig_i.update_layout(
                 height=160, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
                 showlegend=False, hovermode="x unified",
@@ -5299,3 +5370,53 @@ elif view == "Market Overview":
         xaxis_title="Daily Change %", yaxis_title="# Tickers", bargap=0.05)
     st.plotly_chart(_fig_h, width="stretch")
     st.caption(f"{total} tickers · Mean {_hdf['chg_pct'].mean():+.2f}% · Median {_hdf['chg_pct'].median():+.2f}%")
+
+
+# ═══════════════════════════════════════════════════════════════
+# MACRO
+# ═══════════════════════════════════════════════════════════════
+elif view == "Macro":
+    st.title("Kinh tế vĩ mô")
+    st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn)")
+
+    _updated = check_macro_updates()
+    if _updated:
+        _names = ", ".join(_MACRO_INDICATOR_LABELS.get(k, k) for k in _updated)
+        st.toast(f"Có dữ liệu vĩ mô mới: {_names}", icon="📊")
+        st.success(f"Có dữ liệu mới cho: {_names}")
+
+    def _macro_bar_chart(df: "pd.DataFrame", title: str, unit: str = "%"):
+        if df.empty:
+            st.info(f"{title}: chưa có dữ liệu")
+            return
+        colors = ["#22c55e" if v >= 0 else "#ef4444" for v in df["value"]]
+        fig = go.Figure(go.Bar(
+            x=df["period"], y=df["value"], marker_color=colors,
+            hovertemplate="%{x|%m/%Y}: %{y:+.2f}" + unit + "<extra></extra>"))
+        fig.add_hline(y=0, line_color="gray", opacity=0.5)
+        fig.update_layout(
+            title=title, height=280, margin=dict(l=0, r=0, t=40, b=0),
+            dragmode=False, showlegend=False,
+            yaxis_title=unit)
+        st.plotly_chart(fig, width="stretch")
+        latest = df["period"].max()
+        st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
+
+    tab_overview, = st.tabs(["Tổng quan"])
+
+    with tab_overview:
+        row1 = st.columns(3)
+        row2 = st.columns(3)
+
+        with row1[0]:
+            _macro_bar_chart(load_macro_indicator("gdp_growth"), "Tăng trưởng GDP (so với cùng kỳ năm trước)")
+        with row1[1]:
+            _macro_bar_chart(load_macro_indicator("cpi_yoy"), "Lạm phát (so với cùng kỳ năm trước)")
+        with row1[2]:
+            _macro_bar_chart(load_macro_indicator("cpi_mom"), "Lạm phát (so với tháng trước)")
+        with row2[0]:
+            _macro_bar_chart(load_macro_indicator("trade_balance"), "Cán cân thương mại", unit=" tỷ USD")
+        with row2[1]:
+            _macro_bar_chart(load_macro_indicator("retail_sales_growth"), "Tăng trưởng bán lẻ (so với cùng kỳ năm trước)")
+        with row2[2]:
+            _macro_bar_chart(load_macro_indicator("fdi"), "Vốn đầu tư nước ngoài (FDI đăng ký, theo quý)", unit=" tỷ USD")
