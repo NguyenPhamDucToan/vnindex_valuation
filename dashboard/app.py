@@ -1349,6 +1349,56 @@ def load_index_intraday() -> dict:
     return {sym: out[sym] for sym in _INDEX_SYMBOLS if sym in out}
 
 
+_IDX_LABELS = {
+    "VNINDEX": "VNINDEX", "HNXINDEX": "HNXINDEX", "UPCOMINDEX": "UPINDEX",
+    "VN30": "VN30", "HNX30": "HNX30",
+}
+
+
+@st.fragment(run_every=30)
+def _render_index_ticker_bar():
+    """Live intraday mini-charts for the main indices — re-fetches every 30s during trading hours."""
+    _idx_data = load_index_intraday()
+    if not _idx_data:
+        return
+    _idx_cols = st.columns(len(_idx_data))
+    for _col, (_sym, _d) in zip(_idx_cols, _idx_data.items()):
+        _up   = _d["chg"] >= 0
+        _clr  = "#22c55e" if _up else "#ef4444"
+        _fclr = "rgba(34,197,94,0.13)" if _up else "rgba(239,68,68,0.13)"
+        _ia  = _d["intraday"].copy()
+        _ia["tlabel"] = pd.to_datetime(_ia["time"]).dt.strftime("%H:%M")
+        _fig_i = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3],
+                                vertical_spacing=0.05)
+        _fig_i.add_trace(go.Scatter(
+            x=_ia["tlabel"], y=[_d["open"]] * len(_ia), mode="lines",
+            line=dict(color="gray", width=1, dash="dot"), hoverinfo="skip"), row=1, col=1)
+        _fig_i.add_trace(go.Scatter(
+            x=_ia["tlabel"], y=_ia["close"], mode="lines",
+            line=dict(color=_clr, width=1.5), fill="tonexty",
+            fillcolor=_fclr, customdata=_ia["volume"],
+            hovertemplate="%{y:,.2f}<br>KL: %{customdata:,.0f}<extra></extra>"), row=1, col=1)
+        _fig_i.add_trace(go.Bar(
+            x=_ia["tlabel"], y=_ia["volume"], marker_color=_clr, opacity=0.5,
+            hoverinfo="skip"), row=2, col=1)
+        _fig_i.update_layout(
+            height=160, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
+            showlegend=False, hovermode="x unified",
+            hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb"))
+        _fig_i.update_xaxes(showticklabels=False, showgrid=False)
+        _fig_i.update_yaxes(showticklabels=False, showgrid=False)
+        with _col:
+            st.markdown(
+                f"<div style='text-align:center;'>"
+                f"<div style='font-size:13px;color:#9ca3af;font-weight:600;'>{_IDX_LABELS.get(_sym, _sym)}</div>"
+                f"<div style='font-size:18px;font-weight:800;color:{_clr};'>{_d['current']:,.2f}</div>"
+                f"<div style='font-size:12px;color:{_clr};'>{_d['chg']:+.2f} ({_d['chg_pct']:+.2f}%)</div>"
+                f"</div>", unsafe_allow_html=True)
+            st.plotly_chart(_fig_i, width="stretch", config={"displayModeBar": False})
+    st.caption("Đường chấm xám = giá mở cửa. Xanh = đang tăng so với hôm trước, đỏ = đang giảm.")
+    st.divider()
+
+
 # ─────────────────────────────────────────────
 # Sidebar navigation
 # ─────────────────────────────────────────────
@@ -1396,6 +1446,149 @@ def build_excel_export(df: "pd.DataFrame", screen_name: str = "Valuation Screen"
     except Exception:
         exp.to_csv(buf, index=False)
     return buf.getvalue()
+
+
+def _hv(v, sfx=""):
+    return f"{v:,.0f}{sfx}" if v is not None else "—"
+
+
+def _hf(v, d=1, sfx=""):
+    return f"{v:.{d}f}{sfx}" if v is not None else "—"
+
+
+def _mc(label, value, accent=False):
+    vc = "#60a5fa" if accent else "#f9fafb"
+    return (
+        f'<div style="min-width:0;">'
+        f'<div style="font-size:16px;color:#9ca3af;white-space:nowrap;">{label}</div>'
+        f'<div style="font-size:20px;font-weight:600;color:{vc};white-space:nowrap;">{value}</div>'
+        f'</div>'
+    )
+
+
+def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, ni, ebit_, dep_, debt_, cash_):
+    """Build the styled stock-info header HTML, overlaying a live quote during trading hours."""
+    from collectors.live_quote import apply_live_overlay
+
+    current_price = float(prices_df["close"].iloc[-1]) * 1000
+    _last   = prices_df.iloc[-1]
+    _prev_c = float(prices_df["close"].iloc[-2]) * 1000 if len(prices_df) > 1 else current_price
+    _high_d = float(_last["high"]) * 1000
+    _low_d  = float(_last["low"])  * 1000
+
+    _overlay = apply_live_overlay(current_price, _prev_c, _high_d, _low_d, load_live_quote(ticker))
+    current_price, _prev_c, _high_d, _low_d, _live_as_of = (
+        _overlay["current_price"], _overlay["prev_close"],
+        _overlay["high"], _overlay["low"], _overlay["as_of"],
+    )
+
+    _chg      = current_price - _prev_c
+    _chg_pct  = _chg / _prev_c * 100 if _prev_c else 0
+    _chg_disp = f"+{_chg:,.0f}" if _chg >= 0 else f"{_chg:,.0f}"
+
+    # Price band limit by exchange (HOSE ±7%, HNX ±10%, UPCOM ±15%)
+    _exch_up  = co_exch.upper() if co_exch else "HOSE"
+    _band_pct = 0.10 if "HNX" in _exch_up else 0.15 if "UPCOM" in _exch_up or "UPC" in _exch_up else 0.07
+    _ceil_p   = _prev_c * (1 + _band_pct)
+    _floor_p  = _prev_c * (1 - _band_pct)
+
+    if _prev_c and current_price >= _ceil_p * 0.9995:   # at ceiling (within 0.05% rounding)
+        _cc, _cbg, _arrow = "#a855f7", "#4a1d96", "▲"
+    elif _chg > 0:
+        _cc, _cbg, _arrow = "#22c55e", "#166534", "▲"
+    elif _chg == 0:
+        _cc, _cbg, _arrow = "#eab308", "#713f12", "—"
+    elif _prev_c and current_price <= _floor_p * 1.0005:  # at floor
+        _cc, _cbg, _arrow = "#22d3ee", "#164e63", "▼"
+    else:
+        _cc, _cbg, _arrow = "#ef4444", "#7f1d1d", "▼"
+
+    _mcap     = round(current_price * sh / 1e3) if sh else None
+    _bvps     = (eq * 1e9 / (sh * 1e6))        if sh else None
+    _eps_h    = (ni * 1e9 / (sh * 1e6))        if sh else None
+    _pe_h     = round(current_price / _eps_h, 1) if _eps_h and _eps_h > 0 else None
+    _pb_h     = round(current_price / _bvps,   1) if _bvps  and _bvps  > 0 else None
+    _ebitda_h = ebit_ + dep_
+    _ev_h     = (_mcap or 0) + debt_ - cash_
+    _evebitda = round(_ev_h / _ebitda_h, 1)      if _ebitda_h > 0 else None
+    _avgvol   = prices_df["volume"].tail(15).mean() / 1000 if len(prices_df) >= 15 else None
+    _rng_pct  = round((current_price - _low_d) / (_high_d - _low_d) * 100) if _high_d > _low_d else 50
+    _rng_pct  = max(2, min(98, _rng_pct))  # keep dot inside bar
+
+    _live_badge = (
+        f'<span style="font-size:13px;background:#7f1d1d;color:#fca5a5;padding:3px 10px;'
+        f'border-radius:8px;font-weight:600;">🔴 LIVE · {_live_as_of}</span>'
+        if _live_as_of else
+        f'<span style="font-size:13px;background:#374151;color:#9ca3af;padding:3px 10px;'
+        f'border-radius:8px;font-weight:600;">EOD</span>'
+    )
+
+    return (
+        f'<div style="padding:22px 0px;margin-bottom:18px;display:flex;gap:28px;align-items:center;">'
+
+        # LEFT — ticker + name
+        f'<div style="min-width:230px;padding-right:28px;">'
+        f'<div style="font-size:33px;font-weight:800;color:#f9fafb;line-height:1.2;">'
+        f'{ticker}'
+        f'<span style="font-size:16px;background:#1e3a5f;color:#60a5fa;padding:3px 10px;'
+        f'border-radius:6px;margin-left:9px;vertical-align:middle;">{co_exch}</span>'
+        f'</div>'
+        f'<div style="font-size:18px;color:#9ca3af;margin-top:8px;">{co_name}</div>'
+        f'</div>'
+
+        # CENTER — price + change + day range
+        f'<div style="min-width:300px;padding-right:28px;">'
+        f'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">'
+        f'<span style="font-size:45px;font-weight:800;color:#f9fafb;">{current_price:,.0f}</span>'
+        f'<span style="font-size:22px;color:{_cc};font-weight:600;">{_chg_disp}</span>'
+        f'<span style="font-size:18px;background:{_cbg};color:{_cc};padding:3px 12px;'
+        f'border-radius:8px;font-weight:600;">{_arrow}{abs(_chg_pct):.2f}%</span>'
+        f'{_live_badge}'
+        f'</div>'
+        f'<div style="margin-top:10px;width:100%;">'
+        f'<div style="display:flex;justify-content:space-between;font-size:16px;color:#9ca3af;margin-bottom:5px;">'
+        f'<span>Low &nbsp;<b style="color:#f9fafb;">{_low_d:,.0f}</b></span>'
+        f'<span>High <b style="color:#f9fafb;">{_high_d:,.0f}</b></span>'
+        f'</div>'
+        f'<div style="position:relative;height:4px;background:#374151;border-radius:2px;margin-bottom:10px;">'
+        f'<div style="position:absolute;left:0;top:0;height:100%;width:{_rng_pct}%;'
+        f'background:{_cc};border-radius:2px;opacity:0.7;"></div>'
+        f'<div style="position:absolute;left:{_rng_pct}%;top:50%;transform:translate(-50%,-50%);'
+        f'width:11px;height:11px;background:{_cc};border-radius:50%;box-shadow:0 0 0 2px #1f2937;"></div>'
+        f'<div style="position:absolute;left:{_rng_pct}%;top:10px;transform:translateX(-50%);'
+        f'width:0;height:0;'
+        f'border-left:6px solid transparent;'
+        f'border-right:6px solid transparent;'
+        f'border-bottom:8px solid {_cc};"></div>'
+        f'</div>'
+        f'</div>'
+        f'</div>'
+
+        # RIGHT — 3×3 metrics grid
+        f'<div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:16px 18px;">'
+        + _mc("Market Cap (bn)", _hv(_mcap))
+        + _mc("Book Value (bn)", _hv(eq))
+        + _mc("P/E", _hf(_pe_h, 1, "x"), accent=True)
+        + _mc("Avg Vol 15D (K)", _hv(_avgvol))
+        + _mc("EPS (VND)", _hv(_eps_h))
+        + _mc("P/B", _hf(_pb_h, 1, "x"), accent=True)
+        + _mc("Shares (M)", _hv(sh))
+        + _mc("EV/EBITDA", _hf(_evebitda, 1, "x"))
+        + _mc("Sector", co_sect)
+        + f'</div>'
+
+        f'</div>'
+    )
+
+
+@st.fragment(run_every=30)
+def _render_company_header(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, ni, ebit_, dep_, debt_, cash_):
+    """Live-updating stock header — re-fetches the live quote every 30s during trading hours."""
+    st.markdown(
+        _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, ni, ebit_, dep_, debt_, cash_),
+        unsafe_allow_html=True,
+    )
+
 
 VIEWS = [
     "Company Analysis",
@@ -1531,51 +1724,6 @@ if view == "Company Analysis":
         _co_exch = (_co_row.exchange or "HOSE") if _co_row else "HOSE"
         _co_sect = (_co_row.sector   or "—")    if _co_row else "—"
 
-    _last     = prices_df.iloc[-1]
-    _prev_c   = float(prices_df["close"].iloc[-2]) * 1000 if len(prices_df) > 1 else current_price
-    _high_d   = float(_last["high"]) * 1000
-    _low_d    = float(_last["low"])  * 1000
-
-    # During trading hours, overlay a live quote on top of the last stored
-    # (previous-day) EOD bar — DB is only refreshed after market close.
-    from collectors.live_quote import apply_live_overlay
-    _overlay = apply_live_overlay(current_price, _prev_c, _high_d, _low_d, load_live_quote(ticker))
-    current_price, _prev_c, _high_d, _low_d, _live_as_of = (
-        _overlay["current_price"], _overlay["prev_close"],
-        _overlay["high"], _overlay["low"], _overlay["as_of"],
-    )
-
-    _chg      = current_price - _prev_c
-    _chg_pct  = _chg / _prev_c * 100 if _prev_c else 0
-    _chg_disp = f"+{_chg:,.0f}" if _chg >= 0 else f"{_chg:,.0f}"
-
-    # Price band limit by exchange (HOSE ±7%, HNX ±10%, UPCOM ±15%)
-    _exch_up = _co_exch.upper() if _co_exch else "HOSE"
-    _band_pct = 0.10 if "HNX" in _exch_up else 0.15 if "UPCOM" in _exch_up or "UPC" in _exch_up else 0.07
-    _ceil_p   = _prev_c * (1 + _band_pct)
-    _floor_p  = _prev_c * (1 - _band_pct)
-
-    if _prev_c and current_price >= _ceil_p * 0.9995:   # at ceiling (within 0.05% rounding)
-        _cc  = "#a855f7"   # purple
-        _cbg = "#4a1d96"
-        _arrow = "▲"
-    elif _chg > 0:
-        _cc  = "#22c55e"   # green
-        _cbg = "#166534"
-        _arrow = "▲"
-    elif _chg == 0:
-        _cc  = "#eab308"   # yellow
-        _cbg = "#713f12"
-        _arrow = "—"
-    elif _prev_c and current_price <= _floor_p * 1.0005:  # at floor
-        _cc  = "#22d3ee"   # light blue / cyan
-        _cbg = "#164e63"
-        _arrow = "▼"
-    else:
-        _cc  = "#ef4444"   # red
-        _cbg = "#7f1d1d"
-        _arrow = "▼"
-
     _sh    = (ttm.get("shares_outstanding") or 0) if ttm else 0
     _eq    = (ttm.get("equity")             or 0) if ttm else 0
     _ni    = (ttm.get("net_income")         or 0) if ttm else 0
@@ -1584,99 +1732,20 @@ if view == "Company Analysis":
     _debt_ = (ttm.get("debt")               or 0) if ttm else 0
     _cash_ = (ttm.get("cash")               or 0) if ttm else 0
 
-    _mcap     = round(current_price * _sh / 1e3) if _sh else None
-    _bvps     = (_eq * 1e9 / (_sh * 1e6))        if _sh else None
-    _eps_h    = (_ni * 1e9 / (_sh * 1e6))        if _sh else None
-    _pe_h     = round(current_price / _eps_h, 1) if _eps_h and _eps_h > 0 else None
-    _pb_h     = round(current_price / _bvps,   1) if _bvps  and _bvps  > 0 else None
-    _ebitda_h = _ebit_ + _dep_
-    _ev_h     = (_mcap or 0) + _debt_ - _cash_
-    _evebitda = round(_ev_h / _ebitda_h, 1)      if _ebitda_h > 0 else None
-    _avgvol   = prices_df["volume"].tail(15).mean() / 1000 if len(prices_df) >= 15 else None
-    _rng_pct  = round((current_price - _low_d) / (_high_d - _low_d) * 100) if _high_d > _low_d else 50
-    _rng_pct  = max(2, min(98, _rng_pct))  # keep dot inside bar
-
-    _live_badge = (
-        f'<span style="font-size:13px;background:#7f1d1d;color:#fca5a5;padding:3px 10px;'
-        f'border-radius:8px;font-weight:600;">🔴 LIVE · {_live_as_of}</span>'
-        if _live_as_of else
-        f'<span style="font-size:13px;background:#374151;color:#9ca3af;padding:3px 10px;'
-        f'border-radius:8px;font-weight:600;">EOD</span>'
-    )
-
-    def _hv(v, sfx=""):
-        return f"{v:,.0f}{sfx}" if v is not None else "—"
-
-    def _hf(v, d=1, sfx=""):
-        return f"{v:.{d}f}{sfx}" if v is not None else "—"
-
-    def _mc(label, value, accent=False):
-        vc = "#60a5fa" if accent else "#f9fafb"
-        return (
-            f'<div style="min-width:0;">'
-            f'<div style="font-size:16px;color:#9ca3af;white-space:nowrap;">{label}</div>'
-            f'<div style="font-size:20px;font-weight:600;color:{vc};white-space:nowrap;">{value}</div>'
-            f'</div>'
-        )
-
-    _header = (
-        f'<div style="padding:22px 0px;margin-bottom:18px;display:flex;gap:28px;align-items:center;">'
-
-        # LEFT — ticker + name
-        f'<div style="min-width:230px;padding-right:28px;">'
-        f'<div style="font-size:33px;font-weight:800;color:#f9fafb;line-height:1.2;">'
-        f'{ticker}'
-        f'<span style="font-size:16px;background:#1e3a5f;color:#60a5fa;padding:3px 10px;'
-        f'border-radius:6px;margin-left:9px;vertical-align:middle;">{_co_exch}</span>'
-        f'</div>'
-        f'<div style="font-size:18px;color:#9ca3af;margin-top:8px;">{_co_name}</div>'
-        f'</div>'
-
-        # CENTER — price + change + day range
-        f'<div style="min-width:300px;padding-right:28px;">'
-        f'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">'
-        f'<span style="font-size:45px;font-weight:800;color:#f9fafb;">{current_price:,.0f}</span>'
-        f'<span style="font-size:22px;color:{_cc};font-weight:600;">{_chg_disp}</span>'
-        f'<span style="font-size:18px;background:{_cbg};color:{_cc};padding:3px 12px;'
-        f'border-radius:8px;font-weight:600;">{_arrow}{abs(_chg_pct):.2f}%</span>'
-        f'{_live_badge}'
-        f'</div>'
-        f'<div style="margin-top:10px;width:100%;">'
-        f'<div style="display:flex;justify-content:space-between;font-size:16px;color:#9ca3af;margin-bottom:5px;">'
-        f'<span>Low &nbsp;<b style="color:#f9fafb;">{_low_d:,.0f}</b></span>'
-        f'<span>High <b style="color:#f9fafb;">{_high_d:,.0f}</b></span>'
-        f'</div>'
-        f'<div style="position:relative;height:4px;background:#374151;border-radius:2px;margin-bottom:10px;">'
-        f'<div style="position:absolute;left:0;top:0;height:100%;width:{_rng_pct}%;'
-        f'background:{_cc};border-radius:2px;opacity:0.7;"></div>'
-        f'<div style="position:absolute;left:{_rng_pct}%;top:50%;transform:translate(-50%,-50%);'
-        f'width:11px;height:11px;background:{_cc};border-radius:50%;box-shadow:0 0 0 2px #1f2937;"></div>'
-        f'<div style="position:absolute;left:{_rng_pct}%;top:10px;transform:translateX(-50%);'
-        f'width:0;height:0;'
-        f'border-left:6px solid transparent;'
-        f'border-right:6px solid transparent;'
-        f'border-bottom:8px solid {_cc};"></div>'
-        f'</div>'
-        f'</div>'
-        f'</div>'
-
-        # RIGHT — 3×3 metrics grid
-        f'<div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:16px 18px;">'
-        + _mc("Market Cap (bn)", _hv(_mcap))
-        + _mc("Book Value (bn)", _hv(_eq))
-        + _mc("P/E", _hf(_pe_h, 1, "x"), accent=True)
-        + _mc("Avg Vol 15D (K)", _hv(_avgvol))
-        + _mc("EPS (VND)", _hv(_eps_h))
-        + _mc("P/B", _hf(_pb_h, 1, "x"), accent=True)
-        + _mc("Shares (M)", _hv(_sh))
-        + _mc("EV/EBITDA", _hf(_evebitda, 1, "x"))
-        + _mc("Sector", _co_sect)
-        + f'</div>'
-
-        f'</div>'
-    )
-    st.markdown(_header, unsafe_allow_html=True)
+    # Live-updating header (re-fetches the live quote every 30s during trading hours)
+    _render_company_header(ticker, prices_df, _co_name, _co_exch, _co_sect, _sh, _eq, _ni, _ebit_, _dep_, _debt_, _cash_)
     st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:0 0 8px 0;">', unsafe_allow_html=True)
+
+    # During trading hours, overlay a live quote on top of the last stored
+    # (previous-day) EOD bar — DB is only refreshed after market close.
+    # Used by the valuation comparisons below.
+    from collectors.live_quote import apply_live_overlay
+    _last   = prices_df.iloc[-1]
+    _prev_c = float(prices_df["close"].iloc[-2]) * 1000 if len(prices_df) > 1 else current_price
+    _high_d = float(_last["high"]) * 1000
+    _low_d  = float(_last["low"])  * 1000
+    _overlay = apply_live_overlay(current_price, _prev_c, _high_d, _low_d, load_live_quote(ticker))
+    current_price = _overlay["current_price"]
 
     # ── Price chart ────────────────────────────────────────────
     # Marker + CSS so the last bordered card in each of the two columns
@@ -5077,49 +5146,8 @@ elif view == "Portfolio Tracker":
 elif view == "Market Overview":
     st.title("Market Overview")
 
-    # ── Intraday index ticker bar ───────────────────────────────
-    _idx_data = load_index_intraday()
-    if _idx_data:
-        _idx_labels = {
-            "VNINDEX": "VNINDEX", "HNXINDEX": "HNXINDEX", "UPCOMINDEX": "UPINDEX",
-            "VN30": "VN30", "HNX30": "HNX30",
-        }
-        _idx_cols = st.columns(len(_idx_data))
-        for _col, (_sym, _d) in zip(_idx_cols, _idx_data.items()):
-            _up   = _d["chg"] >= 0
-            _clr  = "#22c55e" if _up else "#ef4444"
-            _fclr = "rgba(34,197,94,0.13)" if _up else "rgba(239,68,68,0.13)"
-            _ia  = _d["intraday"].copy()
-            _ia["tlabel"] = pd.to_datetime(_ia["time"]).dt.strftime("%H:%M")
-            _fig_i = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3],
-                                    vertical_spacing=0.05)
-            _fig_i.add_trace(go.Scatter(
-                x=_ia["tlabel"], y=[_d["open"]] * len(_ia), mode="lines",
-                line=dict(color="gray", width=1, dash="dot"), hoverinfo="skip"), row=1, col=1)
-            _fig_i.add_trace(go.Scatter(
-                x=_ia["tlabel"], y=_ia["close"], mode="lines",
-                line=dict(color=_clr, width=1.5), fill="tonexty",
-                fillcolor=_fclr, customdata=_ia["volume"],
-                hovertemplate="%{y:,.2f}<br>KL: %{customdata:,.0f}<extra></extra>"), row=1, col=1)
-            _fig_i.add_trace(go.Bar(
-                x=_ia["tlabel"], y=_ia["volume"], marker_color=_clr, opacity=0.5,
-                hoverinfo="skip"), row=2, col=1)
-            _fig_i.update_layout(
-                height=160, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
-                showlegend=False, hovermode="x unified",
-                hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb"))
-            _fig_i.update_xaxes(showticklabels=False, showgrid=False)
-            _fig_i.update_yaxes(showticklabels=False, showgrid=False)
-            with _col:
-                st.markdown(
-                    f"<div style='text-align:center;'>"
-                    f"<div style='font-size:13px;color:#9ca3af;font-weight:600;'>{_idx_labels.get(_sym, _sym)}</div>"
-                    f"<div style='font-size:18px;font-weight:800;color:{_clr};'>{_d['current']:,.2f}</div>"
-                    f"<div style='font-size:12px;color:{_clr};'>{_d['chg']:+.2f} ({_d['chg_pct']:+.2f}%)</div>"
-                    f"</div>", unsafe_allow_html=True)
-                st.plotly_chart(_fig_i, width="stretch", config={"displayModeBar": False})
-        st.caption("Đường chấm xám = giá mở cửa. Xanh = đang tăng so với hôm trước, đỏ = đang giảm.")
-        st.divider()
+    # ── Intraday index ticker bar (auto-refreshes every 30s during trading hours)
+    _render_index_ticker_bar()
 
     with st.spinner("Loading market data..."):
         snap_df = load_market_snapshot()
