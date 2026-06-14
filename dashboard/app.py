@@ -5427,9 +5427,9 @@ elif view == "Macro":
         # Annual-only series (all periods in December) are sparse and far apart on a
         # date axis, which makes Plotly auto-size the bars to span huge ranges.
         # Render those as categorical (one bar per year) instead.
-        is_annual = (df["period"].dt.month == 12).all()
+        is_annual = all(p.month == 12 for p in df["period"])
         if is_annual:
-            x = df["period"].dt.year.astype(str)
+            x = df["period"].apply(lambda p: str(p.year))
             hover = "%{x}: %{y:+.2f}" + unit + "<extra></extra>"
         else:
             x = df["period"]
