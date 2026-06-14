@@ -5461,7 +5461,7 @@ elif view == "Macro":
         fig.add_hline(y=0, line_color="gray", opacity=0.5)
         fig.update_layout(
             title=title, height=340, margin=dict(l=0, r=0, t=40, b=40),
-            dragmode=False,
+            dragmode=False, showlegend=len(series) > 1,
             legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0),
             yaxis_title=unit)
         st.plotly_chart(fig, width="stretch")
@@ -5498,8 +5498,8 @@ elif view == "Macro":
         )
         row3 = st.columns(3)
         with row3[0]:
-            _macro_bar_chart(load_macro_indicator("gdp_nominal_usd"), "Quy mô GDP (theo năm)", unit=" tỷ USD")
+            _macro_line_chart({"Quy mô GDP": load_macro_indicator("gdp_nominal_usd")}, "Quy mô GDP (theo năm)", unit=" tỷ USD")
         with row3[1]:
-            _macro_bar_chart(load_macro_indicator("gdp_per_capita_usd"), "GDP bình quân đầu người (theo năm)", unit=" USD")
+            _macro_line_chart({"GDP bình quân đầu người": load_macro_indicator("gdp_per_capita_usd")}, "GDP bình quân đầu người (theo năm)", unit=" USD")
         with row3[2]:
-            _macro_bar_chart(load_macro_indicator("investment_growth"), "Tăng trưởng vốn đầu tư toàn xã hội (so với cùng kỳ)")
+            _macro_line_chart({"Tăng trưởng vốn đầu tư": load_macro_indicator("investment_growth")}, "Tăng trưởng vốn đầu tư toàn xã hội (so với cùng kỳ)")
