@@ -63,6 +63,13 @@ _SLUG_RE_NUM_FALLBACK = re.compile(r"-(\d{1,2})-nam-(\d{4})")
 _GDP_RE = re.compile(
     r"Tổng sản phẩm trong nước \(GDP\) quý (I{1,3}|IV)(?:/| năm )(\d{4}).{0,150}?([\d,]+)%\s*(?:\[\d+\]\s*)?so với cùng kỳ năm trước"
 )
+# Fallbacks for releases where the headline GDP sentence covers a half-year/9-month/
+# full-year period and the per-quarter figure is mentioned later in the text instead.
+_GDP_RE_FALLBACK = re.compile(
+    r"GDP quý (I{1,3}|IV)/(\d{4}).{0,60}?(tăng|giảm) ([\d,]+)%\s*(?:\[\d+\]\s*)?so với cùng kỳ năm trước"
+)
+_GDP_RE_ANNUAL_Q4 = re.compile(r"\(GDP\) năm (\d{4}).{0,250}?quý IV tăng ([\d,]+)%")
+_GDP_RE_9M_Q3 = re.compile(r"\(GDP\) 9 tháng năm (\d{4}).{0,250}?quý III tăng ([\d,]+)%")
 _TRADE_YEAR_RE = re.compile(r"so-lieu-xuat-nhap-khau-cac-thang-nam-(\d{4})")
 _TRADE_XLS_RE = re.compile(r'href="([^"]*V0([12])-\d{4}-\d+\.xls)"')
 _FDI_RE = re.compile(
@@ -252,11 +259,28 @@ def parse_gdp_article(url: str) -> list[dict]:
     text = unicodedata.normalize("NFC", text)
 
     m = _GDP_RE.search(text)
-    if not m:
-        logger.warning(f"Could not parse GDP growth from {url}")
-        return []
-    quarter, year, value = m.group(1), int(m.group(2)), float(m.group(3).replace(",", "."))
-    period = date(year, _QUARTER_END_MONTH[quarter], 1)
+    if m:
+        quarter, year, value = m.group(1), int(m.group(2)), float(m.group(3).replace(",", "."))
+        period = date(year, _QUARTER_END_MONTH[quarter], 1)
+    else:
+        m = _GDP_RE_FALLBACK.search(text)
+        if m:
+            quarter, year = m.group(1), int(m.group(2))
+            value = _to_float(m.group(3), m.group(4))
+            period = date(year, _QUARTER_END_MONTH[quarter], 1)
+        else:
+            m = _GDP_RE_ANNUAL_Q4.search(text)
+            if m:
+                year, value = int(m.group(1)), float(m.group(2).replace(",", "."))
+                period = date(year, 12, 1)
+            else:
+                m = _GDP_RE_9M_Q3.search(text)
+                if m:
+                    year, value = int(m.group(1)), float(m.group(2).replace(",", "."))
+                    period = date(year, 9, 1)
+                else:
+                    logger.warning(f"Could not parse GDP growth from {url}")
+                    return []
     rows = [{"indicator": "gdp_growth", "period": period, "value": value, "unit": "%", "source_url": url}]
 
     sector = _GDP_SECTOR_RE.search(text)
