@@ -90,12 +90,20 @@ _GDP_NOMINAL_RE = re.compile(
 _GDP_PERCAPITA_RE = re.compile(
     r"GDP bình quân đầu người năm (\d{4}).{0,100}?tương đương\s*([\d.,]+)\s*USD"
 )
+# Older releases (e.g. 2018) omit "năm <year>" — the year is taken from the
+# article's annual period instead.
+_GDP_PERCAPITA_RE_ALT = re.compile(
+    r"GDP bình quân đầu người.{0,100}?tương đương\s*([\d.,]+)\s*USD"
+)
 
 # Total realized social investment YoY growth (quarterly or full-year wording).
+# "theo giá hiện hành" may appear before or after "năm <year>" depending on
+# release year, and some releases use "đạt mức tăng X%" instead of "tăng X%".
 _INVESTMENT_RE = re.compile(
     r"Vốn đầu tư thực hiện toàn xã hội "
-    r"(?:trong quý (I{1,3}|IV)/(\d{4})|năm (\d{4})) theo giá hiện hành"
-    r".{0,100}?(tăng|giảm) ([\d,]+)%"
+    r"(?:trong quý (I{1,3}|IV)/(\d{4})|(?:theo giá hiện hành )?năm (\d{4}))"
+    r"(?: theo giá hiện hành)?"
+    r".{0,150}?(tăng|giảm|đạt mức tăng) ([\d,]+)%"
 )
 
 
@@ -305,14 +313,22 @@ def parse_gdp_article(url: str) -> list[dict]:
             "indicator": "gdp_per_capita_usd", "period": percapita_period,
             "value": _vn_num(percapita.group(2)), "unit": "USD", "source_url": url,
         })
+    elif period.month == 12:
+        percapita = _GDP_PERCAPITA_RE_ALT.search(text)
+        if percapita:
+            rows.append({
+                "indicator": "gdp_per_capita_usd", "period": period,
+                "value": _vn_num(percapita.group(1)), "unit": "USD", "source_url": url,
+            })
 
     investment = _INVESTMENT_RE.search(text)
     if investment:
-        q, qy, ay, sign, val = investment.groups()
+        q, qy, ay, verb, val = investment.groups()
         if q:
             inv_period = date(int(qy), _QUARTER_END_MONTH[q], 1)
         else:
             inv_period = date(int(ay), 12, 1)
+        sign = "giảm" if verb == "giảm" else "tăng"
         rows.append({
             "indicator": "investment_growth", "period": inv_period,
             "value": _to_float(sign, val), "unit": "%", "source_url": url,
