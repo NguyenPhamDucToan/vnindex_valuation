@@ -5446,7 +5446,7 @@ elif view == "Macro":
         latest = df["period"].max()
         st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
 
-    def _macro_grouped_bar_chart(series: dict[str, "pd.DataFrame"], title: str, unit: str = "%"):
+    def _macro_line_chart(series: dict[str, "pd.DataFrame"], title: str, unit: str = "%"):
         series = {label: df for label, df in series.items() if not df.empty}
         if not series:
             st.info(f"{title}: chưa có dữ liệu")
@@ -5454,13 +5454,14 @@ elif view == "Macro":
         _colors = ["#22c55e", "#f59e0b", "#60a5fa"]
         fig = go.Figure()
         for i, (label, df) in enumerate(series.items()):
-            fig.add_trace(go.Bar(
-                x=df["period"], y=df["value"], name=label, marker_color=_colors[i % len(_colors)],
+            fig.add_trace(go.Scatter(
+                x=df["period"], y=df["value"], name=label, mode="lines+markers",
+                line=dict(color=_colors[i % len(_colors)], width=2),
                 hovertemplate="%{x|%m/%Y} · " + label + ": %{y:+.2f}" + unit + "<extra></extra>"))
         fig.add_hline(y=0, line_color="gray", opacity=0.5)
         fig.update_layout(
             title=title, height=340, margin=dict(l=0, r=0, t=40, b=40),
-            dragmode=False, barmode="group",
+            dragmode=False,
             legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0),
             yaxis_title=unit)
         st.plotly_chart(fig, width="stretch")
@@ -5487,7 +5488,7 @@ elif view == "Macro":
             _macro_bar_chart(load_macro_indicator("fdi"), "Vốn đầu tư nước ngoài (FDI đăng ký, theo quý)", unit=" tỷ USD")
 
     with tab_gdp:
-        _macro_grouped_bar_chart(
+        _macro_line_chart(
             {
                 "Nông, lâm nghiệp và thủy sản": load_macro_indicator("gdp_sector_agri"),
                 "Công nghiệp và xây dựng": load_macro_indicator("gdp_sector_industry"),
