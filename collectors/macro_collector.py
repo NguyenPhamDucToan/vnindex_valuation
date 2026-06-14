@@ -25,6 +25,11 @@ _CPI_LIST_URL = "https://www.nso.gov.vn/cpi-vi/"
 _GDP_LIST_URL = "https://www.nso.gov.vn/tai-khoan-quoc-gia/"
 _TRADE_LIST_URL = "https://www.nso.gov.vn/xuat-nhap-khau/"
 
+# The GDP listing page only surfaces the ~10 newest releases (no real pagination).
+# WordPress's sitemap covers the full history (back to ~2011) and is used to backfill years.
+_SITEMAP_INDEX_URL = "https://www.nso.gov.vn/wp-sitemap.xml"
+_SITEMAP_POST_RE = re.compile(r"<loc>(https://www\.nso\.gov\.vn/wp-sitemap-posts-post-\d+\.xml)</loc>")
+
 _MONTH_SLUGS = {
     "mot": 1, "hai": 2, "ba": 3, "tu": 4, "nam": 5, "sau": 6,
     "bay": 7, "tam": 8, "chin": 9, "muoi-mot": 11, "muoi-hai": 12, "muoi": 10,
@@ -56,7 +61,7 @@ _SLUG_RE_WORD = re.compile(r"thang-(muoi-hai|muoi-mot|mot|hai|ba|tu|nam|sau|bay|
 _SLUG_RE_NUM = re.compile(r"thang-(\d{1,2})-nam-(\d{4})")
 _SLUG_RE_NUM_FALLBACK = re.compile(r"-(\d{1,2})-nam-(\d{4})")
 _GDP_RE = re.compile(
-    r"Tổng sản phẩm trong nước \(GDP\) quý (I{1,3}|IV)/(\d{4}).{0,150}?([\d,]+)%\s*(?:\[\d+\]\s*)?so với cùng kỳ năm trước"
+    r"Tổng sản phẩm trong nước \(GDP\) quý (I{1,3}|IV)(?:/| năm )(\d{4}).{0,150}?([\d,]+)%\s*(?:\[\d+\]\s*)?so với cùng kỳ năm trước"
 )
 _TRADE_YEAR_RE = re.compile(r"so-lieu-xuat-nhap-khau-cac-thang-nam-(\d{4})")
 _TRADE_XLS_RE = re.compile(r'href="([^"]*V0([12])-\d{4}-\d+\.xls)"')
@@ -206,6 +211,29 @@ def discover_gdp_article_urls(max_pages: int = 3) -> list[str]:
         if not found:
             break
         urls.extend(found)
+    return list(dict.fromkeys(urls))
+
+
+def discover_gdp_article_urls_from_sitemap() -> list[str]:
+    """Return GDP/socio-economic press release URLs from the WordPress sitemap (covers full history)."""
+    try:
+        resp = requests.get(_SITEMAP_INDEX_URL, headers=_HEADERS, timeout=20)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning(f"Failed to fetch sitemap index: {e}")
+        return []
+
+    urls: list[str] = []
+    for sitemap_url in _SITEMAP_POST_RE.findall(resp.text):
+        try:
+            resp = requests.get(sitemap_url, headers=_HEADERS, timeout=30)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logger.warning(f"Failed to fetch {sitemap_url}: {e}")
+            continue
+        for loc in re.findall(r"<loc>(.*?)</loc>", resp.text):
+            if "thong-cao-bao-chi" in loc and "kinh-te-xa-hoi-quy" in loc:
+                urls.append(loc)
     return list(dict.fromkeys(urls))
 
 
@@ -404,9 +432,15 @@ def collect_cpi(max_pages: int = 10) -> int:
     return total
 
 
-def collect_gdp(max_pages: int = 3) -> int:
-    """Scrape quarterly GDP growth and FDI from nso.gov.vn and upsert into macro_indicators."""
+def collect_gdp(max_pages: int = 3, use_sitemap: bool = False) -> int:
+    """Scrape quarterly GDP growth and FDI from nso.gov.vn and upsert into macro_indicators.
+
+    `use_sitemap=True` additionally pulls press release URLs from the WordPress sitemap,
+    which covers the full historical archive (back to ~2011) — useful for one-off backfills.
+    """
     urls = discover_gdp_article_urls(max_pages=max_pages)
+    if use_sitemap:
+        urls = list(dict.fromkeys(urls + discover_gdp_article_urls_from_sitemap()))
     logger.info(f"Found {len(urls)} GDP press releases")
     total = 0
     for url in urls:
