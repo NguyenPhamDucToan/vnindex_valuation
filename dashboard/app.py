@@ -5424,14 +5424,24 @@ elif view == "Macro":
             st.info(f"{title}: chưa có dữ liệu")
             return
         colors = ["#22c55e" if v >= 0 else "#ef4444" for v in df["value"]]
-        fig = go.Figure(go.Bar(
-            x=df["period"], y=df["value"], marker_color=colors,
-            hovertemplate="%{x|%m/%Y}: %{y:+.2f}" + unit + "<extra></extra>"))
+        # Annual-only series (all periods in December) are sparse and far apart on a
+        # date axis, which makes Plotly auto-size the bars to span huge ranges.
+        # Render those as categorical (one bar per year) instead.
+        is_annual = (df["period"].dt.month == 12).all()
+        if is_annual:
+            x = df["period"].dt.year.astype(str)
+            hover = "%{x}: %{y:+.2f}" + unit + "<extra></extra>"
+        else:
+            x = df["period"]
+            hover = "%{x|%m/%Y}: %{y:+.2f}" + unit + "<extra></extra>"
+        fig = go.Figure(go.Bar(x=x, y=df["value"], marker_color=colors, hovertemplate=hover))
         fig.add_hline(y=0, line_color="gray", opacity=0.5)
         fig.update_layout(
             title=title, height=280, margin=dict(l=0, r=0, t=40, b=0),
             dragmode=False, showlegend=False,
             yaxis_title=unit)
+        if is_annual:
+            fig.update_xaxes(type="category")
         st.plotly_chart(fig, width="stretch")
         latest = df["period"].max()
         st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
