@@ -5459,9 +5459,9 @@ elif view == "Macro":
                 hovertemplate="%{x|%m/%Y} · " + label + ": %{y:+.2f}" + unit + "<extra></extra>"))
         fig.add_hline(y=0, line_color="gray", opacity=0.5)
         fig.update_layout(
-            title=title, height=320, margin=dict(l=0, r=0, t=40, b=0),
+            title=title, height=340, margin=dict(l=0, r=0, t=40, b=40),
             dragmode=False, barmode="group",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0),
             yaxis_title=unit)
         st.plotly_chart(fig, width="stretch")
         latest = max(df["period"].max() for df in series.values())
