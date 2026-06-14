@@ -130,6 +130,21 @@ _RETAIL_RE_6M = re.compile(
     r"[Tt]ính chung (?:sáu|6) tháng đầu năm (\d{4}).{0,30}?tổng mức bán lẻ hàng hóa và doanh thu dịch vụ tiêu dùng"
     r".{0,100}?(tăng|giảm)\s+([\d,]+)%\s*so với cùng kỳ năm trước"
 )
+# "Tính chung quý X năm Y, tổng mức bán lẻ ... ước đạt ... tăng Z% so với cùng kỳ năm trước"
+# (older releases use "quý X năm Y" instead of "quý X/Y").
+_RETAIL_RE_TINH_CHUNG_QUARTER = re.compile(
+    r"[Tt]ính chung quý (I{1,3}|IV) năm (\d{4}),?\s*tổng mức bán lẻ hàng hóa và doanh thu dịch vụ tiêu dùng"
+    r".{0,100}?(tăng|giảm)\s+([\d,]+)%\s*so với cùng kỳ năm trước"
+)
+# Full-year retail growth, two orderings seen across years.
+_RETAIL_RE_ANNUAL_AFTER = re.compile(
+    r"[Tt]ổng mức bán lẻ hàng hóa và doanh thu dịch vụ tiêu dùng năm (\d{4})"
+    r".{0,100}?(tăng|giảm)\s+([\d,]+)%\s*so với năm trước"
+)
+_RETAIL_RE_ANNUAL_BEFORE = re.compile(
+    r"[Tt]ính chung năm (\d{4})\s*(?:\[\d+\]\s*)?,?\s*tổng mức bán lẻ hàng hóa và doanh thu dịch vụ tiêu dùng"
+    r".{0,100}?(tăng|giảm)\s+([\d,]+)%\s*so với năm trước"
+)
 
 
 def _to_float(sign: str, num: str) -> float:
@@ -345,6 +360,7 @@ def parse_gdp_article(url: str) -> list[dict]:
     retail = (
         _RETAIL_RE_QUARTER_FIRST.search(text)
         or _RETAIL_RE_QUARTER_AFTER.search(text)
+        or _RETAIL_RE_TINH_CHUNG_QUARTER.search(text)
     )
     if retail:
         retail_quarter, retail_year, sign, val = retail.groups()
@@ -366,6 +382,14 @@ def parse_gdp_article(url: str) -> list[dict]:
                 "indicator": "retail_sales_growth", "period": retail_period,
                 "value": _to_float(sign, val), "unit": "%", "source_url": url,
             })
+        else:
+            retail = _RETAIL_RE_ANNUAL_AFTER.search(text) or _RETAIL_RE_ANNUAL_BEFORE.search(text)
+            if retail:
+                retail_year, sign, val = retail.groups()
+                rows.append({
+                    "indicator": "retail_sales_growth", "period": date(int(retail_year), 12, 1),
+                    "value": _to_float(sign, val), "unit": "%", "source_url": url,
+                })
     return rows
 
 
