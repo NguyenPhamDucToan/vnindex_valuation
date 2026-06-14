@@ -41,6 +41,18 @@ _MOM_RE = re.compile(r"(tăng|giảm)(?:\s+\S+)?\s+([\d,]+)%\s+so với tháng t
 _YOY_RE = re.compile(r"(tăng|giảm)(?:\s+\S+)?\s+([\d,]+)%\s*(?:\[\d+\]\s*)?so với cùng kỳ năm trước")
 _YOY_RE_OLD = re.compile(r"[Ss]o với cùng kỳ năm trước,.{0,80}?(tăng|giảm)\s+([\d,]+)%")
 
+# "Lạm phát cơ bản [n] tháng X(/năm) tăng A% so với tháng trước(,| và) tăng B% so với cùng kỳ năm trước"
+_CORE_INFLATION_RE = re.compile(
+    r"Lạm phát cơ bản\s*(?:\[\d+\]\s*)?tháng [^,]+?(tăng|giảm) ([\d,]+)% so với tháng trước,?\s*(?:và )?(tăng|giảm) ([\d,]+)% so với cùng kỳ năm trước"
+)
+# Monthly change of the "Lương thực" (staple foods) CPI sub-group.
+_CPI_FOOD_RE = re.compile(r"Lương thực (tăng|giảm)(?:\s+(?:mạnh|cao) nhất)?(?:\s+với mức)? ([\d,]+)%")
+# Monthly change of the "Giao thông" (transport) CPI group. The anchored form
+# ("Chỉ số giá nhóm giao thông tăng X%") appears in the per-group (i)-(xi) breakdown
+# and is preferred; the looser fallback matches "(Riêng/Nhóm) giao thông tăng/giảm X%".
+_CPI_TRANSPORT_RE_ANCHORED = re.compile(r"Chỉ số giá nhóm giao thông (tăng|giảm) ([\d,]+)%")
+_CPI_TRANSPORT_RE_FALLBACK = re.compile(r"[Nn]hóm giao thông (tăng|giảm)(?:\s+(?:mạnh|cao) nhất)?(?:\s+với mức)? ([\d,]+)%")
+
 
 _CPI_BODY_RE = re.compile(r"tiêu dùng(?:\s*\(CPI\))?\s+tháng\s+\S+\s+(?:tăng|giảm)")
 
@@ -94,6 +106,22 @@ _GDP_PERCAPITA_RE = re.compile(
 # article's annual period instead.
 _GDP_PERCAPITA_RE_ALT = re.compile(
     r"GDP bình quân đầu người.{0,100}?tương đương\s*([\d.,]+)\s*USD"
+)
+
+# Industrial producer price index (PPI), YoY change.
+# Newer releases (e.g. Q1/2026): "Chỉ số giá sản xuất sản phẩm công nghiệp quý I/2026 tăng 0,68% so với quý trước và tăng 2,95% so với cùng kỳ năm 2025."
+_PPI_RE_QUARTER1 = re.compile(
+    r"Chỉ số giá sản xuất sản phẩm công nghiệp quý (I{1,3}|IV)/(\d{4}) (?:tăng|giảm) [\d,]+% so với (?:quý trước|tháng trước) và (tăng|giảm) ([\d,]+)% so với cùng kỳ"
+)
+# Older releases: "Trong quý X/Y, ... ; chỉ số giá sản xuất sản phẩm công nghiệp tăng A% và tăng B%;"
+# Note: NSO's HTML often has a footnote ref between "c" and "hỉ" (e.g. "c<sup>1</sup>hỉ"),
+# which after tag-stripping becomes "c hỉ" — match both spellings.
+_PPI_RE_QUARTER2 = re.compile(
+    r"Trong quý (I{1,3}|IV)/(\d{4}),.{0,300}?[Cc]\s?hỉ số giá sản xuất sản phẩm công nghiệp (?:tăng|giảm) [\d,]+% và (tăng|giảm) ([\d,]+)%"
+)
+# Full-year: "Tính chung năm Y, chỉ số giá sản xuất sản phẩm công nghiệp tăng X%"
+_PPI_RE_ANNUAL = re.compile(
+    r"Tính chung năm (\d{4}), [Cc]\s?hỉ số giá sản xuất sản phẩm công nghiệp (tăng|giảm) ([\d,]+)%"
 )
 
 # Total realized social investment YoY growth (quarterly or full-year wording).
@@ -218,6 +246,33 @@ def parse_cpi_article(url: str) -> list[dict]:
         rows.append({
             "indicator": "cpi_yoy", "period": period,
             "value": _to_float(yoy.group(1), yoy.group(2)),
+            "unit": "%", "source_url": url,
+        })
+
+    # The following indicators (core inflation, food/transport sub-groups) appear later
+    # in the article, sometimes after the gold-price section that `_cpi_window` cuts off
+    # at — search the full text instead.
+    core = _CORE_INFLATION_RE.search(text)
+    if core:
+        rows.append({
+            "indicator": "core_inflation_yoy", "period": period,
+            "value": _to_float(core.group(3), core.group(4)),
+            "unit": "%", "source_url": url,
+        })
+
+    food = _CPI_FOOD_RE.search(text)
+    if food:
+        rows.append({
+            "indicator": "cpi_food", "period": period,
+            "value": _to_float(food.group(1), food.group(2)),
+            "unit": "%", "source_url": url,
+        })
+
+    transport = _CPI_TRANSPORT_RE_ANCHORED.search(text) or _CPI_TRANSPORT_RE_FALLBACK.search(text)
+    if transport:
+        rows.append({
+            "indicator": "cpi_transport", "period": period,
+            "value": _to_float(transport.group(1), transport.group(2)),
             "unit": "%", "source_url": url,
         })
     return rows
@@ -388,6 +443,30 @@ def parse_gdp_article(url: str) -> list[dict]:
                 retail_year, sign, val = retail.groups()
                 rows.append({
                     "indicator": "retail_sales_growth", "period": date(int(retail_year), 12, 1),
+                    "value": _to_float(sign, val), "unit": "%", "source_url": url,
+                })
+
+    ppi = _PPI_RE_QUARTER1.search(text)
+    if ppi:
+        q, qy, sign, val = ppi.groups()
+        rows.append({
+            "indicator": "ppi_yoy", "period": date(int(qy), _QUARTER_END_MONTH[q], 1),
+            "value": _to_float(sign, val), "unit": "%", "source_url": url,
+        })
+    else:
+        ppi = _PPI_RE_QUARTER2.search(text)
+        if ppi:
+            q, qy, sign, val = ppi.groups()
+            rows.append({
+                "indicator": "ppi_yoy", "period": date(int(qy), _QUARTER_END_MONTH[q], 1),
+                "value": _to_float(sign, val), "unit": "%", "source_url": url,
+            })
+        else:
+            ppi = _PPI_RE_ANNUAL.search(text)
+            if ppi:
+                py, sign, val = ppi.groups()
+                rows.append({
+                    "indicator": "ppi_yoy", "period": date(int(py), 12, 1),
                     "value": _to_float(sign, val), "unit": "%", "source_url": url,
                 })
     return rows

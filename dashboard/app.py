@@ -236,6 +236,10 @@ _MACRO_INDICATOR_LABELS = {
     "gdp_nominal_usd": "Quy mô GDP (USD)",
     "gdp_per_capita_usd": "GDP bình quân đầu người (USD)",
     "investment_growth": "Tăng trưởng vốn đầu tư toàn xã hội",
+    "core_inflation_yoy": "Lạm phát cơ bản (so với cùng kỳ năm trước)",
+    "cpi_food": "Lạm phát lương thực (so với tháng trước)",
+    "cpi_transport": "CPI nhóm giao thông (so với tháng trước)",
+    "ppi_yoy": "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)",
 }
 _MACRO_SEEN_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "macro_seen.json")
 
@@ -5468,7 +5472,29 @@ elif view == "Macro":
         latest = max(df["period"].max() for df in series.values())
         st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
 
-    tab_overview, tab_gdp = st.tabs(["Tổng quan", "GDP"])
+    def _macro_summary_row(indicator: str, label: str, unit: str = "%", freq: str = "monthly") -> dict:
+        df = load_macro_indicator(indicator)
+        if df.empty:
+            return {
+                "Chỉ số": label, "Kỳ gần nhất": "—", "Kỳ trước": "—",
+                "Đơn vị": unit, "Kỳ báo cáo": "—", "Khoảng dữ liệu": "Chưa có dữ liệu",
+            }
+        last = df.iloc[-1]
+        prev = df.iloc[-2] if len(df) > 1 else None
+        if freq == "quarterly":
+            period_str = f"Quý {(last['period'].month - 1) // 3 + 1}/{last['period'].year}"
+        else:
+            period_str = f"Tháng {last['period'].month}/{last['period'].year}"
+        return {
+            "Chỉ số": label,
+            "Kỳ gần nhất": f"{last['value']:+.2f}{unit}",
+            "Kỳ trước": f"{prev['value']:+.2f}{unit}" if prev is not None else "—",
+            "Đơn vị": unit,
+            "Kỳ báo cáo": period_str,
+            "Khoảng dữ liệu": f"{df['period'].iloc[0]:%m/%Y} - {df['period'].iloc[-1]:%m/%Y}",
+        }
+
+    tab_overview, tab_gdp, tab_prices = st.tabs(["Tổng quan", "GDP", "Giá cả"])
 
     with tab_overview:
         row1 = st.columns(3)
@@ -5503,3 +5529,39 @@ elif view == "Macro":
             _macro_line_chart({"GDP bình quân đầu người": load_macro_indicator("gdp_per_capita_usd")}, "GDP bình quân đầu người (theo năm)", unit=" USD")
         with row3[2]:
             _macro_line_chart({"Tăng trưởng vốn đầu tư": load_macro_indicator("investment_growth")}, "Tăng trưởng vốn đầu tư toàn xã hội (so với cùng kỳ)")
+
+    with tab_prices:
+        summary_rows = [
+            _macro_summary_row("cpi_yoy", "Tỷ lệ lạm phát (so với cùng kỳ năm trước)"),
+            _macro_summary_row("cpi_mom", "Tỷ lệ lạm phát (so với tháng trước)"),
+            _macro_summary_row("core_inflation_yoy", "Tỷ lệ lạm phát cơ bản (so với cùng kỳ năm trước)"),
+            _macro_summary_row("cpi_food", "Lạm phát lương thực (so với tháng trước)"),
+            _macro_summary_row("cpi_transport", "CPI nhóm giao thông (so với tháng trước)"),
+            _macro_summary_row("ppi_yoy", "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)", freq="quarterly"),
+            {
+                "Chỉ số": "Chỉ số giá tiêu dùng so với kỳ gốc 2019",
+                "Kỳ gần nhất": "—", "Kỳ trước": "—", "Đơn vị": "điểm",
+                "Kỳ báo cáo": "—", "Khoảng dữ liệu": "Chưa có dữ liệu",
+            },
+        ]
+        st.dataframe(pd.DataFrame(summary_rows), hide_index=True, width="stretch")
+
+        row1 = st.columns(2)
+        with row1[0]:
+            _macro_line_chart(
+                {
+                    "Lạm phát (YoY)": load_macro_indicator("cpi_yoy"),
+                    "Lạm phát cơ bản (YoY)": load_macro_indicator("core_inflation_yoy"),
+                },
+                "Lạm phát toàn phần và lạm phát cơ bản (so với cùng kỳ năm trước)",
+            )
+        with row1[1]:
+            _macro_line_chart({"Lạm phát (MoM)": load_macro_indicator("cpi_mom")}, "Tỷ lệ lạm phát (so với tháng trước)")
+
+        row2 = st.columns(2)
+        with row2[0]:
+            _macro_line_chart({"Lương thực": load_macro_indicator("cpi_food")}, "Lạm phát lương thực (so với tháng trước)")
+        with row2[1]:
+            _macro_line_chart({"Giao thông": load_macro_indicator("cpi_transport")}, "CPI nhóm giao thông (so với tháng trước)")
+
+        _macro_line_chart({"PPI": load_macro_indicator("ppi_yoy")}, "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)")
