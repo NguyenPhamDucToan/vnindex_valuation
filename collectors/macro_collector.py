@@ -64,6 +64,33 @@ _FDI_RE = re.compile(
     r"Tổng vốn đầu tư nước ngoài đăng ký vào Việt Nam.{0,250}?đạt\s*(?:gần\s*)?([\d,]+)\s*tỷ USD"
 )
 
+# 3-sector GDP growth breakdown (Agriculture/Forestry/Fishery, Industry & Construction, Services), % YoY.
+_GDP_SECTOR_RE = re.compile(
+    r"khu vực nông, lâm nghiệp và thủy sản tăng ([\d,]+)%.{0,250}?"
+    r"khu vực công nghiệp và xây dựng tăng ([\d,]+)%.{0,250}?"
+    r"khu vực dịch vụ tăng ([\d,]+)%"
+)
+
+# Annual-only figures, present in Q4/full-year press releases.
+_GDP_NOMINAL_RE = re.compile(
+    r"Quy mô GDP theo giá hiện hành năm (\d{4}).{0,100}?tương đương\s*([\d,]+)\s*tỷ USD"
+)
+_GDP_PERCAPITA_RE = re.compile(
+    r"GDP bình quân đầu người năm (\d{4}).{0,100}?tương đương\s*([\d.,]+)\s*USD"
+)
+
+# Total realized social investment YoY growth (quarterly or full-year wording).
+_INVESTMENT_RE = re.compile(
+    r"Vốn đầu tư thực hiện toàn xã hội "
+    r"(?:trong quý (I{1,3}|IV)/(\d{4})|năm (\d{4})) theo giá hiện hành"
+    r".{0,100}?(tăng|giảm) ([\d,]+)%"
+)
+
+
+def _vn_num(s: str) -> float:
+    """Parse a Vietnamese-formatted number ('.' thousands sep, ',' decimal sep) to float."""
+    return float(s.replace(".", "").replace(",", "."))
+
 # Retail sales (Tổng mức bán lẻ hàng hóa và doanh thu dịch vụ tiêu dùng) YoY growth.
 # Wording varies by press release; tried in order, normal quarter mentions first,
 # then cumulative 9-month / 6-month wording used in some Q3 / Q2 releases.
@@ -203,6 +230,41 @@ def parse_gdp_article(url: str) -> list[dict]:
     quarter, year, value = m.group(1), int(m.group(2)), float(m.group(3).replace(",", "."))
     period = date(year, _QUARTER_END_MONTH[quarter], 1)
     rows = [{"indicator": "gdp_growth", "period": period, "value": value, "unit": "%", "source_url": url}]
+
+    sector = _GDP_SECTOR_RE.search(text)
+    if sector:
+        agri, industry, services = (float(g.replace(",", ".")) for g in sector.groups())
+        rows.append({"indicator": "gdp_sector_agri", "period": period, "value": agri, "unit": "%", "source_url": url})
+        rows.append({"indicator": "gdp_sector_industry", "period": period, "value": industry, "unit": "%", "source_url": url})
+        rows.append({"indicator": "gdp_sector_services", "period": period, "value": services, "unit": "%", "source_url": url})
+
+    nominal = _GDP_NOMINAL_RE.search(text)
+    if nominal:
+        nominal_period = date(int(nominal.group(1)), 12, 1)
+        rows.append({
+            "indicator": "gdp_nominal_usd", "period": nominal_period,
+            "value": float(nominal.group(2).replace(",", ".")), "unit": "tỷ USD", "source_url": url,
+        })
+
+    percapita = _GDP_PERCAPITA_RE.search(text)
+    if percapita:
+        percapita_period = date(int(percapita.group(1)), 12, 1)
+        rows.append({
+            "indicator": "gdp_per_capita_usd", "period": percapita_period,
+            "value": _vn_num(percapita.group(2)), "unit": "USD", "source_url": url,
+        })
+
+    investment = _INVESTMENT_RE.search(text)
+    if investment:
+        q, qy, ay, sign, val = investment.groups()
+        if q:
+            inv_period = date(int(qy), _QUARTER_END_MONTH[q], 1)
+        else:
+            inv_period = date(int(ay), 12, 1)
+        rows.append({
+            "indicator": "investment_growth", "period": inv_period,
+            "value": _to_float(sign, val), "unit": "%", "source_url": url,
+        })
 
     fdi = _FDI_RE.search(text)
     if fdi:

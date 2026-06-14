@@ -230,6 +230,12 @@ _MACRO_INDICATOR_LABELS = {
     "trade_balance": "Cán cân thương mại",
     "retail_sales_growth": "Tăng trưởng bán lẻ",
     "fdi": "FDI",
+    "gdp_sector_agri": "GDP - Nông, lâm nghiệp và thủy sản",
+    "gdp_sector_industry": "GDP - Công nghiệp và xây dựng",
+    "gdp_sector_services": "GDP - Dịch vụ",
+    "gdp_nominal_usd": "Quy mô GDP (USD)",
+    "gdp_per_capita_usd": "GDP bình quân đầu người (USD)",
+    "investment_growth": "Tăng trưởng vốn đầu tư toàn xã hội",
 }
 _MACRO_SEEN_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "macro_seen.json")
 
@@ -5430,7 +5436,28 @@ elif view == "Macro":
         latest = df["period"].max()
         st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
 
-    tab_overview, = st.tabs(["Tổng quan"])
+    def _macro_grouped_bar_chart(series: dict[str, "pd.DataFrame"], title: str, unit: str = "%"):
+        series = {label: df for label, df in series.items() if not df.empty}
+        if not series:
+            st.info(f"{title}: chưa có dữ liệu")
+            return
+        _colors = ["#22c55e", "#f59e0b", "#60a5fa"]
+        fig = go.Figure()
+        for i, (label, df) in enumerate(series.items()):
+            fig.add_trace(go.Bar(
+                x=df["period"], y=df["value"], name=label, marker_color=_colors[i % len(_colors)],
+                hovertemplate="%{x|%m/%Y} · " + label + ": %{y:+.2f}" + unit + "<extra></extra>"))
+        fig.add_hline(y=0, line_color="gray", opacity=0.5)
+        fig.update_layout(
+            title=title, height=320, margin=dict(l=0, r=0, t=40, b=0),
+            dragmode=False, barmode="group",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            yaxis_title=unit)
+        st.plotly_chart(fig, width="stretch")
+        latest = max(df["period"].max() for df in series.values())
+        st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
+
+    tab_overview, tab_gdp = st.tabs(["Tổng quan", "GDP"])
 
     with tab_overview:
         row1 = st.columns(3)
@@ -5448,3 +5475,20 @@ elif view == "Macro":
             _macro_bar_chart(load_macro_indicator("retail_sales_growth"), "Tăng trưởng bán lẻ (so với cùng kỳ năm trước)")
         with row2[2]:
             _macro_bar_chart(load_macro_indicator("fdi"), "Vốn đầu tư nước ngoài (FDI đăng ký, theo quý)", unit=" tỷ USD")
+
+    with tab_gdp:
+        _macro_grouped_bar_chart(
+            {
+                "Nông, lâm nghiệp và thủy sản": load_macro_indicator("gdp_sector_agri"),
+                "Công nghiệp và xây dựng": load_macro_indicator("gdp_sector_industry"),
+                "Dịch vụ": load_macro_indicator("gdp_sector_services"),
+            },
+            "Tăng trưởng GDP theo khu vực kinh tế (so với cùng kỳ năm trước)",
+        )
+        row3 = st.columns(3)
+        with row3[0]:
+            _macro_bar_chart(load_macro_indicator("gdp_nominal_usd"), "Quy mô GDP (theo năm)", unit=" tỷ USD")
+        with row3[1]:
+            _macro_bar_chart(load_macro_indicator("gdp_per_capita_usd"), "GDP bình quân đầu người (theo năm)", unit=" USD")
+        with row3[2]:
+            _macro_bar_chart(load_macro_indicator("investment_growth"), "Tăng trưởng vốn đầu tư toàn xã hội (so với cùng kỳ)")
