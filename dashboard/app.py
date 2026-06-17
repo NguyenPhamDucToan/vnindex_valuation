@@ -3111,27 +3111,22 @@ if view == "Company Analysis":
                 st.plotly_chart(fig11, width="stretch")
 
             with r4c3:
-                fig12 = make_subplots(specs=[[{"secondary_y": True}]])
+                cr_hist  = [current_ratio(ca, cl)         for ca, cl in zip(curr_v, curr_liab_v)]
+                qr_hist  = [quick_ratio(ca, iv, cl)       for ca, iv, cl in zip(curr_v, inv_v, curr_liab_v)]
+                cashr_hist = [absolute_liquidity(ck, cl)  for ck, cl in zip(cash_v, curr_liab_v)]
+                fig12 = go.Figure()
                 for vals, name, color in [
-                    (cash_v, "Tiền & tương đương", "#5bc0de"),
-                    (recv_v, "Phải thu",           "#f0ad4e"),
+                    (cr_hist,    "Current ratio",  "#22c55e"),
+                    (qr_hist,    "Quick ratio",    "#f59e0b"),
+                    (cashr_hist, "Cash ratio",     "#60a5fa"),
                 ]:
                     if any(v is not None for v in vals):
-                        fig12.add_trace(go.Bar(x=labels, y=vals, name=name,
-                            marker_color=color, hovertemplate="%{y:,.0f} tỷ<extra></extra>"),
-                            secondary_y=False)
-                if any(v is not None for v in cash_pct):
-                    fig12.add_trace(go.Scatter(x=labels, y=cash_pct, name="Tiền/Tổng TS %",
-                        mode="lines", line=dict(color="#c00000", width=2),
-                        hovertemplate="%{y:.1f}%<extra></extra>"), secondary_y=True)
-                if any(v is not None for v in recv_pct):
-                    fig12.add_trace(go.Scatter(x=labels, y=recv_pct, name="Phải thu/Tổng TS %",
-                        mode="lines", line=dict(color="#2c7bb6", width=2),
-                        hovertemplate="%{y:.1f}%<extra></extra>"), secondary_y=True)
-                fig12.update_layout(title="Tài sản thanh khoản", height=_CHART_H, margin=_CHART_M,
-                    barmode="stack", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
-                fig12.update_yaxes(title_text="tỷ VND", secondary_y=False)
-                fig12.update_yaxes(title_text="%", secondary_y=True, showgrid=False)
+                        fig12.add_trace(go.Scatter(x=labels, y=vals, name=name,
+                            mode="lines+markers", line=dict(width=2), marker=dict(size=5),
+                            hovertemplate="%{y:.2f}x<extra></extra>"))
+                fig12.add_hline(y=1, line_dash="dot", line_color="gray", opacity=0.5)
+                fig12.update_layout(title="Hệ số thanh khoản", height=_CHART_H, margin=_CHART_M,
+                    yaxis_title="lần (x)", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
                 st.plotly_chart(fig12, width="stretch")
 
         st.divider()
