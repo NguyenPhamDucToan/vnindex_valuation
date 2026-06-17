@@ -1375,7 +1375,6 @@ def _render_index_ticker_bar():
     for _col, (_sym, _d) in zip(_idx_cols, _idx_data.items()):
         _up   = _d["chg"] >= 0
         _clr  = "#22c55e" if _up else "#ef4444"
-        _fclr = "rgba(34,197,94,0.13)" if _up else "rgba(239,68,68,0.13)"
         _ia  = (_d["intraday"].copy()
                 .drop_duplicates(subset=["time"])
                 .sort_values("time")
@@ -1386,9 +1385,11 @@ def _render_index_ticker_bar():
         _y_max  = float(_y_vals.max()) if not _y_vals.empty else _d["open"]
         _y_pad  = max((_y_max - _y_min) * 0.25, 1.0)
         _xs     = list(range(len(_ia)))
+        _n      = max(len(_xs) - 1, 1)
         _cdata  = list(zip(_ia["tlabel"], _ia["volume"].fillna(0).astype(int)))
-        _fig_i  = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                                 row_heights=[0.68, 0.32], vertical_spacing=0.02)
+
+        _fig_i = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                row_heights=[0.65, 0.35], vertical_spacing=0.02)
         _fig_i.add_trace(go.Scatter(
             x=_xs, y=_ia["close"].tolist(), mode="lines",
             line=dict(color=_clr, width=1.5),
@@ -1398,22 +1399,44 @@ def _render_index_ticker_bar():
         _fig_i.add_trace(go.Bar(
             x=_xs, y=_ia["volume"].tolist(),
             marker_color=_clr, opacity=0.45, hoverinfo="skip"), row=2, col=1)
+
+        # Header annotations in top margin
+        _fig_i.add_annotation(x=0.5, y=1.58, xref="paper", yref="paper",
+            text=f"<b>{_IDX_LABELS.get(_sym, _sym)}</b>",
+            showarrow=False, font=dict(size=11, color="#9ca3af"), xanchor="center")
+        _fig_i.add_annotation(x=0.5, y=1.36, xref="paper", yref="paper",
+            text=f"<b>{_d['current']:,.2f}</b>",
+            showarrow=False, font=dict(size=17, color=_clr), xanchor="center")
+        _fig_i.add_annotation(x=0.5, y=1.16, xref="paper", yref="paper",
+            text=f"{_d['chg']:+.2f} ({_d['chg_pct']:+.2f}%)",
+            showarrow=False, font=dict(size=11, color=_clr), xanchor="center")
+
+        # Time labels in bottom margin
+        for _t in ["09:15", "11:00", "13:00", "15:00"]:
+            _m = _ia[_ia["tlabel"] == _t]
+            if not _m.empty:
+                _fig_i.add_annotation(
+                    x=int(_m.index[0]) / _n, y=-0.14, xref="paper", yref="paper",
+                    text=_t, showarrow=False,
+                    font=dict(size=7, color="rgba(148,163,184,0.5)"),
+                    xanchor="center", yanchor="top")
+
+        # Card border covering full card area
+        _fig_i.add_shape(type="rect", xref="paper", yref="paper",
+            x0=0, y0=-0.18, x1=1, y1=1.7,
+            line=dict(color="rgba(148,163,184,0.2)", width=1),
+            fillcolor="rgba(0,0,0,0)")
+
         _fig_i.update_layout(
-            height=130, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
+            height=185, margin=dict(l=8, r=8, t=70, b=26), dragmode=False,
             showlegend=False, hovermode="x", bargap=0,
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(visible=False), xaxis2=dict(visible=False),
+            yaxis=dict(visible=False, range=[_y_min - _y_pad, _y_max + _y_pad]),
+            yaxis2=dict(visible=False),
             hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb",
                             bordercolor="rgba(255,255,255,0.1)"))
-        _fig_i.update_xaxes(visible=False)
-        _fig_i.update_yaxes(visible=False)
-        _fig_i.update_yaxes(range=[_y_min - _y_pad, _y_max + _y_pad], row=1, col=1)
         with _col:
-            st.markdown(
-                f"<div style='text-align:center;'>"
-                f"<div style='font-size:13px;color:#9ca3af;font-weight:600;'>{_IDX_LABELS.get(_sym, _sym)}</div>"
-                f"<div style='font-size:18px;font-weight:800;color:{_clr};'>{_d['current']:,.2f}</div>"
-                f"<div style='font-size:12px;color:{_clr};'>{_d['chg']:+.2f} ({_d['chg_pct']:+.2f}%)</div>"
-                f"</div>", unsafe_allow_html=True)
             st.plotly_chart(_fig_i, width="stretch", config={"displayModeBar": False})
     st.caption("Xanh = đang tăng so với hôm trước · Đỏ = đang giảm")
     st.divider()
