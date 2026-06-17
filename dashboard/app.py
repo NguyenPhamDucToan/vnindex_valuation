@@ -1378,25 +1378,22 @@ def _render_index_ticker_bar():
         _fclr = "rgba(34,197,94,0.13)" if _up else "rgba(239,68,68,0.13)"
         _ia  = _d["intraday"].copy()
         _ia["tlabel"] = pd.to_datetime(_ia["time"]).dt.strftime("%H:%M")
-        _fig_i = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3],
-                                vertical_spacing=0.05)
-        _fig_i.add_trace(go.Scatter(
-            x=_ia["tlabel"], y=[_d["open"]] * len(_ia), mode="lines",
-            line=dict(color="gray", width=1, dash="dot"), hoverinfo="skip"), row=1, col=1)
+        _open_val = _d["open"]
+        _fig_i = go.Figure()
         _fig_i.add_trace(go.Scatter(
             x=_ia["tlabel"], y=_ia["close"], mode="lines",
-            line=dict(color=_clr, width=1.5), fill="tonexty",
-            fillcolor=_fclr, customdata=_ia["volume"],
-            hovertemplate="%{y:,.2f}<br>KL: %{customdata:,.0f}<extra></extra>"), row=1, col=1)
-        _fig_i.add_trace(go.Bar(
-            x=_ia["tlabel"], y=_ia["volume"], marker_color=_clr, opacity=0.5,
-            hoverinfo="skip"), row=2, col=1)
+            line=dict(color=_clr, width=1.5), fill="tozeroy",
+            fillcolor=_fclr,
+            hovertemplate="%{y:,.2f}<extra></extra>"))
+        _fig_i.add_shape(type="line", x0=0, x1=1, xref="paper",
+            y0=_open_val, y1=_open_val,
+            line=dict(color="rgba(156,163,175,0.45)", width=1, dash="dot"))
         _fig_i.update_layout(
-            height=160, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
-            showlegend=False, hovermode="x unified",
+            height=120, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
+            showlegend=False, hovermode="x",
             hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb"))
-        _fig_i.update_xaxes(showticklabels=False, showgrid=False)
-        _fig_i.update_yaxes(showticklabels=False, showgrid=False)
+        _fig_i.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+        _fig_i.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
         with _col:
             st.markdown(
                 f"<div style='text-align:center;'>"
@@ -1405,7 +1402,7 @@ def _render_index_ticker_bar():
                 f"<div style='font-size:12px;color:{_clr};'>{_d['chg']:+.2f} ({_d['chg_pct']:+.2f}%)</div>"
                 f"</div>", unsafe_allow_html=True)
             st.plotly_chart(_fig_i, width="stretch", config={"displayModeBar": False})
-    st.caption("Đường chấm xám = giá mở cửa. Xanh = đang tăng so với hôm trước, đỏ = đang giảm.")
+    st.caption("Đường chấm mờ = giá mở cửa. Xanh = đang tăng so với hôm trước, đỏ = đang giảm.")
     st.divider()
 
 
