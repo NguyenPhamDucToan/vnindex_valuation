@@ -5527,9 +5527,12 @@ elif view == "Market Overview":
         except: pass
         return ""
 
+    # Exclude covered warrants (chứng quyền): tickers with digits, e.g. CMBB2601
+    _stocks_only = snap_df[snap_df["ticker"].str.match(r'^[A-Z]{3,5}$')]
+
     with gain_col:
         st.subheader("Top 10 Gainers")
-        _g = snap_df.nlargest(10, "chg_pct").copy()
+        _g = _stocks_only.nlargest(10, "chg_pct").copy()
         _g["Price"]  = _g["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
         _g["Change"] = _g["chg_pct"].apply(lambda x: f"{x:+.2f}%")
         _g["Volume"] = _g["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
@@ -5538,7 +5541,7 @@ elif view == "Market Overview":
 
     with lose_col:
         st.subheader("Top 10 Losers")
-        _l = snap_df.nsmallest(10, "chg_pct").copy()
+        _l = _stocks_only.nsmallest(10, "chg_pct").copy()
         _l["Price"]  = _l["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
         _l["Change"] = _l["chg_pct"].apply(lambda x: f"{x:+.2f}%")
         _l["Volume"] = _l["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
