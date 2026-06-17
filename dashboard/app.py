@@ -1380,25 +1380,21 @@ def _render_index_ticker_bar():
                 .drop_duplicates(subset=["time"])
                 .sort_values("time")
                 .reset_index(drop=True))
-        _ia["tlabel"] = pd.to_datetime(_ia["time"]).dt.strftime("%H:%M:%S")
         _y_vals = _ia["close"].dropna()
         _y_min  = float(_y_vals.min()) if not _y_vals.empty else _d["open"]
         _y_max  = float(_y_vals.max()) if not _y_vals.empty else _d["open"]
-        _y_pad  = max((_y_max - _y_min) * 0.2, 0.5)
+        _y_pad  = max((_y_max - _y_min) * 0.25, 1.0)
+        _xs     = list(range(len(_ia)))
         _fig_i  = go.Figure()
         _fig_i.add_trace(go.Scatter(
-            x=_ia["tlabel"], y=_ia["close"], mode="lines",
-            line=dict(color=_clr, width=1.5),
-            hovertemplate="%{y:,.2f}<extra></extra>"))
+            x=_xs, y=_ia["close"].tolist(), mode="lines",
+            line=dict(color=_clr, width=1.5), hoverinfo="skip"))
         _fig_i.update_layout(
-            height=100, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
-            showlegend=False, hovermode="x",
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb"))
-        _fig_i.update_xaxes(showticklabels=False, showgrid=False,
-                             zeroline=False, showline=False)
-        _fig_i.update_yaxes(showticklabels=False, showgrid=False,
-                             zeroline=False, showline=False,
+            height=90, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
+            showlegend=False, hovermode=False,
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+        _fig_i.update_xaxes(visible=False)
+        _fig_i.update_yaxes(visible=False,
                              range=[_y_min - _y_pad, _y_max + _y_pad])
         with _col:
             st.markdown(
