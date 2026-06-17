@@ -1378,26 +1378,17 @@ def _render_index_ticker_bar():
         _fclr = "rgba(34,197,94,0.13)" if _up else "rgba(239,68,68,0.13)"
         _ia  = _d["intraday"].copy()
         _ia["tlabel"] = pd.to_datetime(_ia["time"]).dt.strftime("%H:%M")
-        _open_val = _d["open"]
         _y_vals = _ia["close"].dropna()
-        _y_min  = float(_y_vals.min()) if not _y_vals.empty else _open_val
-        _y_max  = float(_y_vals.max()) if not _y_vals.empty else _open_val
-        _y_pad  = max((_y_max - _y_min) * 0.15, 0.5)
+        _y_min  = float(_y_vals.min()) if not _y_vals.empty else _d["open"]
+        _y_max  = float(_y_vals.max()) if not _y_vals.empty else _d["open"]
+        _y_pad  = max((_y_max - _y_min) * 0.2, 0.5)
         _fig_i  = go.Figure()
-        # invisible baseline at data min so fill stays within price range
-        _fig_i.add_trace(go.Scatter(
-            x=_ia["tlabel"], y=[_y_min] * len(_ia), mode="lines",
-            line=dict(width=0), hoverinfo="skip", showlegend=False))
         _fig_i.add_trace(go.Scatter(
             x=_ia["tlabel"], y=_ia["close"], mode="lines",
-            line=dict(color=_clr, width=1.5), fill="tonexty",
-            fillcolor=_fclr,
+            line=dict(color=_clr, width=1.5),
             hovertemplate="%{y:,.2f}<extra></extra>"))
-        _fig_i.add_shape(type="line", x0=0, x1=1, xref="paper",
-            y0=_open_val, y1=_open_val,
-            line=dict(color="rgba(156,163,175,0.45)", width=1, dash="dot"))
         _fig_i.update_layout(
-            height=120, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
+            height=100, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
             showlegend=False, hovermode="x",
             hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb"))
         _fig_i.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
@@ -1411,7 +1402,7 @@ def _render_index_ticker_bar():
                 f"<div style='font-size:12px;color:{_clr};'>{_d['chg']:+.2f} ({_d['chg_pct']:+.2f}%)</div>"
                 f"</div>", unsafe_allow_html=True)
             st.plotly_chart(_fig_i, width="stretch", config={"displayModeBar": False})
-    st.caption("Đường chấm mờ = giá mở cửa. Xanh = đang tăng so với hôm trước, đỏ = đang giảm.")
+    st.caption("Xanh = đang tăng so với hôm trước · Đỏ = đang giảm")
     st.divider()
 
 
