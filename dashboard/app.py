@@ -1376,8 +1376,11 @@ def _render_index_ticker_bar():
         _up   = _d["chg"] >= 0
         _clr  = "#22c55e" if _up else "#ef4444"
         _fclr = "rgba(34,197,94,0.13)" if _up else "rgba(239,68,68,0.13)"
-        _ia  = _d["intraday"].copy()
-        _ia["tlabel"] = pd.to_datetime(_ia["time"]).dt.strftime("%H:%M")
+        _ia  = (_d["intraday"].copy()
+                .drop_duplicates(subset=["time"])
+                .sort_values("time")
+                .reset_index(drop=True))
+        _ia["tlabel"] = pd.to_datetime(_ia["time"]).dt.strftime("%H:%M:%S")
         _y_vals = _ia["close"].dropna()
         _y_min  = float(_y_vals.min()) if not _y_vals.empty else _d["open"]
         _y_max  = float(_y_vals.max()) if not _y_vals.empty else _d["open"]
@@ -1390,9 +1393,12 @@ def _render_index_ticker_bar():
         _fig_i.update_layout(
             height=100, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
             showlegend=False, hovermode="x",
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb"))
-        _fig_i.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
-        _fig_i.update_yaxes(showticklabels=False, showgrid=False, zeroline=False,
+        _fig_i.update_xaxes(showticklabels=False, showgrid=False,
+                             zeroline=False, showline=False)
+        _fig_i.update_yaxes(showticklabels=False, showgrid=False,
+                             zeroline=False, showline=False,
                              range=[_y_min - _y_pad, _y_max + _y_pad])
         with _col:
             st.markdown(
