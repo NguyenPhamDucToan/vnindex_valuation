@@ -1631,12 +1631,10 @@ def _render_company_header(ticker, prices_df, co_name, co_exch, co_sect, sh, eq,
 
 VIEWS = [
     "Company Analysis",
-    "Valuation Screen",
+    "Stock Screener",
     "Sector Analysis",
-    "Undervalued Watchlist",
     "Portfolio Tracker",
     "Market Overview",
-    "Macro",
 ]
 # Handle navigation from popup buttons (must be before radio renders)
 if st.session_state.get("hm_navigate_to"):
@@ -4007,384 +4005,672 @@ if view == "Company Analysis":
 # ═══════════════════════════════════════════════════════════════
 # VIEW 2 — VALUATION SCREEN
 # ═══════════════════════════════════════════════════════════════
-elif view == "Valuation Screen":
-    st.title("📋 Valuation Screen")
 
-    screen_df = load_valuation_screen_data()
 
-    if screen_df.empty:
-        st.warning("No pre-computed valuation data. Run: `python -m collectors.compute_valuations`")
-        st.info("If you haven't loaded tickers yet, run `python -m collectors.bulk_load` first.")
-    else:
+# ═══════════════════════════════════════════════════════════════
+# VIEW 2 — STOCK SCREENER
+# ═══════════════════════════════════════════════════════════════
+elif view == "Stock Screener":
+    _ss_tab1, _ss_tab2 = st.tabs(["📋 Lọc cổ phiếu", "⭐ Watchlist"])
+    with _ss_tab1:
+        st.title("📋 Valuation Screen")
 
-        # ── Sidebar filters ────────────────────────────────────
-        st.sidebar.markdown("### Filters")
+        screen_df = load_valuation_screen_data()
 
-        all_sectors = sorted(s for s in screen_df["Sector"].unique() if s != "Unknown")
-        sel_sectors = st.sidebar.multiselect(
-            "Sector", all_sectors,
-            default=[],
-            placeholder="All sectors",
-        )
-
-        min_roe = st.sidebar.slider("Min ROE (%)", -50, 50, -50, step=5)
-        max_de  = st.sidebar.slider("Max D/E (x)", 0.0, 30.0, 30.0, step=0.5)
-        min_upside_pct = st.sidebar.slider("Min Avg upside (%)", -1000, 200, -1000, step=50)
-        min_quality = st.sidebar.slider("Min Quality score", 0, 100, 0, step=5)
-
-        sort_col = st.sidebar.selectbox(
-            "Sort by",
-            ["Signal (Strong Buy first)", "Signal (Strong Sell first)",
-             "Upside (best first)", "Quality (best first)",
-             "ROE (best first)", "Net Margin (best first)", "Ticker (A-Z)"],
-            index=0,
-        )
-        _WJ2 = "⁠"
-        _ALL_SIGNALS_V2 = [_WJ2*1+"Strong Buy", _WJ2*2+"Buy", _WJ2*3+"Watch",
-                           _WJ2*4+"Neutral", _WJ2*5+"Reduce", _WJ2*6+"Sell", _WJ2*7+"Strong Sell"]
-        f_signals = st.sidebar.multiselect(
-            "Filter Signal", _ALL_SIGNALS_V2, default=[],
-            placeholder="All signals",
-        )
-
-        # ── Apply filters ──────────────────────────────────────
-        filtered = screen_df.copy()
-        if sel_sectors:
-            filtered = filtered[filtered["Sector"].isin(sel_sectors)]
-        filtered = filtered[filtered["_roe_raw"] >= min_roe / 100]
-        filtered = filtered[filtered["_de_raw"] <= max_de]
-        filtered = filtered[filtered["_avg_upside_raw"] >= min_upside_pct / 100]
-        filtered = filtered[filtered["_qs_raw"] >= min_quality]
-
-        # ── Sort ───────────────────────────────────────────────
-        if sort_col == "Ticker (A-Z)":
-            filtered = filtered.sort_values("Ticker")
-        elif sort_col == "ROE (best first)":
-            filtered = filtered.sort_values("_roe_raw", ascending=False)
-        elif sort_col == "Net Margin (best first)":
-            filtered = filtered.sort_values("_nm_raw", ascending=False)
-        elif sort_col == "Quality (best first)":
-            filtered = filtered.sort_values("_qs_raw", ascending=False)
-        elif sort_col in ("Signal (Strong Buy first)", "Signal (Strong Sell first)"):
-            pass  # applied after signal column is built (needs _sig_rank)
+        if screen_df.empty:
+            st.warning("No pre-computed valuation data. Run: `python -m collectors.compute_valuations`")
+            st.info("If you haven't loaded tickers yet, run `python -m collectors.bulk_load` first.")
         else:
-            filtered = filtered.sort_values("_upside_raw", ascending=False)
 
-        n_total = len(screen_df)
-        n_filtered = len(filtered)
-        st.caption(
-            f"Showing {n_filtered} of {n_total} tickers"
-            + (" (filters applied)" if n_filtered < n_total else "")
-        )
+            # ── Sidebar filters ────────────────────────────────────
+            st.sidebar.markdown("### Filters")
 
-        # ── Ticker multiselect — just above table ───────────────
-        # Use ALL tickers from the full dataset (not filtered) so nothing is hidden
-        st.markdown("""
-<style>
-div[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
-    background-color: #1e40af !important;
-    color: #bfdbfe !important;
-}
-div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
-    color: #93c5fd !important;
-}
-</style>""", unsafe_allow_html=True)
-        # ── Build display table ────────────────────────────────
-        raw_cols = [c for c in filtered.columns if c.startswith("_")]
-        display = filtered.drop(columns=raw_cols).copy()
+            all_sectors = sorted(s for s in screen_df["Sector"].unique() if s != "Unknown")
+            sel_sectors = st.sidebar.multiselect(
+                "Sector", all_sectors,
+                default=[],
+                placeholder="All sectors",
+            )
 
-        # Sector: hide Unknown → "-"
-        display["Sector"] = filtered["Sector"].apply(
-            lambda s: "-" if s == "Unknown" else s
-        ).values
+            min_roe = st.sidebar.slider("Min ROE (%)", -50, 50, -50, step=5)
+            max_de  = st.sidebar.slider("Max D/E (x)", 0.0, 30.0, 30.0, step=0.5)
+            min_upside_pct = st.sidebar.slider("Min Avg upside (%)", -1000, 200, -1000, step=50)
+            min_quality = st.sidebar.slider("Min Quality score", 0, 100, 0, step=5)
 
-        # 7-level signal — prefixed with number so column-header click sorts correctly
-        # "1-Strong Buy" < "2-Buy" < ... alphabetically = our intended order
-        # _SIG_LABELS defined at module level above
-        signals = [_SIG_LABELS[classify_signal(u, q)]
-                   for u, q in zip(filtered["_avg_upside_raw"], filtered["_qs_raw"])]
-        display["Signal"] = signals
-        _signal_rank = {v: 6 - i for i, v in enumerate(_SIG_LABELS.values())}
-        display["_sig_rank"] = [_signal_rank.get(s, 3) for s in signals]
+            sort_col = st.sidebar.selectbox(
+                "Sort by",
+                ["Signal (Strong Buy first)", "Signal (Strong Sell first)",
+                 "Upside (best first)", "Quality (best first)",
+                 "ROE (best first)", "Net Margin (best first)", "Ticker (A-Z)"],
+                index=0,
+            )
+            _WJ2 = "⁠"
+            _ALL_SIGNALS_V2 = [_WJ2*1+"Strong Buy", _WJ2*2+"Buy", _WJ2*3+"Watch",
+                               _WJ2*4+"Neutral", _WJ2*5+"Reduce", _WJ2*6+"Sell", _WJ2*7+"Strong Sell"]
+            f_signals = st.sidebar.multiselect(
+                "Filter Signal", _ALL_SIGNALS_V2, default=[],
+                placeholder="All signals",
+            )
 
-        # Quality as integer for color bar
-        display["Quality"] = [int(round(q)) for q in filtered["_qs_raw"]]
+            # ── Apply filters ──────────────────────────────────────
+            filtered = screen_df.copy()
+            if sel_sectors:
+                filtered = filtered[filtered["Sector"].isin(sel_sectors)]
+            filtered = filtered[filtered["_roe_raw"] >= min_roe / 100]
+            filtered = filtered[filtered["_de_raw"] <= max_de]
+            filtered = filtered[filtered["_avg_upside_raw"] >= min_upside_pct / 100]
+            filtered = filtered[filtered["_qs_raw"] >= min_quality]
 
-        # Column order — Avg Estimate first, then DCF
-        ordered = ["Signal", "Sector", "Price (VND)",
-                   "Avg Estimate", "Avg Upside",
-                   "DCF Estimate", "FCFE Estimate", "Upside",
-                   "Quality", "Graham Number", "P/E", "P/B",
-                   "Net Margin", "ROE", "FCF Margin", "D/E", "Current Ratio"]
-        ordered = [c for c in ordered if c in display.columns]
-
-        # Apply signal filter
-        if f_signals:
-            display = display[display["Signal"].isin(f_signals)]
-
-        # Apply signal sort after display is built (needs _sig_rank)
-        if sort_col == "Signal (Strong Buy first)":
-            display = display.sort_values("_sig_rank", ascending=False)
-        elif sort_col == "Signal (Strong Sell first)":
-            display = display.sort_values("_sig_rank", ascending=True)
-
-        # ── CSV export ─────────────────────────────────────────
-        csv_bytes = display[["Ticker"] + ordered].to_csv(index=False).encode("utf-8-sig")
-        xlsx_bytes = build_excel_export(filtered)
-        _dl1, _dl2, _ = st.columns([2, 2, 6])
-        _dl1.download_button("Download CSV", data=csv_bytes,
-            file_name="valuation_screen.csv", mime="text/csv", use_container_width=True)
-        _dl2.download_button("Download Excel", data=xlsx_bytes,
-            file_name="valuation_screen.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True)
-        if False:
-            st.download_button(
-            label="Download CSV",
-            data=csv_bytes,
-            file_name="valuation_screen.csv",
-            mime="text/csv",
-        )
-
-        # ── Table ──────────────────────────────────────────────
-        def _signal_color(val):
-            # strip invisible prefix for lookup
-            _v = val.lstrip("⁠") if val else val
-            return {
-                "Strong Buy":  "background-color:#14532d; color:#86efac; font-weight:700",
-                "Buy":         "background-color:#166534; color:#bbf7d0; font-weight:600",
-                "Watch":       "background-color:#713f12; color:#fde68a; font-weight:600",
-                "Neutral":     "background-color:#1e293b; color:#94a3b8",
-                "Reduce":      "background-color:#7c2d12; color:#fdba74",
-                "Sell":        "background-color:#7f1d1d; color:#fca5a5; font-weight:600",
-                "Strong Sell": "background-color:#450a0a; color:#f87171; font-weight:700",
-            }.get(_v, "")
-
-        def _quality_color(val):
-            try:
-                q = int(val)
-                if q >= 70:   return "background-color:#166534; color:#86efac"
-                elif q >= 50: return "background-color:#713f12; color:#fde047"
-                elif q >= 30: return "background-color:#7c2d12; color:#fdba74"
-                else:         return "background-color:#7f1d1d; color:#fca5a5"
-            except Exception:
-                return ""
-
-        styled = (
-            display.set_index("Ticker")[ordered]
-            .style
-            .map(_signal_color, subset=["Signal"])
-            .map(_quality_color, subset=["Quality"])
-        )
-        st.dataframe(styled, width="stretch")
-
-        # ── Colored legend below table ─────────────────────────
-        st.markdown("""
-<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;padding:8px 0 4px 0;justify-content:flex-end;">
-  <span style="color:#6b7280;font-size:11px;align-self:center;">Avg of 10 valuation methods vs market price · Quality Score 0–100 (ROE, margin, FCF, liquidity) · click Signal to sort ·</span>
-  <span style="background:#14532d;color:#86efac;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Buy: upside ≥+20% &amp; quality ≥60</span>
-  <span style="background:#166534;color:#bbf7d0;padding:2px 8px;border-radius:4px;font-weight:600;">Buy: upside ≥+10% &amp; quality ≥45</span>
-  <span style="background:#713f12;color:#fde68a;padding:2px 8px;border-radius:4px;">Watch: upside ≥0%</span>
-  <span style="background:#1e293b;color:#94a3b8;padding:2px 8px;border-radius:4px;">Neutral: -10% to 0%</span>
-  <span style="background:#7c2d12;color:#fdba74;padding:2px 8px;border-radius:4px;">Reduce: -30% to -10%</span>
-  <span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:4px;font-weight:600;">Sell: -50% to -30%</span>
-  <span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Sell: &lt;-50%</span>
-</div>
-""", unsafe_allow_html=True)
-
-        # ════════════════════════════════════════════════════════
-        # ANALYTICS — charts below the table
-        # ════════════════════════════════════════════════════════
-        st.divider()
-
-        # Build a clean analysis frame from filtered data
-        _an = filtered.copy()
-        _an["_signal_clean"] = [
-            ("Strong Buy" if u >= 0.20 and q >= 60 else
-             "Buy"        if u >= 0.10 and q >= 45 else
-             "Watch"      if u >= 0.00 else
-             "Neutral"    if u >= -0.10 else
-             "Reduce"     if u >= -0.30 else
-             "Sell"       if u >= -0.50 else
-             "Strong Sell")
-            for u, q in zip(_an["_avg_upside_raw"], _an["_qs_raw"])
-        ]
-
-        # ── Signal count KPI cards ──────────────────────────────
-        _sig_order = ["Strong Buy", "Buy", "Watch", "Neutral", "Reduce", "Sell", "Strong Sell"]
-        _sig_colors_map = {
-            "Strong Buy": "#22c55e", "Buy": "#4ade80", "Watch": "#eab308",
-            "Neutral": "#94a3b8", "Reduce": "#fb923c", "Sell": "#ef4444",
-            "Strong Sell": "#b91c1c",
-        }
-        _counts = _an["_signal_clean"].value_counts().to_dict()
-        _kpi_cols = st.columns(7)
-        for _i, _sig in enumerate(_sig_order):
-            _cnt = _counts.get(_sig, 0)
-            _clr = _sig_colors_map[_sig]
-            _kpi_cols[_i].markdown(
-                f"<div style='text-align:center;padding:6px;border-radius:6px;"
-                f"background:rgba(255,255,255,0.03);border-top:3px solid {_clr};'>"
-                f"<div style='font-size:24px;font-weight:800;color:{_clr};'>{_cnt}</div>"
-                f"<div style='font-size:11px;color:#9ca3af;'>{_sig}</div></div>",
-                unsafe_allow_html=True)
-
-        # ── Top Picks — best Strong Buy / Buy by Quality ────────
-        st.write("")
-        _picks = (_an[_an["_signal_clean"].isin(["Strong Buy", "Buy"])]
-                  .sort_values(["_qs_raw", "_avg_upside_raw"], ascending=False).head(5))
-        if not _picks.empty:
-            st.markdown("**Top Picks** · highest Quality among Buy / Strong Buy")
-            _pk_cols = st.columns(len(_picks))
-            for _col, (_, _r) in zip(_pk_cols, _picks.iterrows()):
-                _clr = _sig_colors_map[_r["_signal_clean"]]
-                _col.markdown(
-                    f"<div style='text-align:center;padding:10px 6px;border-radius:8px;"
-                    f"background:rgba(255,255,255,0.03);border:1px solid {_clr}44;'>"
-                    f"<div style='font-size:16px;font-weight:800;color:#f9fafb;'>{_r['Ticker']}</div>"
-                    f"<div style='font-size:11px;color:#9ca3af;margin-bottom:4px;'>{_r['Sector']}</div>"
-                    f"<div style='font-size:13px;color:{_clr};font-weight:700;'>+{_r['_avg_upside_raw']*100:.0f}%</div>"
-                    f"<div style='font-size:11px;color:#9ca3af;'>Upside</div>"
-                    f"<div style='font-size:13px;color:#f9fafb;margin-top:4px;'>Q{int(round(_r['_qs_raw']))}</div>"
-                    f"<div style='font-size:11px;color:#9ca3af;'>Quality</div>"
-                    f"</div>", unsafe_allow_html=True)
-
-        st.write("")
-        _c1, _c2 = st.columns(2)
-
-        # ── Chart 1: Signal distribution donut ──────────────────
-        with _c1:
-            st.subheader("Signal Distribution")
-            _dist = [(s, _counts.get(s, 0)) for s in _sig_order if _counts.get(s, 0) > 0]
-            if _dist:
-                fig_sig = go.Figure(go.Pie(
-                    labels=[d[0] for d in _dist],
-                    values=[d[1] for d in _dist],
-                    marker=dict(colors=[_sig_colors_map[d[0]] for d in _dist]),
-                    hole=0.5, textinfo="label+value",
-                    hovertemplate="%{label}: %{value} (%{percent})<extra></extra>",
-                ))
-                fig_sig.update_layout(height=340, margin=dict(l=0, r=0, t=10, b=0),
-                                      showlegend=False, dragmode=False)
-                st.plotly_chart(fig_sig, width="stretch")
-
-        # ── Chart 2: Buy opportunities by sector ────────────────
-        with _c2:
-            st.subheader("Buy Opportunities by Sector")
-            _buys = _an[_an["_signal_clean"].isin(["Strong Buy", "Buy"])].copy()
-            if not _buys.empty:
-                _by_sec = (_buys.groupby("Sector")["_signal_clean"]
-                           .value_counts().unstack(fill_value=0))
-                for _col in ["Strong Buy", "Buy"]:
-                    if _col not in _by_sec.columns:
-                        _by_sec[_col] = 0
-                _by_sec["_tot"] = _by_sec["Strong Buy"] + _by_sec["Buy"]
-                _by_sec = _by_sec.sort_values("_tot", ascending=True).tail(12)
-                fig_sec_buy = go.Figure()
-                fig_sec_buy.add_trace(go.Bar(
-                    y=_by_sec.index, x=_by_sec["Strong Buy"], orientation="h",
-                    name="Strong Buy", marker_color="#22c55e",
-                    hovertemplate="%{y}: %{x} Strong Buy<extra></extra>"))
-                fig_sec_buy.add_trace(go.Bar(
-                    y=_by_sec.index, x=_by_sec["Buy"], orientation="h",
-                    name="Buy", marker_color="#4ade80",
-                    hovertemplate="%{y}: %{x} Buy<extra></extra>"))
-                fig_sec_buy.update_layout(
-                    height=340, margin=dict(l=0, r=10, t=10, b=0),
-                    barmode="stack", dragmode=False,
-                    legend=dict(orientation="h", y=-0.12),
-                    xaxis_title="# Tickers")
-                st.plotly_chart(fig_sec_buy, width="stretch")
+            # ── Sort ───────────────────────────────────────────────
+            if sort_col == "Ticker (A-Z)":
+                filtered = filtered.sort_values("Ticker")
+            elif sort_col == "ROE (best first)":
+                filtered = filtered.sort_values("_roe_raw", ascending=False)
+            elif sort_col == "Net Margin (best first)":
+                filtered = filtered.sort_values("_nm_raw", ascending=False)
+            elif sort_col == "Quality (best first)":
+                filtered = filtered.sort_values("_qs_raw", ascending=False)
+            elif sort_col in ("Signal (Strong Buy first)", "Signal (Strong Sell first)"):
+                pass  # applied after signal column is built (needs _sig_rank)
             else:
-                st.info("No Buy/Strong Buy tickers in current filter.")
+                filtered = filtered.sort_values("_upside_raw", ascending=False)
 
-        # ── Chart 2b: Avg Upside by Sector ───────────────────────
-        st.subheader("Avg Upside by Sector")
-        _sec_up = (_an.dropna(subset=["_avg_upside_raw"])
-                      .groupby("Sector")["_avg_upside_raw"].median()
-                      .sort_values())
-        if not _sec_up.empty:
-            _sec_up_pct = (_sec_up * 100)
-            fig_sec_up = go.Figure(go.Bar(
-                y=_sec_up_pct.index, x=_sec_up_pct.values, orientation="h",
-                marker_color=["#22c55e" if v >= 0 else "#ef4444" for v in _sec_up_pct.values],
-                hovertemplate="%{y}: %{x:.1f}%<extra></extra>"))
-            fig_sec_up.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.4)
-            fig_sec_up.update_layout(
-                height=max(340, 24 * len(_sec_up_pct)), margin=dict(l=0, r=10, t=10, b=0),
-                dragmode=False, xaxis_title="Median Avg Upside %")
-            st.plotly_chart(fig_sec_up, width="stretch")
-            st.caption("Median of 'Avg Estimate' upside across tickers in each sector — "
-                       "negative = sector trading above estimated fair value.")
+            n_total = len(screen_df)
+            n_filtered = len(filtered)
+            st.caption(
+                f"Showing {n_filtered} of {n_total} tickers"
+                + (" (filters applied)" if n_filtered < n_total else "")
+            )
 
-        # ── Chart 3: Quality vs Upside scatter ──────────────────
-        st.subheader("Quality vs Avg Upside (all filtered tickers)")
-        _sc = _an.dropna(subset=["_qs_raw", "_avg_upside_raw"]).copy()
-        _sc["_upside_pct"] = _sc["_avg_upside_raw"] * 100
-        _CLIP_LO, _CLIP_HI = -100, 150
-        _n_clipped = int(((_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)).sum())
-        _sc["_upside_clip"] = _sc["_upside_pct"].clip(_CLIP_LO, _CLIP_HI)
-        # Jitter points sitting exactly on the clip edge so they don't form a solid wall
-        _is_clipped = (_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)
-        if _is_clipped.any():
-            _rng = np.random.default_rng(42)
-            _sc.loc[_is_clipped, "_upside_clip"] += _rng.uniform(-4, 4, size=int(_is_clipped.sum()))
-        fig_qs = go.Figure(go.Scatter(
-            x=_sc["_upside_clip"], y=_sc["_qs_raw"],
-            mode="markers",
-            marker=dict(
-                size=8,
-                color=[_sig_colors_map[s] for s in _sc["_signal_clean"]],
-                line=dict(width=0.5, color="#1f2937"), opacity=0.75),
-            text=_sc["Ticker"],
-            customdata=_sc[["Sector", "_upside_pct"]].values,
-            hovertemplate="<b>%{text}</b><br>%{customdata[0]}<br>"
-                          "Upside %{customdata[1]:.1f}%<br>Quality %{y:.0f}<extra></extra>",
-        ))
-        # Quadrant reference lines
-        fig_qs.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.4)
-        fig_qs.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.4)
-        fig_qs.add_annotation(x=75, y=85, text="★ Cheap & Quality", showarrow=False,
-                              font=dict(color="#22c55e", size=12))
-        fig_qs.add_annotation(x=-50, y=15, text="Avoid", showarrow=False,
-                              font=dict(color="#ef4444", size=12))
-        fig_qs.update_layout(
-            height=420, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
-            xaxis_title=f"Avg Upside % (clipped to {_CLIP_LO}…{_CLIP_HI}%)", yaxis_title="Quality Score",
-            hovermode="closest")
-        st.plotly_chart(fig_qs, width="stretch")
-        _clip_note = (f" · {_n_clipped} tickers off-chart (upside outside "
-                       f"{_CLIP_LO}%…{_CLIP_HI}%, jittered at the edge)" if _n_clipped else "")
-        st.caption("Top-right quadrant = undervalued + high quality (best opportunities). "
-                   f"Bubble color = signal.{_clip_note}")
+            # ── Ticker multiselect — just above table ───────────────
+            # Use ALL tickers from the full dataset (not filtered) so nothing is hidden
+            st.markdown("""
+    <style>
+    div[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+        background-color: #1e40af !important;
+        color: #bfdbfe !important;
+    }
+    div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
+        color: #93c5fd !important;
+    }
+    </style>""", unsafe_allow_html=True)
+            # ── Build display table ────────────────────────────────
+            raw_cols = [c for c in filtered.columns if c.startswith("_")]
+            display = filtered.drop(columns=raw_cols).copy()
 
-        # ── Chart 4: Upside distribution histogram ──────────────
-        st.subheader("Avg Upside Distribution")
-        _n_offrange = int(((_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)).sum())
-        _bin_size = 10
-        _bin_edges = np.arange(_CLIP_LO, _CLIP_HI + _bin_size, _bin_size)
-        _counts, _ = np.histogram(_sc["_upside_pct"], bins=_bin_edges)
-        _bin_centers = (_bin_edges[:-1] + _bin_edges[1:]) / 2
-        # Red = expensive (negative upside) -> Green = cheap (positive upside)
-        _bin_colors = ["#ef4444" if c < 0 else "#22c55e" for c in _bin_centers]
-        fig_hist = go.Figure(go.Bar(
-            x=_bin_centers, y=_counts, marker_color=_bin_colors, width=_bin_size * 0.9,
-            customdata=np.stack([_bin_edges[:-1], _bin_edges[1:]], axis=-1),
-            hovertemplate="%{customdata[0]:.0f}% to %{customdata[1]:.0f}%: %{y} tickers<extra></extra>",
-        ))
-        fig_hist.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.6)
-        fig_hist.update_layout(
-            height=260, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
-            xaxis=dict(title="Avg Upside %", range=[_CLIP_LO, _CLIP_HI]),
-            yaxis_title="# Tickers", bargap=0.05)
-        st.plotly_chart(fig_hist, width="stretch")
-        _offrange_note = (f" - {_n_offrange} tickers with upside outside "
-                          f"{_CLIP_LO}%...{_CLIP_HI}% not shown" if _n_offrange else "")
-        st.caption(
-            "Mỗi cột = số mã có mức upside trong khoảng đó. "
-            "🟢 Xanh (bên phải vạch 0) = đang bị định giá thấp, có thể tăng giá. "
-            "🔴 Đỏ (bên trái vạch 0) = đang đắt hơn giá trị ước tính, có thể giảm giá."
-            f"{_offrange_note}")
+            # Sector: hide Unknown → "-"
+            display["Sector"] = filtered["Sector"].apply(
+                lambda s: "-" if s == "Unknown" else s
+            ).values
+
+            # 7-level signal — prefixed with number so column-header click sorts correctly
+            # "1-Strong Buy" < "2-Buy" < ... alphabetically = our intended order
+            # _SIG_LABELS defined at module level above
+            signals = [_SIG_LABELS[classify_signal(u, q)]
+                       for u, q in zip(filtered["_avg_upside_raw"], filtered["_qs_raw"])]
+            display["Signal"] = signals
+            _signal_rank = {v: 6 - i for i, v in enumerate(_SIG_LABELS.values())}
+            display["_sig_rank"] = [_signal_rank.get(s, 3) for s in signals]
+
+            # Quality as integer for color bar
+            display["Quality"] = [int(round(q)) for q in filtered["_qs_raw"]]
+
+            # Column order — Avg Estimate first, then DCF
+            ordered = ["Signal", "Sector", "Price (VND)",
+                       "Avg Estimate", "Avg Upside",
+                       "DCF Estimate", "FCFE Estimate", "Upside",
+                       "Quality", "Graham Number", "P/E", "P/B",
+                       "Net Margin", "ROE", "FCF Margin", "D/E", "Current Ratio"]
+            ordered = [c for c in ordered if c in display.columns]
+
+            # Apply signal filter
+            if f_signals:
+                display = display[display["Signal"].isin(f_signals)]
+
+            # Apply signal sort after display is built (needs _sig_rank)
+            if sort_col == "Signal (Strong Buy first)":
+                display = display.sort_values("_sig_rank", ascending=False)
+            elif sort_col == "Signal (Strong Sell first)":
+                display = display.sort_values("_sig_rank", ascending=True)
+
+            # ── CSV export ─────────────────────────────────────────
+            csv_bytes = display[["Ticker"] + ordered].to_csv(index=False).encode("utf-8-sig")
+            xlsx_bytes = build_excel_export(filtered)
+            _dl1, _dl2, _ = st.columns([2, 2, 6])
+            _dl1.download_button("Download CSV", data=csv_bytes,
+                file_name="valuation_screen.csv", mime="text/csv", use_container_width=True)
+            _dl2.download_button("Download Excel", data=xlsx_bytes,
+                file_name="valuation_screen.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True)
+            if False:
+                st.download_button(
+                label="Download CSV",
+                data=csv_bytes,
+                file_name="valuation_screen.csv",
+                mime="text/csv",
+            )
+
+            # ── Table ──────────────────────────────────────────────
+            def _signal_color(val):
+                # strip invisible prefix for lookup
+                _v = val.lstrip("⁠") if val else val
+                return {
+                    "Strong Buy":  "background-color:#14532d; color:#86efac; font-weight:700",
+                    "Buy":         "background-color:#166534; color:#bbf7d0; font-weight:600",
+                    "Watch":       "background-color:#713f12; color:#fde68a; font-weight:600",
+                    "Neutral":     "background-color:#1e293b; color:#94a3b8",
+                    "Reduce":      "background-color:#7c2d12; color:#fdba74",
+                    "Sell":        "background-color:#7f1d1d; color:#fca5a5; font-weight:600",
+                    "Strong Sell": "background-color:#450a0a; color:#f87171; font-weight:700",
+                }.get(_v, "")
+
+            def _quality_color(val):
+                try:
+                    q = int(val)
+                    if q >= 70:   return "background-color:#166534; color:#86efac"
+                    elif q >= 50: return "background-color:#713f12; color:#fde047"
+                    elif q >= 30: return "background-color:#7c2d12; color:#fdba74"
+                    else:         return "background-color:#7f1d1d; color:#fca5a5"
+                except Exception:
+                    return ""
+
+            styled = (
+                display.set_index("Ticker")[ordered]
+                .style
+                .map(_signal_color, subset=["Signal"])
+                .map(_quality_color, subset=["Quality"])
+            )
+            st.dataframe(styled, width="stretch")
+
+            # ── Colored legend below table ─────────────────────────
+            st.markdown("""
+    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;padding:8px 0 4px 0;justify-content:flex-end;">
+      <span style="color:#6b7280;font-size:11px;align-self:center;">Avg of 10 valuation methods vs market price · Quality Score 0–100 (ROE, margin, FCF, liquidity) · click Signal to sort ·</span>
+      <span style="background:#14532d;color:#86efac;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Buy: upside ≥+20% &amp; quality ≥60</span>
+      <span style="background:#166534;color:#bbf7d0;padding:2px 8px;border-radius:4px;font-weight:600;">Buy: upside ≥+10% &amp; quality ≥45</span>
+      <span style="background:#713f12;color:#fde68a;padding:2px 8px;border-radius:4px;">Watch: upside ≥0%</span>
+      <span style="background:#1e293b;color:#94a3b8;padding:2px 8px;border-radius:4px;">Neutral: -10% to 0%</span>
+      <span style="background:#7c2d12;color:#fdba74;padding:2px 8px;border-radius:4px;">Reduce: -30% to -10%</span>
+      <span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:4px;font-weight:600;">Sell: -50% to -30%</span>
+      <span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Sell: &lt;-50%</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+            # ════════════════════════════════════════════════════════
+            # ANALYTICS — charts below the table
+            # ════════════════════════════════════════════════════════
+            st.divider()
+
+            # Build a clean analysis frame from filtered data
+            _an = filtered.copy()
+            _an["_signal_clean"] = [
+                ("Strong Buy" if u >= 0.20 and q >= 60 else
+                 "Buy"        if u >= 0.10 and q >= 45 else
+                 "Watch"      if u >= 0.00 else
+                 "Neutral"    if u >= -0.10 else
+                 "Reduce"     if u >= -0.30 else
+                 "Sell"       if u >= -0.50 else
+                 "Strong Sell")
+                for u, q in zip(_an["_avg_upside_raw"], _an["_qs_raw"])
+            ]
+
+            # ── Signal count KPI cards ──────────────────────────────
+            _sig_order = ["Strong Buy", "Buy", "Watch", "Neutral", "Reduce", "Sell", "Strong Sell"]
+            _sig_colors_map = {
+                "Strong Buy": "#22c55e", "Buy": "#4ade80", "Watch": "#eab308",
+                "Neutral": "#94a3b8", "Reduce": "#fb923c", "Sell": "#ef4444",
+                "Strong Sell": "#b91c1c",
+            }
+            _counts = _an["_signal_clean"].value_counts().to_dict()
+            _kpi_cols = st.columns(7)
+            for _i, _sig in enumerate(_sig_order):
+                _cnt = _counts.get(_sig, 0)
+                _clr = _sig_colors_map[_sig]
+                _kpi_cols[_i].markdown(
+                    f"<div style='text-align:center;padding:6px;border-radius:6px;"
+                    f"background:rgba(255,255,255,0.03);border-top:3px solid {_clr};'>"
+                    f"<div style='font-size:24px;font-weight:800;color:{_clr};'>{_cnt}</div>"
+                    f"<div style='font-size:11px;color:#9ca3af;'>{_sig}</div></div>",
+                    unsafe_allow_html=True)
+
+            # ── Top Picks — best Strong Buy / Buy by Quality ────────
+            st.write("")
+            _picks = (_an[_an["_signal_clean"].isin(["Strong Buy", "Buy"])]
+                      .sort_values(["_qs_raw", "_avg_upside_raw"], ascending=False).head(5))
+            if not _picks.empty:
+                st.markdown("**Top Picks** · highest Quality among Buy / Strong Buy")
+                _pk_cols = st.columns(len(_picks))
+                for _col, (_, _r) in zip(_pk_cols, _picks.iterrows()):
+                    _clr = _sig_colors_map[_r["_signal_clean"]]
+                    _col.markdown(
+                        f"<div style='text-align:center;padding:10px 6px;border-radius:8px;"
+                        f"background:rgba(255,255,255,0.03);border:1px solid {_clr}44;'>"
+                        f"<div style='font-size:16px;font-weight:800;color:#f9fafb;'>{_r['Ticker']}</div>"
+                        f"<div style='font-size:11px;color:#9ca3af;margin-bottom:4px;'>{_r['Sector']}</div>"
+                        f"<div style='font-size:13px;color:{_clr};font-weight:700;'>+{_r['_avg_upside_raw']*100:.0f}%</div>"
+                        f"<div style='font-size:11px;color:#9ca3af;'>Upside</div>"
+                        f"<div style='font-size:13px;color:#f9fafb;margin-top:4px;'>Q{int(round(_r['_qs_raw']))}</div>"
+                        f"<div style='font-size:11px;color:#9ca3af;'>Quality</div>"
+                        f"</div>", unsafe_allow_html=True)
+
+            st.write("")
+            _c1, _c2 = st.columns(2)
+
+            # ── Chart 1: Signal distribution donut ──────────────────
+            with _c1:
+                st.subheader("Signal Distribution")
+                _dist = [(s, _counts.get(s, 0)) for s in _sig_order if _counts.get(s, 0) > 0]
+                if _dist:
+                    fig_sig = go.Figure(go.Pie(
+                        labels=[d[0] for d in _dist],
+                        values=[d[1] for d in _dist],
+                        marker=dict(colors=[_sig_colors_map[d[0]] for d in _dist]),
+                        hole=0.5, textinfo="label+value",
+                        hovertemplate="%{label}: %{value} (%{percent})<extra></extra>",
+                    ))
+                    fig_sig.update_layout(height=340, margin=dict(l=0, r=0, t=10, b=0),
+                                          showlegend=False, dragmode=False)
+                    st.plotly_chart(fig_sig, width="stretch")
+
+            # ── Chart 2: Buy opportunities by sector ────────────────
+            with _c2:
+                st.subheader("Buy Opportunities by Sector")
+                _buys = _an[_an["_signal_clean"].isin(["Strong Buy", "Buy"])].copy()
+                if not _buys.empty:
+                    _by_sec = (_buys.groupby("Sector")["_signal_clean"]
+                               .value_counts().unstack(fill_value=0))
+                    for _col in ["Strong Buy", "Buy"]:
+                        if _col not in _by_sec.columns:
+                            _by_sec[_col] = 0
+                    _by_sec["_tot"] = _by_sec["Strong Buy"] + _by_sec["Buy"]
+                    _by_sec = _by_sec.sort_values("_tot", ascending=True).tail(12)
+                    fig_sec_buy = go.Figure()
+                    fig_sec_buy.add_trace(go.Bar(
+                        y=_by_sec.index, x=_by_sec["Strong Buy"], orientation="h",
+                        name="Strong Buy", marker_color="#22c55e",
+                        hovertemplate="%{y}: %{x} Strong Buy<extra></extra>"))
+                    fig_sec_buy.add_trace(go.Bar(
+                        y=_by_sec.index, x=_by_sec["Buy"], orientation="h",
+                        name="Buy", marker_color="#4ade80",
+                        hovertemplate="%{y}: %{x} Buy<extra></extra>"))
+                    fig_sec_buy.update_layout(
+                        height=340, margin=dict(l=0, r=10, t=10, b=0),
+                        barmode="stack", dragmode=False,
+                        legend=dict(orientation="h", y=-0.12),
+                        xaxis_title="# Tickers")
+                    st.plotly_chart(fig_sec_buy, width="stretch")
+                else:
+                    st.info("No Buy/Strong Buy tickers in current filter.")
+
+            # ── Chart 2b: Avg Upside by Sector ───────────────────────
+            st.subheader("Avg Upside by Sector")
+            _sec_up = (_an.dropna(subset=["_avg_upside_raw"])
+                          .groupby("Sector")["_avg_upside_raw"].median()
+                          .sort_values())
+            if not _sec_up.empty:
+                _sec_up_pct = (_sec_up * 100)
+                fig_sec_up = go.Figure(go.Bar(
+                    y=_sec_up_pct.index, x=_sec_up_pct.values, orientation="h",
+                    marker_color=["#22c55e" if v >= 0 else "#ef4444" for v in _sec_up_pct.values],
+                    hovertemplate="%{y}: %{x:.1f}%<extra></extra>"))
+                fig_sec_up.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.4)
+                fig_sec_up.update_layout(
+                    height=max(340, 24 * len(_sec_up_pct)), margin=dict(l=0, r=10, t=10, b=0),
+                    dragmode=False, xaxis_title="Median Avg Upside %")
+                st.plotly_chart(fig_sec_up, width="stretch")
+                st.caption("Median of 'Avg Estimate' upside across tickers in each sector — "
+                           "negative = sector trading above estimated fair value.")
+
+            # ── Chart 3: Quality vs Upside scatter ──────────────────
+            st.subheader("Quality vs Avg Upside (all filtered tickers)")
+            _sc = _an.dropna(subset=["_qs_raw", "_avg_upside_raw"]).copy()
+            _sc["_upside_pct"] = _sc["_avg_upside_raw"] * 100
+            _CLIP_LO, _CLIP_HI = -100, 150
+            _n_clipped = int(((_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)).sum())
+            _sc["_upside_clip"] = _sc["_upside_pct"].clip(_CLIP_LO, _CLIP_HI)
+            # Jitter points sitting exactly on the clip edge so they don't form a solid wall
+            _is_clipped = (_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)
+            if _is_clipped.any():
+                _rng = np.random.default_rng(42)
+                _sc.loc[_is_clipped, "_upside_clip"] += _rng.uniform(-4, 4, size=int(_is_clipped.sum()))
+            fig_qs = go.Figure(go.Scatter(
+                x=_sc["_upside_clip"], y=_sc["_qs_raw"],
+                mode="markers",
+                marker=dict(
+                    size=8,
+                    color=[_sig_colors_map[s] for s in _sc["_signal_clean"]],
+                    line=dict(width=0.5, color="#1f2937"), opacity=0.75),
+                text=_sc["Ticker"],
+                customdata=_sc[["Sector", "_upside_pct"]].values,
+                hovertemplate="<b>%{text}</b><br>%{customdata[0]}<br>"
+                              "Upside %{customdata[1]:.1f}%<br>Quality %{y:.0f}<extra></extra>",
+            ))
+            # Quadrant reference lines
+            fig_qs.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.4)
+            fig_qs.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.4)
+            fig_qs.add_annotation(x=75, y=85, text="★ Cheap & Quality", showarrow=False,
+                                  font=dict(color="#22c55e", size=12))
+            fig_qs.add_annotation(x=-50, y=15, text="Avoid", showarrow=False,
+                                  font=dict(color="#ef4444", size=12))
+            fig_qs.update_layout(
+                height=420, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+                xaxis_title=f"Avg Upside % (clipped to {_CLIP_LO}…{_CLIP_HI}%)", yaxis_title="Quality Score",
+                hovermode="closest")
+            st.plotly_chart(fig_qs, width="stretch")
+            _clip_note = (f" · {_n_clipped} tickers off-chart (upside outside "
+                           f"{_CLIP_LO}%…{_CLIP_HI}%, jittered at the edge)" if _n_clipped else "")
+            st.caption("Top-right quadrant = undervalued + high quality (best opportunities). "
+                       f"Bubble color = signal.{_clip_note}")
+
+            # ── Chart 4: Upside distribution histogram ──────────────
+            st.subheader("Avg Upside Distribution")
+            _n_offrange = int(((_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)).sum())
+            _bin_size = 10
+            _bin_edges = np.arange(_CLIP_LO, _CLIP_HI + _bin_size, _bin_size)
+            _counts, _ = np.histogram(_sc["_upside_pct"], bins=_bin_edges)
+            _bin_centers = (_bin_edges[:-1] + _bin_edges[1:]) / 2
+            # Red = expensive (negative upside) -> Green = cheap (positive upside)
+            _bin_colors = ["#ef4444" if c < 0 else "#22c55e" for c in _bin_centers]
+            fig_hist = go.Figure(go.Bar(
+                x=_bin_centers, y=_counts, marker_color=_bin_colors, width=_bin_size * 0.9,
+                customdata=np.stack([_bin_edges[:-1], _bin_edges[1:]], axis=-1),
+                hovertemplate="%{customdata[0]:.0f}% to %{customdata[1]:.0f}%: %{y} tickers<extra></extra>",
+            ))
+            fig_hist.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.6)
+            fig_hist.update_layout(
+                height=260, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+                xaxis=dict(title="Avg Upside %", range=[_CLIP_LO, _CLIP_HI]),
+                yaxis_title="# Tickers", bargap=0.05)
+            st.plotly_chart(fig_hist, width="stretch")
+            _offrange_note = (f" - {_n_offrange} tickers with upside outside "
+                              f"{_CLIP_LO}%...{_CLIP_HI}% not shown" if _n_offrange else "")
+            st.caption(
+                "Mỗi cột = số mã có mức upside trong khoảng đó. "
+                "🟢 Xanh (bên phải vạch 0) = đang bị định giá thấp, có thể tăng giá. "
+                "🔴 Đỏ (bên trái vạch 0) = đang đắt hơn giá trị ước tính, có thể giảm giá."
+                f"{_offrange_note}")
+
+
+    with _ss_tab2:
+        st.title("Screening & Watchlist")
+
+        screen_df = load_valuation_screen_data()
+        pinned    = get_pinned_tickers()
+
+        # ── Data Health expander in sidebar ────────────────────────
+        with st.sidebar.expander("Data Health Check"):
+            if st.button("Check completeness", key="btn_health"):
+                _comp = check_data_completeness()
+                _missing = _comp[_comp["Status"] == "Needs Update"]
+                st.caption(f"{len(_missing)} / {len(_comp)} tickers need update")
+                if not _missing.empty:
+                    st.dataframe(_missing.head(20), width="stretch")
+                else:
+                    st.success("All tickers have full data!")
+
+
+        if screen_df.empty:
+            st.warning("No pre-computed valuation data. Run: `python -m collectors.compute_valuations`")
+            st.stop()
+
+        # ── Sidebar filters ─────────────────────────────────────────
+        st.sidebar.subheader("Filters")
+
+        # Preset buttons
+        preset_col1, preset_col2, preset_col3 = st.sidebar.columns(3)
+        _apply_bank   = preset_col1.button("Bank",    use_container_width=True)
+        _apply_value  = preset_col2.button("Value",   use_container_width=True)
+        _apply_growth = preset_col3.button("Growth",  use_container_width=True)
+
+        # Preset defaults
+        if _apply_bank:
+            st.session_state.update({
+                "f_sectors": ["Ngân hàng"], "f_min_upside": -50,
+                "f_max_pe": 20, "f_max_pb": 1.5, "f_min_roe": 12, "f_min_nm": 10,
+            })
+        elif _apply_value:
+            st.session_state.update({
+                "f_sectors": [], "f_min_upside": 20,
+                "f_max_pe": 15, "f_max_pb": 2.0, "f_min_roe": 10, "f_min_nm": 5,
+            })
+        elif _apply_growth:
+            st.session_state.update({
+                "f_sectors": [], "f_min_upside": 10,
+                "f_max_pe": 40, "f_max_pb": 5.0, "f_min_roe": 15, "f_min_nm": 8,
+            })
+
+        all_sectors = sorted(screen_df["Sector"].dropna().unique().tolist()) if "Sector" in screen_df.columns else []
+        _saved_sectors = [s for s in st.session_state.get("f_sectors", []) if s in all_sectors]
+        f_sectors  = st.sidebar.multiselect("Sectors", all_sectors, default=_saved_sectors)
+        f_min_upside = st.sidebar.slider("Min Avg Upside (%)", -1000, 200,
+                         st.session_state.get("f_min_upside", -1000), step=50)
+        f_max_pe  = st.sidebar.slider("Max P/E (×)",   0, 100,
+                         st.session_state.get("f_max_pe", 100))
+        f_max_pb  = st.sidebar.slider("Max P/B (×)",   0.0, 10.0,
+                         float(st.session_state.get("f_max_pb", 10.0)), step=0.1)
+        f_min_roe = st.sidebar.slider("Min ROE (%)",  -50, 50,
+                         st.session_state.get("f_min_roe", -50))
+        f_min_nm  = st.sidebar.slider("Min Net Margin (%)", -50, 50,
+                         st.session_state.get("f_min_nm", -50))
+        f_min_qs  = st.sidebar.slider("Min Quality Score", 0, 100,
+                         st.session_state.get("f_min_qs", 0), step=5)
+        f_pinned_only = st.sidebar.checkbox("Saved watchlist only", value=False)
+
+        # Reset stale session state defaults to new permissive values
+        for _k, _v in [("f_min_upside", -1000), ("f_min_roe", -50),
+                       ("f_min_nm", -50), ("f_max_pe", 100), ("f_max_pb", 10.0)]:
+            if _k not in st.session_state:
+                st.session_state[_k] = _v
+
+        # Save current filter state
+        st.session_state.update({
+            "f_sectors": f_sectors, "f_min_upside": f_min_upside,
+            "f_max_pe": f_max_pe, "f_max_pb": f_max_pb,
+            "f_min_roe": f_min_roe, "f_min_nm": f_min_nm, "f_min_qs": f_min_qs,
+        })
+
+        # ── Apply filters ───────────────────────────────────────────
+        res = screen_df.copy()
+        if f_sectors:
+            res = res[res["Sector"].isin(f_sectors)]
+        res = res[res["_avg_upside_raw"] >= f_min_upside / 100]
+        res = res[res["_roe_raw"]       >= f_min_roe / 100]
+        res = res[res["_nm_raw"]        >= f_min_nm  / 100]
+        if f_max_pe < 100:
+            res = res[(res["_upside_raw"] > -999)]  # ensure column exists
+            # parse P/E from display col
+            def _pe_raw(s):
+                try: return float(str(s).replace("x","").replace("—","999"))
+                except: return 999
+            res = res[res["P/E"].apply(_pe_raw) <= f_max_pe]
+        if f_max_pb < 10:
+            def _pb_raw(s):
+                try: return float(str(s).replace("x","").replace("—","999"))
+                except: return 999
+            res = res[res["P/B"].apply(_pb_raw) <= f_max_pb]
+        if f_min_qs > 0:
+            res = res[res["_qs_raw"] >= f_min_qs]
+        if f_pinned_only:
+            res = res[res["Ticker"].isin(pinned)]
+
+        res = res.sort_values("_upside_raw", ascending=False)
+
+        _all_tickers = sorted(screen_df["Ticker"].tolist())
+
+        # ── Results ─────────────────────────────────────────────────
+        tab_screen, tab_saved = st.tabs([
+            f"Screen Results ({len(res)})",
+            f"Saved Watchlist ({len(pinned)})",
+        ])
+
+        with tab_screen:
+            # Search filter only (no buttons — click row to save/remove)
+            _sel_tickers = st.multiselect(
+                "Ticker", _all_tickers, default=[],
+                placeholder="Search to filter tickers...",
+                key="screen_ticker_ms", label_visibility="collapsed",
+            )
+
+            # Apply ticker filter to results
+            _res_display = res[res["Ticker"].isin(_sel_tickers)] if _sel_tickers else res
+            if _res_display.empty:
+                st.info("No tickers match. Adjust filters in the sidebar.")
+            else:
+                st.caption(f"{len(_res_display)} tickers shown")
+
+                res_disp = _res_display.copy()
+                # Star in same column as Ticker — ★ lit (saved) or ✩ dim (not saved)
+                res_disp["Ticker"] = res_disp["Ticker"].apply(
+                    lambda t: f"★ {t}" if t in pinned else f"✩ {t}"
+                )
+
+                # Signal column with colors
+                _sc_sigs = [_SIG_LABELS[classify_signal(u, q)]
+                            for u, q in zip(res_disp["_avg_upside_raw"], res_disp["_qs_raw"])]
+                res_disp["Signal"] = _sc_sigs
+                res_disp["Quality"] = [int(round(q)) for q in res_disp["_qs_raw"]]
+
+                display_cols = ["Signal","Sector","Price (VND)",  # "☆" added below
+                                "Avg Estimate","Avg Upside",
+                                "DCF Estimate","Upside","Quality",
+                                "P/E","P/B","ROE","Net Margin"]
+                display_cols = [c for c in display_cols if c in res_disp.columns]
+
+                def _sc_sig_col(val):
+                    _v = val.lstrip("⁠") if val else val
+                    return {"Strong Buy":"background-color:#14532d;color:#86efac;font-weight:700",
+                            "Buy":"background-color:#166534;color:#bbf7d0;font-weight:600",
+                            "Watch":"background-color:#713f12;color:#fde68a",
+                            "Neutral":"background-color:#1e293b;color:#94a3b8",
+                            "Reduce":"background-color:#7c2d12;color:#fdba74",
+                            "Sell":"background-color:#7f1d1d;color:#fca5a5;font-weight:600",
+                            "Strong Sell":"background-color:#450a0a;color:#f87171;font-weight:700",
+                            }.get(_v, "")
+
+                def _sc_q_col(val):
+                    try:
+                        q = int(val)
+                        if q >= 70: return "background-color:#166534;color:#86efac"
+                        elif q >= 50: return "background-color:#713f12;color:#fde047"
+                        elif q >= 30: return "background-color:#7c2d12;color:#fdba74"
+                        else: return "background-color:#7f1d1d;color:#fca5a5"
+                    except: return ""
+
+                _final_cols = ["Ticker"] + display_cols
+                _final_cols = [c for c in _final_cols if c in res_disp.columns]
+                _plain_df = res_disp[_final_cols].reset_index(drop=True)
+                _styled_sc = (
+                    _plain_df.style
+                    .map(_sc_sig_col, subset=["Signal"])
+                    .map(_sc_q_col,   subset=["Quality"] if "Quality" in display_cols else [])
+                )
+                _selection = st.dataframe(
+                    _styled_sc, width="stretch", hide_index=True,
+                    on_select="rerun", selection_mode="single-row",
+                )
+
+                # Handle row click → save or remove
+                _sel_rows = _selection.selection.get("rows", []) if _selection else []
+                if _sel_rows:
+                    _row_idx = _sel_rows[0]
+                    # Strip star prefix to get raw ticker
+                    _clicked_raw = _plain_df.iloc[_row_idx]["Ticker"]
+                    _clicked_ticker = _clicked_raw.lstrip("★✩ ")
+                    _is_pinned = _clicked_ticker in pinned
+
+                    _act_col, _info_col = st.columns([3, 7])
+                    _info_col.markdown(
+                        f"**{_clicked_ticker}** — "
+                        f"{'already in watchlist ★' if _is_pinned else 'not in watchlist ✩'}"
+                    )
+                    if _is_pinned:
+                        if _act_col.button(f"✕ Remove {_clicked_ticker} from watchlist",
+                                           key="wl_rm_click", use_container_width=True):
+                            if st.session_state.get("wl_rm_confirm") == _clicked_ticker:
+                                unpin_ticker(_clicked_ticker)
+                                st.session_state.pop("wl_rm_confirm", None)
+                                st.cache_data.clear(); st.rerun()
+                            else:
+                                st.session_state["wl_rm_confirm"] = _clicked_ticker
+                                st.warning(f"Click Remove again to confirm removing **{_clicked_ticker}**")
+                    else:
+                        if _act_col.button(f"★ Save {_clicked_ticker} to watchlist",
+                                           key="wl_save_click", use_container_width=True):
+                            pin_ticker(_clicked_ticker)
+                            st.success(f"★ {_clicked_ticker} saved!")
+                            st.cache_data.clear(); st.rerun()
+
+        with tab_saved:
+            if not pinned:
+                st.info("No tickers saved yet. Use the Screen tab to find and save tickers.")
+            else:
+                saved_df = screen_df[screen_df["Ticker"].isin(pinned)].copy()
+
+                # Compute signals for saved tickers
+                _saved_sigs = [_SIG_LABELS[classify_signal(u, q)]
+                               for u, q in zip(saved_df["_avg_upside_raw"], saved_df["_qs_raw"])]
+                saved_df["Signal"] = _saved_sigs
+
+                # Search + remove row
+                sw_col, rem_col = st.columns([4, 2])
+                _saved_search = sw_col.multiselect(
+                    "Filter", sorted(saved_df["Ticker"].tolist()),
+                    default=[], placeholder="Search saved tickers...",
+                    key="wl_saved_search", label_visibility="collapsed",
+                )
+                if _saved_search:
+                    saved_df = saved_df[saved_df["Ticker"].isin(_saved_search)]
+
+                saved_df = saved_df.sort_values("_sig_rank" if "_sig_rank" in saved_df.columns
+                                                 else "_avg_upside_raw", ascending=False)
+
+                display_cols2 = ["Signal","Sector","Price (VND)","Avg Estimate","Avg Upside",
+                                 "DCF Estimate","Upside","Quality","P/E","P/B","ROE","Net Margin"]
+                display_cols2 = [c for c in display_cols2 if c in saved_df.columns]
+
+                # Color Signal + Quality
+                def _saved_sig_color(val):
+                    _v = val.lstrip("⁠") if val else val
+                    return {"Strong Buy":"background-color:#14532d;color:#86efac;font-weight:700",
+                            "Buy":"background-color:#166534;color:#bbf7d0;font-weight:600",
+                            "Watch":"background-color:#713f12;color:#fde68a",
+                            "Neutral":"background-color:#1e293b;color:#94a3b8",
+                            "Reduce":"background-color:#7c2d12;color:#fdba74",
+                            "Sell":"background-color:#7f1d1d;color:#fca5a5;font-weight:600",
+                            "Strong Sell":"background-color:#450a0a;color:#f87171;font-weight:700",
+                            }.get(_v, "")
+
+                def _saved_q_color(val):
+                    try:
+                        q = int(val)
+                        if q >= 70: return "background-color:#166534;color:#86efac"
+                        elif q >= 50: return "background-color:#713f12;color:#fde047"
+                        elif q >= 30: return "background-color:#7c2d12;color:#fdba74"
+                        else: return "background-color:#7f1d1d;color:#fca5a5"
+                    except: return ""
+
+                saved_disp = saved_df[["Ticker"] + display_cols2].copy()
+                saved_disp["Quality"] = [int(round(q)) for q in saved_df["_qs_raw"]]
+                styled2 = (
+                    saved_disp.set_index("Ticker")[display_cols2]
+                    .style
+                    .map(_saved_sig_color, subset=["Signal"])
+                    .map(_saved_q_color,   subset=["Quality"] if "Quality" in display_cols2 else [])
+                )
+                st.dataframe(styled2, width="stretch")
+                st.caption(f"{len(pinned)} saved · showing {len(saved_df)}")
+
+                # Remove button
+                _rem2 = rem_col.text_input("Remove ticker", placeholder="e.g. VNM",
+                                           key="wl_rem2_input", label_visibility="collapsed").upper().strip()
+                if rem_col.button("✕ Remove from watchlist", key="wl_rem2_btn", use_container_width=True):
+                    if _rem2:
+                        unpin_ticker(_rem2)
+                        st.cache_data.clear()
+                        st.rerun()
+
+
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -4799,288 +5085,6 @@ iframe[title="heatmap_click.heatmap_click"] {
 
 
 # ═══════════════════════════════════════════════════════════════
-# VIEW 4 — SCREENING & WATCHLIST
-# ═══════════════════════════════════════════════════════════════
-elif view == "Undervalued Watchlist":
-    st.title("Screening & Watchlist")
-
-    screen_df = load_valuation_screen_data()
-    pinned    = get_pinned_tickers()
-
-    # ── Data Health expander in sidebar ────────────────────────
-    with st.sidebar.expander("Data Health Check"):
-        if st.button("Check completeness", key="btn_health"):
-            _comp = check_data_completeness()
-            _missing = _comp[_comp["Status"] == "Needs Update"]
-            st.caption(f"{len(_missing)} / {len(_comp)} tickers need update")
-            if not _missing.empty:
-                st.dataframe(_missing.head(20), width="stretch")
-            else:
-                st.success("All tickers have full data!")
-
-
-    if screen_df.empty:
-        st.warning("No pre-computed valuation data. Run: `python -m collectors.compute_valuations`")
-        st.stop()
-
-    # ── Sidebar filters ─────────────────────────────────────────
-    st.sidebar.subheader("Filters")
-
-    # Preset buttons
-    preset_col1, preset_col2, preset_col3 = st.sidebar.columns(3)
-    _apply_bank   = preset_col1.button("Bank",    use_container_width=True)
-    _apply_value  = preset_col2.button("Value",   use_container_width=True)
-    _apply_growth = preset_col3.button("Growth",  use_container_width=True)
-
-    # Preset defaults
-    if _apply_bank:
-        st.session_state.update({
-            "f_sectors": ["Ngân hàng"], "f_min_upside": -50,
-            "f_max_pe": 20, "f_max_pb": 1.5, "f_min_roe": 12, "f_min_nm": 10,
-        })
-    elif _apply_value:
-        st.session_state.update({
-            "f_sectors": [], "f_min_upside": 20,
-            "f_max_pe": 15, "f_max_pb": 2.0, "f_min_roe": 10, "f_min_nm": 5,
-        })
-    elif _apply_growth:
-        st.session_state.update({
-            "f_sectors": [], "f_min_upside": 10,
-            "f_max_pe": 40, "f_max_pb": 5.0, "f_min_roe": 15, "f_min_nm": 8,
-        })
-
-    all_sectors = sorted(screen_df["Sector"].dropna().unique().tolist()) if "Sector" in screen_df.columns else []
-    _saved_sectors = [s for s in st.session_state.get("f_sectors", []) if s in all_sectors]
-    f_sectors  = st.sidebar.multiselect("Sectors", all_sectors, default=_saved_sectors)
-    f_min_upside = st.sidebar.slider("Min Avg Upside (%)", -1000, 200,
-                     st.session_state.get("f_min_upside", -1000), step=50)
-    f_max_pe  = st.sidebar.slider("Max P/E (×)",   0, 100,
-                     st.session_state.get("f_max_pe", 100))
-    f_max_pb  = st.sidebar.slider("Max P/B (×)",   0.0, 10.0,
-                     float(st.session_state.get("f_max_pb", 10.0)), step=0.1)
-    f_min_roe = st.sidebar.slider("Min ROE (%)",  -50, 50,
-                     st.session_state.get("f_min_roe", -50))
-    f_min_nm  = st.sidebar.slider("Min Net Margin (%)", -50, 50,
-                     st.session_state.get("f_min_nm", -50))
-    f_min_qs  = st.sidebar.slider("Min Quality Score", 0, 100,
-                     st.session_state.get("f_min_qs", 0), step=5)
-    f_pinned_only = st.sidebar.checkbox("Saved watchlist only", value=False)
-
-    # Reset stale session state defaults to new permissive values
-    for _k, _v in [("f_min_upside", -1000), ("f_min_roe", -50),
-                   ("f_min_nm", -50), ("f_max_pe", 100), ("f_max_pb", 10.0)]:
-        if _k not in st.session_state:
-            st.session_state[_k] = _v
-
-    # Save current filter state
-    st.session_state.update({
-        "f_sectors": f_sectors, "f_min_upside": f_min_upside,
-        "f_max_pe": f_max_pe, "f_max_pb": f_max_pb,
-        "f_min_roe": f_min_roe, "f_min_nm": f_min_nm, "f_min_qs": f_min_qs,
-    })
-
-    # ── Apply filters ───────────────────────────────────────────
-    res = screen_df.copy()
-    if f_sectors:
-        res = res[res["Sector"].isin(f_sectors)]
-    res = res[res["_avg_upside_raw"] >= f_min_upside / 100]
-    res = res[res["_roe_raw"]       >= f_min_roe / 100]
-    res = res[res["_nm_raw"]        >= f_min_nm  / 100]
-    if f_max_pe < 100:
-        res = res[(res["_upside_raw"] > -999)]  # ensure column exists
-        # parse P/E from display col
-        def _pe_raw(s):
-            try: return float(str(s).replace("x","").replace("—","999"))
-            except: return 999
-        res = res[res["P/E"].apply(_pe_raw) <= f_max_pe]
-    if f_max_pb < 10:
-        def _pb_raw(s):
-            try: return float(str(s).replace("x","").replace("—","999"))
-            except: return 999
-        res = res[res["P/B"].apply(_pb_raw) <= f_max_pb]
-    if f_min_qs > 0:
-        res = res[res["_qs_raw"] >= f_min_qs]
-    if f_pinned_only:
-        res = res[res["Ticker"].isin(pinned)]
-
-    res = res.sort_values("_upside_raw", ascending=False)
-
-    _all_tickers = sorted(screen_df["Ticker"].tolist())
-
-    # ── Results ─────────────────────────────────────────────────
-    tab_screen, tab_saved = st.tabs([
-        f"Screen Results ({len(res)})",
-        f"Saved Watchlist ({len(pinned)})",
-    ])
-
-    with tab_screen:
-        # Search filter only (no buttons — click row to save/remove)
-        _sel_tickers = st.multiselect(
-            "Ticker", _all_tickers, default=[],
-            placeholder="Search to filter tickers...",
-            key="screen_ticker_ms", label_visibility="collapsed",
-        )
-
-        # Apply ticker filter to results
-        _res_display = res[res["Ticker"].isin(_sel_tickers)] if _sel_tickers else res
-        if _res_display.empty:
-            st.info("No tickers match. Adjust filters in the sidebar.")
-        else:
-            st.caption(f"{len(_res_display)} tickers shown")
-
-            res_disp = _res_display.copy()
-            # Star in same column as Ticker — ★ lit (saved) or ✩ dim (not saved)
-            res_disp["Ticker"] = res_disp["Ticker"].apply(
-                lambda t: f"★ {t}" if t in pinned else f"✩ {t}"
-            )
-
-            # Signal column with colors
-            _sc_sigs = [_SIG_LABELS[classify_signal(u, q)]
-                        for u, q in zip(res_disp["_avg_upside_raw"], res_disp["_qs_raw"])]
-            res_disp["Signal"] = _sc_sigs
-            res_disp["Quality"] = [int(round(q)) for q in res_disp["_qs_raw"]]
-
-            display_cols = ["Signal","Sector","Price (VND)",  # "☆" added below
-                            "Avg Estimate","Avg Upside",
-                            "DCF Estimate","Upside","Quality",
-                            "P/E","P/B","ROE","Net Margin"]
-            display_cols = [c for c in display_cols if c in res_disp.columns]
-
-            def _sc_sig_col(val):
-                _v = val.lstrip("⁠") if val else val
-                return {"Strong Buy":"background-color:#14532d;color:#86efac;font-weight:700",
-                        "Buy":"background-color:#166534;color:#bbf7d0;font-weight:600",
-                        "Watch":"background-color:#713f12;color:#fde68a",
-                        "Neutral":"background-color:#1e293b;color:#94a3b8",
-                        "Reduce":"background-color:#7c2d12;color:#fdba74",
-                        "Sell":"background-color:#7f1d1d;color:#fca5a5;font-weight:600",
-                        "Strong Sell":"background-color:#450a0a;color:#f87171;font-weight:700",
-                        }.get(_v, "")
-
-            def _sc_q_col(val):
-                try:
-                    q = int(val)
-                    if q >= 70: return "background-color:#166534;color:#86efac"
-                    elif q >= 50: return "background-color:#713f12;color:#fde047"
-                    elif q >= 30: return "background-color:#7c2d12;color:#fdba74"
-                    else: return "background-color:#7f1d1d;color:#fca5a5"
-                except: return ""
-
-            _final_cols = ["Ticker"] + display_cols
-            _final_cols = [c for c in _final_cols if c in res_disp.columns]
-            _plain_df = res_disp[_final_cols].reset_index(drop=True)
-            _styled_sc = (
-                _plain_df.style
-                .map(_sc_sig_col, subset=["Signal"])
-                .map(_sc_q_col,   subset=["Quality"] if "Quality" in display_cols else [])
-            )
-            _selection = st.dataframe(
-                _styled_sc, width="stretch", hide_index=True,
-                on_select="rerun", selection_mode="single-row",
-            )
-
-            # Handle row click → save or remove
-            _sel_rows = _selection.selection.get("rows", []) if _selection else []
-            if _sel_rows:
-                _row_idx = _sel_rows[0]
-                # Strip star prefix to get raw ticker
-                _clicked_raw = _plain_df.iloc[_row_idx]["Ticker"]
-                _clicked_ticker = _clicked_raw.lstrip("★✩ ")
-                _is_pinned = _clicked_ticker in pinned
-
-                _act_col, _info_col = st.columns([3, 7])
-                _info_col.markdown(
-                    f"**{_clicked_ticker}** — "
-                    f"{'already in watchlist ★' if _is_pinned else 'not in watchlist ✩'}"
-                )
-                if _is_pinned:
-                    if _act_col.button(f"✕ Remove {_clicked_ticker} from watchlist",
-                                       key="wl_rm_click", use_container_width=True):
-                        if st.session_state.get("wl_rm_confirm") == _clicked_ticker:
-                            unpin_ticker(_clicked_ticker)
-                            st.session_state.pop("wl_rm_confirm", None)
-                            st.cache_data.clear(); st.rerun()
-                        else:
-                            st.session_state["wl_rm_confirm"] = _clicked_ticker
-                            st.warning(f"Click Remove again to confirm removing **{_clicked_ticker}**")
-                else:
-                    if _act_col.button(f"★ Save {_clicked_ticker} to watchlist",
-                                       key="wl_save_click", use_container_width=True):
-                        pin_ticker(_clicked_ticker)
-                        st.success(f"★ {_clicked_ticker} saved!")
-                        st.cache_data.clear(); st.rerun()
-
-    with tab_saved:
-        if not pinned:
-            st.info("No tickers saved yet. Use the Screen tab to find and save tickers.")
-        else:
-            saved_df = screen_df[screen_df["Ticker"].isin(pinned)].copy()
-
-            # Compute signals for saved tickers
-            _saved_sigs = [_SIG_LABELS[classify_signal(u, q)]
-                           for u, q in zip(saved_df["_avg_upside_raw"], saved_df["_qs_raw"])]
-            saved_df["Signal"] = _saved_sigs
-
-            # Search + remove row
-            sw_col, rem_col = st.columns([4, 2])
-            _saved_search = sw_col.multiselect(
-                "Filter", sorted(saved_df["Ticker"].tolist()),
-                default=[], placeholder="Search saved tickers...",
-                key="wl_saved_search", label_visibility="collapsed",
-            )
-            if _saved_search:
-                saved_df = saved_df[saved_df["Ticker"].isin(_saved_search)]
-
-            saved_df = saved_df.sort_values("_sig_rank" if "_sig_rank" in saved_df.columns
-                                             else "_avg_upside_raw", ascending=False)
-
-            display_cols2 = ["Signal","Sector","Price (VND)","Avg Estimate","Avg Upside",
-                             "DCF Estimate","Upside","Quality","P/E","P/B","ROE","Net Margin"]
-            display_cols2 = [c for c in display_cols2 if c in saved_df.columns]
-
-            # Color Signal + Quality
-            def _saved_sig_color(val):
-                _v = val.lstrip("⁠") if val else val
-                return {"Strong Buy":"background-color:#14532d;color:#86efac;font-weight:700",
-                        "Buy":"background-color:#166534;color:#bbf7d0;font-weight:600",
-                        "Watch":"background-color:#713f12;color:#fde68a",
-                        "Neutral":"background-color:#1e293b;color:#94a3b8",
-                        "Reduce":"background-color:#7c2d12;color:#fdba74",
-                        "Sell":"background-color:#7f1d1d;color:#fca5a5;font-weight:600",
-                        "Strong Sell":"background-color:#450a0a;color:#f87171;font-weight:700",
-                        }.get(_v, "")
-
-            def _saved_q_color(val):
-                try:
-                    q = int(val)
-                    if q >= 70: return "background-color:#166534;color:#86efac"
-                    elif q >= 50: return "background-color:#713f12;color:#fde047"
-                    elif q >= 30: return "background-color:#7c2d12;color:#fdba74"
-                    else: return "background-color:#7f1d1d;color:#fca5a5"
-                except: return ""
-
-            saved_disp = saved_df[["Ticker"] + display_cols2].copy()
-            saved_disp["Quality"] = [int(round(q)) for q in saved_df["_qs_raw"]]
-            styled2 = (
-                saved_disp.set_index("Ticker")[display_cols2]
-                .style
-                .map(_saved_sig_color, subset=["Signal"])
-                .map(_saved_q_color,   subset=["Quality"] if "Quality" in display_cols2 else [])
-            )
-            st.dataframe(styled2, width="stretch")
-            st.caption(f"{len(pinned)} saved · showing {len(saved_df)}")
-
-            # Remove button
-            _rem2 = rem_col.text_input("Remove ticker", placeholder="e.g. VNM",
-                                       key="wl_rem2_input", label_visibility="collapsed").upper().strip()
-            if rem_col.button("✕ Remove from watchlist", key="wl_rem2_btn", use_container_width=True):
-                if _rem2:
-                    unpin_ticker(_rem2)
-                    st.cache_data.clear()
-                    st.rerun()
-
-
-# ═══════════════════════════════════════════════════════════════
 # VIEW 5 — PORTFOLIO TRACKER
 # ═══════════════════════════════════════════════════════════════
 elif view == "Portfolio Tracker":
@@ -5319,459 +5323,460 @@ elif view == "Portfolio Tracker":
         file_name="portfolio.csv", mime="text/csv")
 
 
+
 # ═══════════════════════════════════════════════════════════════
 # VIEW 6 — MARKET OVERVIEW
 # ═══════════════════════════════════════════════════════════════
 elif view == "Market Overview":
-    st.title("Market Overview")
+    _mo_tab1, _mo_tab2 = st.tabs(["📊 Thị trường", "📈 Vĩ mô"])
+    with _mo_tab1:
+        st.title("Market Overview")
 
-    # ── Intraday index ticker bar (auto-refreshes every 30s during trading hours)
-    _render_index_ticker_bar()
+        # ── Intraday index ticker bar (auto-refreshes every 30s during trading hours)
+        _render_index_ticker_bar()
 
-    with st.spinner("Loading market data..."):
-        snap_df = load_market_snapshot()
-        vnidx   = load_vnindex_prices(days=252)
+        with st.spinner("Loading market data..."):
+            snap_df = load_market_snapshot()
+            vnidx   = load_vnindex_prices(days=252)
 
-    if snap_df.empty:
-        st.warning("No price data.")
-        st.stop()
+        if snap_df.empty:
+            st.warning("No price data.")
+            st.stop()
 
-    snap_df = snap_df[snap_df["chg_pct"].notna()].copy()
-    n_up   = (snap_df["chg_pct"] > 0).sum()
-    n_dn   = (snap_df["chg_pct"] < 0).sum()
-    n_flat = (snap_df["chg_pct"] == 0).sum()
-    total  = len(snap_df)
+        snap_df = snap_df[snap_df["chg_pct"].notna()].copy()
+        n_up   = (snap_df["chg_pct"] > 0).sum()
+        n_dn   = (snap_df["chg_pct"] < 0).sum()
+        n_flat = (snap_df["chg_pct"] == 0).sum()
+        total  = len(snap_df)
 
-    # ── VN-Index chart + A/D ratio
-    col_idx, col_ad = st.columns([3, 1])
-    with col_idx:
-        st.subheader("VN-Index (1 Year)")
-        if not vnidx.empty:
-            _vi = vnidx.copy()
-            _vi["ma20"]   = _vi["close"].rolling(20).mean()
-            _vi["dlabel"] = _vi["date"].dt.strftime("%Y-%m-%d")
-            _last_vi = float(_vi.iloc[-1]["close"])
-            _prev_vi = float(_vi.iloc[-2]["close"]) if len(_vi) > 1 else _last_vi
-            _chg_vi  = (_last_vi - _prev_vi) / _prev_vi * 100 if _prev_vi else 0
-            _cc_vi   = "#22c55e" if _chg_vi >= 0 else "#ef4444"
-            _vi_ymin = float(_vi["close"].min()) * 0.975
-            _vi_ymax = float(_vi["close"].max()) * 1.015
-            _fig_vi  = go.Figure()
-            _fig_vi.add_trace(go.Scatter(x=_vi["dlabel"], y=_vi["close"], mode="lines", name="VN-Index",
-                line=dict(color="#5b9bd5", width=2), fill="tozeroy", fillcolor="rgba(91,155,213,0.08)",
-                hovertemplate="%{y:,.2f}<extra></extra>"))
-            _fig_vi.add_trace(go.Scatter(x=_vi["dlabel"], y=_vi["ma20"], mode="lines", name="MA20",
-                line=dict(color="#a78bfa", width=1.5), hovertemplate="MA20 %{y:,.2f}<extra></extra>"))
-            _fig_vi.update_layout(height=320, margin=dict(l=0,r=10,t=40,b=0), dragmode=False,
-                hovermode="x unified", showlegend=True, legend=dict(orientation="h", y=-0.1),
-                title=dict(text=f"<span style='color:{_cc_vi}'>{_last_vi:,.2f}  ({_chg_vi:+.2f}%)</span>",
-                           font=dict(size=16)),
-                xaxis=dict(type="category", nticks=8, showgrid=False, rangeslider=dict(visible=False)),
-                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                           range=[_vi_ymin, _vi_ymax]))
-            st.plotly_chart(_fig_vi, width="stretch")
+        # ── VN-Index chart + A/D ratio
+        col_idx, col_ad = st.columns([3, 1])
+        with col_idx:
+            st.subheader("VN-Index (1 Year)")
+            if not vnidx.empty:
+                _vi = vnidx.copy()
+                _vi["ma20"]   = _vi["close"].rolling(20).mean()
+                _vi["dlabel"] = _vi["date"].dt.strftime("%Y-%m-%d")
+                _last_vi = float(_vi.iloc[-1]["close"])
+                _prev_vi = float(_vi.iloc[-2]["close"]) if len(_vi) > 1 else _last_vi
+                _chg_vi  = (_last_vi - _prev_vi) / _prev_vi * 100 if _prev_vi else 0
+                _cc_vi   = "#22c55e" if _chg_vi >= 0 else "#ef4444"
+                _vi_ymin = float(_vi["close"].min()) * 0.975
+                _vi_ymax = float(_vi["close"].max()) * 1.015
+                _fig_vi  = go.Figure()
+                _fig_vi.add_trace(go.Scatter(x=_vi["dlabel"], y=_vi["close"], mode="lines", name="VN-Index",
+                    line=dict(color="#5b9bd5", width=2), fill="tozeroy", fillcolor="rgba(91,155,213,0.08)",
+                    hovertemplate="%{y:,.2f}<extra></extra>"))
+                _fig_vi.add_trace(go.Scatter(x=_vi["dlabel"], y=_vi["ma20"], mode="lines", name="MA20",
+                    line=dict(color="#a78bfa", width=1.5), hovertemplate="MA20 %{y:,.2f}<extra></extra>"))
+                _fig_vi.update_layout(height=320, margin=dict(l=0,r=10,t=40,b=0), dragmode=False,
+                    hovermode="x unified", showlegend=True, legend=dict(orientation="h", y=-0.1),
+                    title=dict(text=f"<span style='color:{_cc_vi}'>{_last_vi:,.2f}  ({_chg_vi:+.2f}%)</span>",
+                               font=dict(size=16)),
+                    xaxis=dict(type="category", nticks=8, showgrid=False, rangeslider=dict(visible=False)),
+                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                               range=[_vi_ymin, _vi_ymax]))
+                st.plotly_chart(_fig_vi, width="stretch")
+            else:
+                st.info("No VN-Index data available.")
+
+        with col_ad:
+            st.subheader("Advance / Decline")
+            _fig_ad = go.Figure(go.Bar(
+                x=["Up", "Flat", "Down"], y=[n_up, n_flat, n_dn],
+                marker_color=["#22c55e", "#eab308", "#ef4444"],
+                text=[n_up, n_flat, n_dn], textposition="outside",
+                hovertemplate="%{x}: %{y}<extra></extra>"))
+            _fig_ad.update_layout(height=200, margin=dict(l=0,r=0,t=10,b=0),
+                dragmode=False, showlegend=False, yaxis_visible=False)
+            st.plotly_chart(_fig_ad, width="stretch")
+            _ratio     = n_up / max(n_dn, 1)
+            _rc        = "#22c55e" if _ratio >= 1.5 else "#eab308" if _ratio >= 0.8 else "#ef4444"
+            st.markdown(
+                f"<div style='text-align:center;font-size:26px;font-weight:700;color:{_rc}'>{_ratio:.2f}"
+                f"<span style='font-size:13px;color:#9ca3af'> A/D ratio</span></div>"
+                f"<div style='text-align:center;font-size:12px;color:#9ca3af'>"
+                f"<span style='color:#22c55e'>▲{n_up}</span>  "
+                f"<span style='color:#eab308'>—{n_flat}</span>  "
+                f"<span style='color:#ef4444'>▼{n_dn}</span>  "
+                f"of {total} tickers</div>", unsafe_allow_html=True)
+
+        st.divider()
+
+        # ── Market-wide P/E & P/B vs history ────────────────────────
+        st.subheader("Market Valuation (P/E & P/B) vs History")
+        _mv = load_market_valuation_history()
+        if not _mv.empty:
+            def _fmt_q(p: str) -> str:
+                try:
+                    yr, q = p.split("-Q")
+                    return f"Q{q}/{yr[2:]}"
+                except Exception:
+                    return p
+            _mv_lbl = [_fmt_q(p) for p in _mv["period"]]
+            _cur_pe, _cur_pb = _mv["median_pe"].iloc[-1], _mv["median_pb"].iloc[-1]
+            _avg_pe, _avg_pb = _mv["median_pe"].mean(), _mv["median_pb"].mean()
+
+            _vc1, _vc2 = st.columns(2)
+            with _vc1:
+                _pe_diff = (_cur_pe / _avg_pe - 1) * 100 if _avg_pe else 0
+                _pe_clr  = "#ef4444" if _pe_diff > 5 else "#22c55e" if _pe_diff < -5 else "#eab308"
+                _pe_ymin = max(0.0, float(_mv["median_pe"].min()) * 0.85)
+                _pe_ymax = float(_mv["median_pe"].max()) * 1.06
+                fig_mpe = go.Figure(go.Scatter(
+                    x=_mv_lbl, y=_mv["median_pe"], mode="lines", name="Median P/E",
+                    line=dict(color="#60a5fa", width=2), fill="tozeroy",
+                    fillcolor="rgba(96,165,250,0.07)",
+                    hovertemplate="P/E: %{y:.1f}x<extra></extra>"))
+                fig_mpe.add_trace(go.Scatter(
+                    x=_mv_lbl, y=[_avg_pe] * len(_mv_lbl), mode="lines", name="Trung bình",
+                    line=dict(color="#94a3b8", width=1, dash="dot"),
+                    hovertemplate=f"Trung bình: {_avg_pe:.1f}x<extra></extra>"))
+                fig_mpe.add_trace(go.Scatter(
+                    x=_mv_lbl, y=[_cur_pe] * len(_mv_lbl), mode="lines", name="Hiện tại",
+                    line=dict(color=_pe_clr, width=1.2, dash="dash"),
+                    hovertemplate=f"Hiện tại: {_cur_pe:.1f}x<extra></extra>"))
+                fig_mpe.update_layout(
+                    height=300, margin=dict(l=0, r=0, t=30, b=0), dragmode=False,
+                    hovermode="x unified",
+                    hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
+                    title=dict(text=f"P/E hiện tại: <span style='color:{_pe_clr}'>{_cur_pe:.1f}x "
+                                    f"({_pe_diff:+.0f}% so TB)</span>", font=dict(size=14)),
+                    legend=dict(orientation="h", y=-0.15),
+                    xaxis=dict(type="category", nticks=8, showgrid=False),
+                    yaxis=dict(title="P/E (x)", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                               range=[_pe_ymin, _pe_ymax]))
+                st.plotly_chart(fig_mpe, width="stretch")
+
+            with _vc2:
+                _pb_diff = (_cur_pb / _avg_pb - 1) * 100 if _avg_pb else 0
+                _pb_clr  = "#ef4444" if _pb_diff > 5 else "#22c55e" if _pb_diff < -5 else "#eab308"
+                _pb_ymin = max(0.0, float(_mv["median_pb"].min()) * 0.85)
+                _pb_ymax = float(_mv["median_pb"].max()) * 1.06
+                fig_mpb = go.Figure(go.Scatter(
+                    x=_mv_lbl, y=_mv["median_pb"], mode="lines", name="Median P/B",
+                    line=dict(color="#34d399", width=2), fill="tozeroy",
+                    fillcolor="rgba(52,211,153,0.07)",
+                    hovertemplate="P/B: %{y:.2f}x<extra></extra>"))
+                fig_mpb.add_trace(go.Scatter(
+                    x=_mv_lbl, y=[_avg_pb] * len(_mv_lbl), mode="lines", name="Trung bình",
+                    line=dict(color="#94a3b8", width=1, dash="dot"),
+                    hovertemplate=f"Trung bình: {_avg_pb:.2f}x<extra></extra>"))
+                fig_mpb.add_trace(go.Scatter(
+                    x=_mv_lbl, y=[_cur_pb] * len(_mv_lbl), mode="lines", name="Hiện tại",
+                    line=dict(color=_pb_clr, width=1.2, dash="dash"),
+                    hovertemplate=f"Hiện tại: {_cur_pb:.2f}x<extra></extra>"))
+                fig_mpb.update_layout(
+                    height=300, margin=dict(l=0, r=0, t=30, b=0), dragmode=False,
+                    hovermode="x unified",
+                    hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
+                    title=dict(text=f"P/B hiện tại: <span style='color:{_pb_clr}'>{_cur_pb:.2f}x "
+                                    f"({_pb_diff:+.0f}% so TB)</span>", font=dict(size=14)),
+                    legend=dict(orientation="h", y=-0.15),
+                    xaxis=dict(type="category", nticks=8, showgrid=False),
+                    yaxis=dict(title="P/B (x)", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                               range=[_pb_ymin, _pb_ymax]))
+                st.plotly_chart(fig_mpb, width="stretch")
+
+            st.caption(
+                "P/E, P/B = trung vị (median) của toàn bộ mã có dữ liệu mỗi quý. "
+                "Đường chấm = trung bình toàn bộ giai đoạn. Giá trị hiện tại cao hơn đường trung bình "
+                "→ thị trường đang đắt hơn so với quá khứ; thấp hơn → đang rẻ hơn.")
         else:
-            st.info("No VN-Index data available.")
+            st.info("Not enough data to compute market-wide P/E and P/B history.")
 
-    with col_ad:
-        st.subheader("Advance / Decline")
-        _fig_ad = go.Figure(go.Bar(
-            x=["Up", "Flat", "Down"], y=[n_up, n_flat, n_dn],
-            marker_color=["#22c55e", "#eab308", "#ef4444"],
-            text=[n_up, n_flat, n_dn], textposition="outside",
-            hovertemplate="%{x}: %{y}<extra></extra>"))
-        _fig_ad.update_layout(height=200, margin=dict(l=0,r=0,t=10,b=0),
-            dragmode=False, showlegend=False, yaxis_visible=False)
-        st.plotly_chart(_fig_ad, width="stretch")
-        _ratio     = n_up / max(n_dn, 1)
-        _rc        = "#22c55e" if _ratio >= 1.5 else "#eab308" if _ratio >= 0.8 else "#ef4444"
-        st.markdown(
-            f"<div style='text-align:center;font-size:26px;font-weight:700;color:{_rc}'>{_ratio:.2f}"
-            f"<span style='font-size:13px;color:#9ca3af'> A/D ratio</span></div>"
-            f"<div style='text-align:center;font-size:12px;color:#9ca3af'>"
-            f"<span style='color:#22c55e'>▲{n_up}</span>  "
-            f"<span style='color:#eab308'>—{n_flat}</span>  "
-            f"<span style='color:#ef4444'>▼{n_dn}</span>  "
-            f"of {total} tickers</div>", unsafe_allow_html=True)
+        st.divider()
 
-    st.divider()
+        # ── Foreign net trading value — last 15 sessions (whole HOSE market) ──
+        st.subheader("Foreign Net Trading Value")
+        _ff = load_foreign_flow("VNINDEX", sessions=15)
+        if not _ff.empty:
+            _ff = _ff.copy()
+            _ff["net_bn"]  = _ff["net_val"] / 1e9          # VND → tỷ (billion)
+            _ff["dlabel"]  = _ff["date"].dt.strftime("%d/%m")
+            _ff_colors     = ["#22c55e" if v >= 0 else "#ef4444" for v in _ff["net_bn"]]
+            _last_net      = float(_ff.iloc[-1]["net_bn"])
+            _net_15        = float(_ff["net_bn"].sum())
+            _cc_net        = "#22c55e" if _last_net >= 0 else "#ef4444"
+            _cc_sum        = "#22c55e" if _net_15 >= 0 else "#ef4444"
+            _fig_ff = go.Figure(go.Bar(
+                x=_ff["dlabel"], y=_ff["net_bn"], marker_color=_ff_colors,
+                customdata=list(zip(_ff["buy_val"] / 1e9, _ff["sell_val"] / 1e9)),
+                hovertemplate=("<b>%{x}</b><br>Net: %{y:,.1f} tỷ<br>"
+                               "Buy: %{customdata[0]:,.1f} tỷ<br>"
+                               "Sell: %{customdata[1]:,.1f} tỷ<extra></extra>")))
+            _fig_ff.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
+            _fig_ff.update_layout(
+                height=300, margin=dict(l=0, r=10, t=40, b=0), dragmode=False, showlegend=False,
+                title=dict(text=("Foreign net buy/sell · last 15 sessions  "
+                                 f"<span style='color:{_cc_net}'>(latest {_last_net:+,.0f} tỷ)</span>"),
+                           font=dict(size=14)),
+                xaxis=dict(type="category", showgrid=False),
+                yaxis=dict(title="Net value (tỷ VND)", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                           zeroline=False))
+            st.plotly_chart(_fig_ff, width="stretch")
+            st.caption(
+                f"Net buy = green, net sell = red. 15-session cumulative: "
+                f"<span style='color:{_cc_sum};font-weight:600'>{_net_15:+,.0f} tỷ VND</span>. "
+                f"Source: VNDirect (NN = nhà đầu tư nước ngoài).", unsafe_allow_html=True)
+        else:
+            st.info("Foreign flow data unavailable right now.")
 
-    # ── Market-wide P/E & P/B vs history ────────────────────────
-    st.subheader("Market Valuation (P/E & P/B) vs History")
-    _mv = load_market_valuation_history()
-    if not _mv.empty:
-        def _fmt_q(p: str) -> str:
+        st.divider()
+
+        # ── Top gainers / losers
+        gain_col, lose_col = st.columns(2)
+        def _chg_color(val):
             try:
-                yr, q = p.split("-Q")
-                return f"Q{q}/{yr[2:]}"
-            except Exception:
-                return p
-        _mv_lbl = [_fmt_q(p) for p in _mv["period"]]
-        _cur_pe, _cur_pb = _mv["median_pe"].iloc[-1], _mv["median_pb"].iloc[-1]
-        _avg_pe, _avg_pb = _mv["median_pe"].mean(), _mv["median_pb"].mean()
+                v = float(str(val).replace("%","").replace("+",""))
+                if v > 0: return "color:#22c55e;font-weight:600"
+                if v < 0: return "color:#ef4444;font-weight:600"
+            except: pass
+            return ""
 
-        _vc1, _vc2 = st.columns(2)
-        with _vc1:
-            _pe_diff = (_cur_pe / _avg_pe - 1) * 100 if _avg_pe else 0
-            _pe_clr  = "#ef4444" if _pe_diff > 5 else "#22c55e" if _pe_diff < -5 else "#eab308"
-            _pe_ymin = max(0.0, float(_mv["median_pe"].min()) * 0.85)
-            _pe_ymax = float(_mv["median_pe"].max()) * 1.06
-            fig_mpe = go.Figure(go.Scatter(
-                x=_mv_lbl, y=_mv["median_pe"], mode="lines", name="Median P/E",
-                line=dict(color="#60a5fa", width=2), fill="tozeroy",
-                fillcolor="rgba(96,165,250,0.07)",
-                hovertemplate="P/E: %{y:.1f}x<extra></extra>"))
-            fig_mpe.add_trace(go.Scatter(
-                x=_mv_lbl, y=[_avg_pe] * len(_mv_lbl), mode="lines", name="Trung bình",
-                line=dict(color="#94a3b8", width=1, dash="dot"),
-                hovertemplate=f"Trung bình: {_avg_pe:.1f}x<extra></extra>"))
-            fig_mpe.add_trace(go.Scatter(
-                x=_mv_lbl, y=[_cur_pe] * len(_mv_lbl), mode="lines", name="Hiện tại",
-                line=dict(color=_pe_clr, width=1.2, dash="dash"),
-                hovertemplate=f"Hiện tại: {_cur_pe:.1f}x<extra></extra>"))
-            fig_mpe.update_layout(
-                height=300, margin=dict(l=0, r=0, t=30, b=0), dragmode=False,
-                hovermode="x unified",
-                hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
-                title=dict(text=f"P/E hiện tại: <span style='color:{_pe_clr}'>{_cur_pe:.1f}x "
-                                f"({_pe_diff:+.0f}% so TB)</span>", font=dict(size=14)),
-                legend=dict(orientation="h", y=-0.15),
-                xaxis=dict(type="category", nticks=8, showgrid=False),
-                yaxis=dict(title="P/E (x)", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                           range=[_pe_ymin, _pe_ymax]))
-            st.plotly_chart(fig_mpe, width="stretch")
+        # Exclude covered warrants (chứng quyền): tickers with digits, e.g. CMBB2601
+        _stocks_only = snap_df[snap_df["ticker"].str.match(r'^[A-Z]{3,5}$')]
 
-        with _vc2:
-            _pb_diff = (_cur_pb / _avg_pb - 1) * 100 if _avg_pb else 0
-            _pb_clr  = "#ef4444" if _pb_diff > 5 else "#22c55e" if _pb_diff < -5 else "#eab308"
-            _pb_ymin = max(0.0, float(_mv["median_pb"].min()) * 0.85)
-            _pb_ymax = float(_mv["median_pb"].max()) * 1.06
-            fig_mpb = go.Figure(go.Scatter(
-                x=_mv_lbl, y=_mv["median_pb"], mode="lines", name="Median P/B",
-                line=dict(color="#34d399", width=2), fill="tozeroy",
-                fillcolor="rgba(52,211,153,0.07)",
-                hovertemplate="P/B: %{y:.2f}x<extra></extra>"))
-            fig_mpb.add_trace(go.Scatter(
-                x=_mv_lbl, y=[_avg_pb] * len(_mv_lbl), mode="lines", name="Trung bình",
-                line=dict(color="#94a3b8", width=1, dash="dot"),
-                hovertemplate=f"Trung bình: {_avg_pb:.2f}x<extra></extra>"))
-            fig_mpb.add_trace(go.Scatter(
-                x=_mv_lbl, y=[_cur_pb] * len(_mv_lbl), mode="lines", name="Hiện tại",
-                line=dict(color=_pb_clr, width=1.2, dash="dash"),
-                hovertemplate=f"Hiện tại: {_cur_pb:.2f}x<extra></extra>"))
-            fig_mpb.update_layout(
-                height=300, margin=dict(l=0, r=0, t=30, b=0), dragmode=False,
-                hovermode="x unified",
-                hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
-                title=dict(text=f"P/B hiện tại: <span style='color:{_pb_clr}'>{_cur_pb:.2f}x "
-                                f"({_pb_diff:+.0f}% so TB)</span>", font=dict(size=14)),
-                legend=dict(orientation="h", y=-0.15),
-                xaxis=dict(type="category", nticks=8, showgrid=False),
-                yaxis=dict(title="P/B (x)", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                           range=[_pb_ymin, _pb_ymax]))
-            st.plotly_chart(fig_mpb, width="stretch")
+        with gain_col:
+            st.subheader("Top 10 Gainers")
+            _g = _stocks_only.nlargest(10, "chg_pct").copy()
+            _g["Price"]  = _g["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
+            _g["Change"] = _g["chg_pct"].apply(lambda x: f"{x:+.2f}%")
+            _g["Volume"] = _g["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
+            _gd = _g[["ticker","name","Price","Change","Volume"]].rename(columns={"ticker":"Ticker","name":"Company"})
+            st.dataframe(_gd.set_index("Ticker").style.map(_chg_color, subset=["Change"]), width="stretch")
 
-        st.caption(
-            "P/E, P/B = trung vị (median) của toàn bộ mã có dữ liệu mỗi quý. "
-            "Đường chấm = trung bình toàn bộ giai đoạn. Giá trị hiện tại cao hơn đường trung bình "
-            "→ thị trường đang đắt hơn so với quá khứ; thấp hơn → đang rẻ hơn.")
-    else:
-        st.info("Not enough data to compute market-wide P/E and P/B history.")
+        with lose_col:
+            st.subheader("Top 10 Losers")
+            _l = _stocks_only.nsmallest(10, "chg_pct").copy()
+            _l["Price"]  = _l["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
+            _l["Change"] = _l["chg_pct"].apply(lambda x: f"{x:+.2f}%")
+            _l["Volume"] = _l["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
+            _ld = _l[["ticker","name","Price","Change","Volume"]].rename(columns={"ticker":"Ticker","name":"Company"})
+            st.dataframe(_ld.set_index("Ticker").style.map(_chg_color, subset=["Change"]), width="stretch")
 
-    st.divider()
+        st.divider()
 
-    # ── Foreign net trading value — last 15 sessions (whole HOSE market) ──
-    st.subheader("Foreign Net Trading Value")
-    _ff = load_foreign_flow("VNINDEX", sessions=15)
-    if not _ff.empty:
-        _ff = _ff.copy()
-        _ff["net_bn"]  = _ff["net_val"] / 1e9          # VND → tỷ (billion)
-        _ff["dlabel"]  = _ff["date"].dt.strftime("%d/%m")
-        _ff_colors     = ["#22c55e" if v >= 0 else "#ef4444" for v in _ff["net_bn"]]
-        _last_net      = float(_ff.iloc[-1]["net_bn"])
-        _net_15        = float(_ff["net_bn"].sum())
-        _cc_net        = "#22c55e" if _last_net >= 0 else "#ef4444"
-        _cc_sum        = "#22c55e" if _net_15 >= 0 else "#ef4444"
-        _fig_ff = go.Figure(go.Bar(
-            x=_ff["dlabel"], y=_ff["net_bn"], marker_color=_ff_colors,
-            customdata=list(zip(_ff["buy_val"] / 1e9, _ff["sell_val"] / 1e9)),
-            hovertemplate=("<b>%{x}</b><br>Net: %{y:,.1f} tỷ<br>"
-                           "Buy: %{customdata[0]:,.1f} tỷ<br>"
-                           "Sell: %{customdata[1]:,.1f} tỷ<extra></extra>")))
-        _fig_ff.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
-        _fig_ff.update_layout(
-            height=300, margin=dict(l=0, r=10, t=40, b=0), dragmode=False, showlegend=False,
-            title=dict(text=("Foreign net buy/sell · last 15 sessions  "
-                             f"<span style='color:{_cc_net}'>(latest {_last_net:+,.0f} tỷ)</span>"),
-                       font=dict(size=14)),
-            xaxis=dict(type="category", showgrid=False),
-            yaxis=dict(title="Net value (tỷ VND)", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                       zeroline=False))
-        st.plotly_chart(_fig_ff, width="stretch")
-        st.caption(
-            f"Net buy = green, net sell = red. 15-session cumulative: "
-            f"<span style='color:{_cc_sum};font-weight:600'>{_net_15:+,.0f} tỷ VND</span>. "
-            f"Source: VNDirect (NN = nhà đầu tư nước ngoài).", unsafe_allow_html=True)
-    else:
-        st.info("Foreign flow data unavailable right now.")
+        # ── Top volume + Sector performance
+        vol_col, sec_col = st.columns(2)
+        with vol_col:
+            st.subheader("Top 10 by Volume")
+            _tv = snap_df.nlargest(10, "volume").copy()
+            _tv["Price"]  = _tv["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
+            _tv["Change"] = _tv["chg_pct"].apply(lambda x: f"{x:+.2f}%")
+            _tv["Volume"] = _tv["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
+            _tvd = _tv[["ticker","name","Price","Change","Volume"]].rename(columns={"ticker":"Ticker","name":"Company"})
+            st.dataframe(_tvd.set_index("Ticker").style.map(_chg_color, subset=["Change"]), width="stretch")
 
-    st.divider()
+        with sec_col:
+            st.subheader("Sector Performance")
+            _sp = snap_df[snap_df["sector"] != "Unknown"].groupby("sector")["chg_pct"].mean().reset_index()
+            _sp = _sp.sort_values("chg_pct", ascending=True)
+            _sp_colors = ["#22c55e" if v >= 0 else "#ef4444" for v in _sp["chg_pct"]]
+            _fig_sp = go.Figure(go.Bar(
+                x=_sp["chg_pct"], y=_sp["sector"], orientation="h",
+                marker_color=_sp_colors,
+                text=[f"{v:+.2f}%" for v in _sp["chg_pct"]], textposition="outside",
+                hovertemplate="%{y}: %{x:+.2f}%<extra></extra>"))
+            _fig_sp.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.5)
+            _fig_sp.update_layout(height=max(300, len(_sp)*24), margin=dict(l=0,r=60,t=10,b=0),
+                dragmode=False, showlegend=False, xaxis_title="Avg Change %")
+            st.plotly_chart(_fig_sp, width="stretch")
 
-    # ── Top gainers / losers
-    gain_col, lose_col = st.columns(2)
-    def _chg_color(val):
-        try:
-            v = float(str(val).replace("%","").replace("+",""))
-            if v > 0: return "color:#22c55e;font-weight:600"
-            if v < 0: return "color:#ef4444;font-weight:600"
-        except: pass
-        return ""
+        st.divider()
 
-    # Exclude covered warrants (chứng quyền): tickers with digits, e.g. CMBB2601
-    _stocks_only = snap_df[snap_df["ticker"].str.match(r'^[A-Z]{3,5}$')]
+        # ── Market Heatmap
+        st.subheader("Market Heatmap Today")
+        _hm_df = snap_df[snap_df["ticker"].str.match(r'^[A-Z]{3,5}$')].dropna(subset=["chg_pct"]).copy()
+        _hm_df["_vol"]    = _hm_df["volume"].fillna(0).clip(lower=1)
+        _hm_df["_chgs"]   = _hm_df["chg_pct"].apply(lambda x: f"{x:+.1f}%")
+        _hm_df["_prices"] = _hm_df["price"].fillna(0).apply(lambda x: f"{x:,.0f}")
 
-    with gain_col:
-        st.subheader("Top 10 Gainers")
-        _g = _stocks_only.nlargest(10, "chg_pct").copy()
-        _g["Price"]  = _g["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
-        _g["Change"] = _g["chg_pct"].apply(lambda x: f"{x:+.2f}%")
-        _g["Volume"] = _g["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
-        _gd = _g[["ticker","name","Price","Change","Volume"]].rename(columns={"ticker":"Ticker","name":"Company"})
-        st.dataframe(_gd.set_index("Ticker").style.map(_chg_color, subset=["Change"]), width="stretch")
-
-    with lose_col:
-        st.subheader("Top 10 Losers")
-        _l = _stocks_only.nsmallest(10, "chg_pct").copy()
-        _l["Price"]  = _l["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
-        _l["Change"] = _l["chg_pct"].apply(lambda x: f"{x:+.2f}%")
-        _l["Volume"] = _l["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
-        _ld = _l[["ticker","name","Price","Change","Volume"]].rename(columns={"ticker":"Ticker","name":"Company"})
-        st.dataframe(_ld.set_index("Ticker").style.map(_chg_color, subset=["Change"]), width="stretch")
-
-    st.divider()
-
-    # ── Top volume + Sector performance
-    vol_col, sec_col = st.columns(2)
-    with vol_col:
-        st.subheader("Top 10 by Volume")
-        _tv = snap_df.nlargest(10, "volume").copy()
-        _tv["Price"]  = _tv["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
-        _tv["Change"] = _tv["chg_pct"].apply(lambda x: f"{x:+.2f}%")
-        _tv["Volume"] = _tv["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
-        _tvd = _tv[["ticker","name","Price","Change","Volume"]].rename(columns={"ticker":"Ticker","name":"Company"})
-        st.dataframe(_tvd.set_index("Ticker").style.map(_chg_color, subset=["Change"]), width="stretch")
-
-    with sec_col:
-        st.subheader("Sector Performance")
-        _sp = snap_df[snap_df["sector"] != "Unknown"].groupby("sector")["chg_pct"].mean().reset_index()
-        _sp = _sp.sort_values("chg_pct", ascending=True)
-        _sp_colors = ["#22c55e" if v >= 0 else "#ef4444" for v in _sp["chg_pct"]]
-        _fig_sp = go.Figure(go.Bar(
-            x=_sp["chg_pct"], y=_sp["sector"], orientation="h",
-            marker_color=_sp_colors,
-            text=[f"{v:+.2f}%" for v in _sp["chg_pct"]], textposition="outside",
-            hovertemplate="%{y}: %{x:+.2f}%<extra></extra>"))
-        _fig_sp.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.5)
-        _fig_sp.update_layout(height=max(300, len(_sp)*24), margin=dict(l=0,r=60,t=10,b=0),
-            dragmode=False, showlegend=False, xaxis_title="Avg Change %")
-        st.plotly_chart(_fig_sp, width="stretch")
-
-    st.divider()
-
-    # ── Market Heatmap
-    st.subheader("Market Heatmap Today")
-    _hm_df = snap_df[snap_df["ticker"].str.match(r'^[A-Z]{3,5}$')].dropna(subset=["chg_pct"]).copy()
-    _hm_df["_vol"]    = _hm_df["volume"].fillna(0).clip(lower=1)
-    _hm_df["_chgs"]   = _hm_df["chg_pct"].apply(lambda x: f"{x:+.1f}%")
-    _hm_df["_prices"] = _hm_df["price"].fillna(0).apply(lambda x: f"{x:,.0f}")
-
-    _fig_hm = go.Figure(go.Treemap(
-        labels=_hm_df["ticker"].tolist(),
-        parents=[""] * len(_hm_df),
-        values=_hm_df["_vol"].tolist(),
-        text=_hm_df["_chgs"].tolist(),
-        texttemplate="<b>%{label}</b><br>%{text}",
-        textfont=dict(size=11, color="#ffffff"),
-        customdata=list(zip(_hm_df["name"].fillna(""), _hm_df["_prices"], _hm_df["_chgs"])),
-        hovertemplate="<b>%{label}</b>  %{customdata[0]}<br>Giá: %{customdata[1]} VND<br>Thay đổi: %{customdata[2]}<extra></extra>",
-        marker=dict(
-            colors=_hm_df["chg_pct"].tolist(),
-            colorscale=[
-                [0.0,  "#7f1d1d"],
-                [0.3,  "#dc2626"],
-                [0.5,  "#334155"],
-                [0.7,  "#16a34a"],
-                [1.0,  "#14532d"],
-            ],
-            cmin=-10, cmax=10,
-            showscale=False,
-            line=dict(width=1, color="#0f172a"),
-        ),
-        pathbar=dict(visible=False),
-    ))
-    _fig_hm.update_layout(
-        height=430, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    )
-    st.plotly_chart(_fig_hm, width="stretch")
-    _hm_up   = int((_hm_df["chg_pct"] > 0).sum())
-    _hm_dn   = int((_hm_df["chg_pct"] < 0).sum())
-    _hm_flat = int((_hm_df["chg_pct"] == 0).sum())
-    st.caption(f"▲ Tăng: {_hm_up}  ·  ▼ Giảm: {_hm_dn}  ·  — Đứng: {_hm_flat}  ·  {len(_hm_df)} mã cổ phiếu")
-
-
-# ═══════════════════════════════════════════════════════════════
-# MACRO
-# ═══════════════════════════════════════════════════════════════
-elif view == "Macro":
-    st.title("Kinh tế vĩ mô")
-    st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn)")
-
-    _updated = check_macro_updates()
-    if _updated:
-        _names = ", ".join(_MACRO_INDICATOR_LABELS.get(k, k) for k in _updated)
-        st.toast(f"Có dữ liệu vĩ mô mới: {_names}", icon="📊")
-        st.success(f"Có dữ liệu mới cho: {_names}")
-
-    def _macro_bar_chart(df: "pd.DataFrame", title: str, unit: str = "%"):
-        if df.empty:
-            st.info(f"{title}: chưa có dữ liệu")
-            return
-        colors = ["#22c55e" if v >= 0 else "#ef4444" for v in df["value"]]
-        # Annual-only series (all periods in December) are sparse and far apart on a
-        # date axis, which makes Plotly auto-size the bars to span huge ranges.
-        # Render those as categorical (one bar per year) instead.
-        is_annual = all(p.month == 12 for p in df["period"])
-        if is_annual:
-            x = df["period"].apply(lambda p: str(p.year))
-            hover = "%{x}: %{y:+.2f}" + unit + "<extra></extra>"
-        else:
-            x = df["period"]
-            hover = "%{x|%m/%Y}: %{y:+.2f}" + unit + "<extra></extra>"
-        fig = go.Figure(go.Bar(x=x, y=df["value"], marker_color=colors, hovertemplate=hover))
-        fig.add_hline(y=0, line_color="gray", opacity=0.5)
-        fig.update_layout(
-            title=title, height=280, margin=dict(l=0, r=0, t=40, b=0),
-            dragmode=False, showlegend=False,
-            yaxis_title=unit)
-        if is_annual:
-            fig.update_xaxes(type="category")
-        st.plotly_chart(fig, width="stretch")
-        latest = df["period"].max()
-        st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
-
-    def _macro_line_chart(series: dict[str, "pd.DataFrame"], title: str, unit: str = "%"):
-        series = {label: df for label, df in series.items() if not df.empty}
-        if not series:
-            st.info(f"{title}: chưa có dữ liệu")
-            return
-        _colors = ["#22c55e", "#f59e0b", "#60a5fa"]
-        fig = go.Figure()
-        for i, (label, df) in enumerate(series.items()):
-            fig.add_trace(go.Scatter(
-                x=df["period"], y=df["value"], name=label, mode="lines+markers",
-                line=dict(color=_colors[i % len(_colors)], width=2),
-                hovertemplate="%{x|%m/%Y} · " + label + ": %{y:+.2f}" + unit + "<extra></extra>"))
-        fig.add_hline(y=0, line_color="gray", opacity=0.5)
-        fig.update_layout(
-            title=title, height=340, margin=dict(l=0, r=0, t=40, b=40),
-            dragmode=False, showlegend=len(series) > 1,
-            legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0),
-            yaxis_title=unit)
-        st.plotly_chart(fig, width="stretch")
-        latest = max(df["period"].max() for df in series.values())
-        st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
-
-    def _macro_summary_row(indicator: str, label: str, unit: str = "%", freq: str = "monthly") -> dict:
-        df = load_macro_indicator(indicator)
-        if df.empty:
-            return {
-                "Chỉ số": label, "Kỳ gần nhất": "—", "Kỳ trước": "—",
-                "Đơn vị": unit, "Kỳ báo cáo": "—", "Khoảng dữ liệu": "Chưa có dữ liệu",
-            }
-        last = df.iloc[-1]
-        prev = df.iloc[-2] if len(df) > 1 else None
-        if freq == "quarterly":
-            period_str = f"Quý {(last['period'].month - 1) // 3 + 1}/{last['period'].year}"
-        else:
-            period_str = f"Tháng {last['period'].month}/{last['period'].year}"
-        return {
-            "Chỉ số": label,
-            "Kỳ gần nhất": f"{last['value']:+.2f}{unit}",
-            "Kỳ trước": f"{prev['value']:+.2f}{unit}" if prev is not None else "—",
-            "Đơn vị": unit,
-            "Kỳ báo cáo": period_str,
-            "Khoảng dữ liệu": f"{df['period'].iloc[0]:%m/%Y} - {df['period'].iloc[-1]:%m/%Y}",
-        }
-
-    tab_overview, tab_gdp, tab_prices = st.tabs(["Tổng quan", "GDP", "Giá cả"])
-
-    with tab_overview:
-        row1 = st.columns(3)
-        row2 = st.columns(3)
-
-        with row1[0]:
-            _macro_bar_chart(load_macro_indicator("gdp_growth"), "Tăng trưởng GDP (so với cùng kỳ năm trước)")
-        with row1[1]:
-            _macro_bar_chart(load_macro_indicator("cpi_yoy"), "Lạm phát (so với cùng kỳ năm trước)")
-        with row1[2]:
-            _macro_bar_chart(load_macro_indicator("cpi_mom"), "Lạm phát (so với tháng trước)")
-        with row2[0]:
-            _macro_bar_chart(load_macro_indicator("trade_balance"), "Cán cân thương mại", unit=" tỷ USD")
-        with row2[1]:
-            _macro_bar_chart(load_macro_indicator("retail_sales_growth"), "Tăng trưởng bán lẻ (so với cùng kỳ năm trước)")
-        with row2[2]:
-            _macro_bar_chart(load_macro_indicator("fdi"), "Vốn đầu tư nước ngoài (FDI đăng ký, theo quý)", unit=" tỷ USD")
-
-    with tab_gdp:
-        _macro_line_chart(
-            {
-                "Nông, lâm nghiệp và thủy sản": load_macro_indicator("gdp_sector_agri"),
-                "Công nghiệp và xây dựng": load_macro_indicator("gdp_sector_industry"),
-                "Dịch vụ": load_macro_indicator("gdp_sector_services"),
-            },
-            "Tăng trưởng GDP theo khu vực kinh tế (so với cùng kỳ năm trước)",
+        _fig_hm = go.Figure(go.Treemap(
+            labels=_hm_df["ticker"].tolist(),
+            parents=[""] * len(_hm_df),
+            values=_hm_df["_vol"].tolist(),
+            text=_hm_df["_chgs"].tolist(),
+            texttemplate="<b>%{label}</b><br>%{text}",
+            textfont=dict(size=11, color="#ffffff"),
+            customdata=list(zip(_hm_df["name"].fillna(""), _hm_df["_prices"], _hm_df["_chgs"])),
+            hovertemplate="<b>%{label}</b>  %{customdata[0]}<br>Giá: %{customdata[1]} VND<br>Thay đổi: %{customdata[2]}<extra></extra>",
+            marker=dict(
+                colors=_hm_df["chg_pct"].tolist(),
+                colorscale=[
+                    [0.0,  "#7f1d1d"],
+                    [0.3,  "#dc2626"],
+                    [0.5,  "#334155"],
+                    [0.7,  "#16a34a"],
+                    [1.0,  "#14532d"],
+                ],
+                cmin=-10, cmax=10,
+                showscale=False,
+                line=dict(width=1, color="#0f172a"),
+            ),
+            pathbar=dict(visible=False),
+        ))
+        _fig_hm.update_layout(
+            height=430, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         )
-        row3 = st.columns(3)
-        with row3[0]:
-            _macro_line_chart({"Quy mô GDP": load_macro_indicator("gdp_nominal_usd")}, "Quy mô GDP (theo năm)", unit=" tỷ USD")
-        with row3[1]:
-            _macro_line_chart({"GDP bình quân đầu người": load_macro_indicator("gdp_per_capita_usd")}, "GDP bình quân đầu người (theo năm)", unit=" USD")
-        with row3[2]:
-            _macro_line_chart({"Tăng trưởng vốn đầu tư": load_macro_indicator("investment_growth")}, "Tăng trưởng vốn đầu tư toàn xã hội (so với cùng kỳ)")
+        st.plotly_chart(_fig_hm, width="stretch")
+        _hm_up   = int((_hm_df["chg_pct"] > 0).sum())
+        _hm_dn   = int((_hm_df["chg_pct"] < 0).sum())
+        _hm_flat = int((_hm_df["chg_pct"] == 0).sum())
+        st.caption(f"▲ Tăng: {_hm_up}  ·  ▼ Giảm: {_hm_dn}  ·  — Đứng: {_hm_flat}  ·  {len(_hm_df)} mã cổ phiếu")
 
-    with tab_prices:
-        summary_rows = [
-            _macro_summary_row("cpi_yoy", "Tỷ lệ lạm phát (so với cùng kỳ năm trước)"),
-            _macro_summary_row("cpi_mom", "Tỷ lệ lạm phát (so với tháng trước)"),
-            _macro_summary_row("core_inflation_yoy", "Tỷ lệ lạm phát cơ bản (so với cùng kỳ năm trước)"),
-            _macro_summary_row("cpi_food", "Lạm phát lương thực (so với tháng trước)"),
-            _macro_summary_row("cpi_transport", "CPI nhóm giao thông (so với tháng trước)"),
-            _macro_summary_row("ppi_yoy", "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)", freq="quarterly"),
-            {
-                "Chỉ số": "Chỉ số giá tiêu dùng so với kỳ gốc 2019",
-                "Kỳ gần nhất": "—", "Kỳ trước": "—", "Đơn vị": "điểm",
-                "Kỳ báo cáo": "—", "Khoảng dữ liệu": "Chưa có dữ liệu",
-            },
-        ]
-        st.dataframe(pd.DataFrame(summary_rows), hide_index=True, width="stretch")
 
-        row1 = st.columns(2)
-        with row1[0]:
+
+    with _mo_tab2:
+        st.title("Kinh tế vĩ mô")
+        st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn)")
+
+        _updated = check_macro_updates()
+        if _updated:
+            _names = ", ".join(_MACRO_INDICATOR_LABELS.get(k, k) for k in _updated)
+            st.toast(f"Có dữ liệu vĩ mô mới: {_names}", icon="📊")
+            st.success(f"Có dữ liệu mới cho: {_names}")
+
+        def _macro_bar_chart(df: "pd.DataFrame", title: str, unit: str = "%"):
+            if df.empty:
+                st.info(f"{title}: chưa có dữ liệu")
+                return
+            colors = ["#22c55e" if v >= 0 else "#ef4444" for v in df["value"]]
+            # Annual-only series (all periods in December) are sparse and far apart on a
+            # date axis, which makes Plotly auto-size the bars to span huge ranges.
+            # Render those as categorical (one bar per year) instead.
+            is_annual = all(p.month == 12 for p in df["period"])
+            if is_annual:
+                x = df["period"].apply(lambda p: str(p.year))
+                hover = "%{x}: %{y:+.2f}" + unit + "<extra></extra>"
+            else:
+                x = df["period"]
+                hover = "%{x|%m/%Y}: %{y:+.2f}" + unit + "<extra></extra>"
+            fig = go.Figure(go.Bar(x=x, y=df["value"], marker_color=colors, hovertemplate=hover))
+            fig.add_hline(y=0, line_color="gray", opacity=0.5)
+            fig.update_layout(
+                title=title, height=280, margin=dict(l=0, r=0, t=40, b=0),
+                dragmode=False, showlegend=False,
+                yaxis_title=unit)
+            if is_annual:
+                fig.update_xaxes(type="category")
+            st.plotly_chart(fig, width="stretch")
+            latest = df["period"].max()
+            st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
+
+        def _macro_line_chart(series: dict[str, "pd.DataFrame"], title: str, unit: str = "%"):
+            series = {label: df for label, df in series.items() if not df.empty}
+            if not series:
+                st.info(f"{title}: chưa có dữ liệu")
+                return
+            _colors = ["#22c55e", "#f59e0b", "#60a5fa"]
+            fig = go.Figure()
+            for i, (label, df) in enumerate(series.items()):
+                fig.add_trace(go.Scatter(
+                    x=df["period"], y=df["value"], name=label, mode="lines+markers",
+                    line=dict(color=_colors[i % len(_colors)], width=2),
+                    hovertemplate="%{x|%m/%Y} · " + label + ": %{y:+.2f}" + unit + "<extra></extra>"))
+            fig.add_hline(y=0, line_color="gray", opacity=0.5)
+            fig.update_layout(
+                title=title, height=340, margin=dict(l=0, r=0, t=40, b=40),
+                dragmode=False, showlegend=len(series) > 1,
+                legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0),
+                yaxis_title=unit)
+            st.plotly_chart(fig, width="stretch")
+            latest = max(df["period"].max() for df in series.values())
+            st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
+
+        def _macro_summary_row(indicator: str, label: str, unit: str = "%", freq: str = "monthly") -> dict:
+            df = load_macro_indicator(indicator)
+            if df.empty:
+                return {
+                    "Chỉ số": label, "Kỳ gần nhất": "—", "Kỳ trước": "—",
+                    "Đơn vị": unit, "Kỳ báo cáo": "—", "Khoảng dữ liệu": "Chưa có dữ liệu",
+                }
+            last = df.iloc[-1]
+            prev = df.iloc[-2] if len(df) > 1 else None
+            if freq == "quarterly":
+                period_str = f"Quý {(last['period'].month - 1) // 3 + 1}/{last['period'].year}"
+            else:
+                period_str = f"Tháng {last['period'].month}/{last['period'].year}"
+            return {
+                "Chỉ số": label,
+                "Kỳ gần nhất": f"{last['value']:+.2f}{unit}",
+                "Kỳ trước": f"{prev['value']:+.2f}{unit}" if prev is not None else "—",
+                "Đơn vị": unit,
+                "Kỳ báo cáo": period_str,
+                "Khoảng dữ liệu": f"{df['period'].iloc[0]:%m/%Y} - {df['period'].iloc[-1]:%m/%Y}",
+            }
+
+        tab_overview, tab_gdp, tab_prices = st.tabs(["Tổng quan", "GDP", "Giá cả"])
+
+        with tab_overview:
+            row1 = st.columns(3)
+            row2 = st.columns(3)
+
+            with row1[0]:
+                _macro_bar_chart(load_macro_indicator("gdp_growth"), "Tăng trưởng GDP (so với cùng kỳ năm trước)")
+            with row1[1]:
+                _macro_bar_chart(load_macro_indicator("cpi_yoy"), "Lạm phát (so với cùng kỳ năm trước)")
+            with row1[2]:
+                _macro_bar_chart(load_macro_indicator("cpi_mom"), "Lạm phát (so với tháng trước)")
+            with row2[0]:
+                _macro_bar_chart(load_macro_indicator("trade_balance"), "Cán cân thương mại", unit=" tỷ USD")
+            with row2[1]:
+                _macro_bar_chart(load_macro_indicator("retail_sales_growth"), "Tăng trưởng bán lẻ (so với cùng kỳ năm trước)")
+            with row2[2]:
+                _macro_bar_chart(load_macro_indicator("fdi"), "Vốn đầu tư nước ngoài (FDI đăng ký, theo quý)", unit=" tỷ USD")
+
+        with tab_gdp:
             _macro_line_chart(
                 {
-                    "Lạm phát (YoY)": load_macro_indicator("cpi_yoy"),
-                    "Lạm phát cơ bản (YoY)": load_macro_indicator("core_inflation_yoy"),
+                    "Nông, lâm nghiệp và thủy sản": load_macro_indicator("gdp_sector_agri"),
+                    "Công nghiệp và xây dựng": load_macro_indicator("gdp_sector_industry"),
+                    "Dịch vụ": load_macro_indicator("gdp_sector_services"),
                 },
-                "Lạm phát toàn phần và lạm phát cơ bản (so với cùng kỳ năm trước)",
+                "Tăng trưởng GDP theo khu vực kinh tế (so với cùng kỳ năm trước)",
             )
-        with row1[1]:
-            _macro_line_chart({"Lạm phát (MoM)": load_macro_indicator("cpi_mom")}, "Tỷ lệ lạm phát (so với tháng trước)")
+            row3 = st.columns(3)
+            with row3[0]:
+                _macro_line_chart({"Quy mô GDP": load_macro_indicator("gdp_nominal_usd")}, "Quy mô GDP (theo năm)", unit=" tỷ USD")
+            with row3[1]:
+                _macro_line_chart({"GDP bình quân đầu người": load_macro_indicator("gdp_per_capita_usd")}, "GDP bình quân đầu người (theo năm)", unit=" USD")
+            with row3[2]:
+                _macro_line_chart({"Tăng trưởng vốn đầu tư": load_macro_indicator("investment_growth")}, "Tăng trưởng vốn đầu tư toàn xã hội (so với cùng kỳ)")
 
-        row2 = st.columns(2)
-        with row2[0]:
-            _macro_line_chart({"Lương thực": load_macro_indicator("cpi_food")}, "Lạm phát lương thực (so với tháng trước)")
-        with row2[1]:
-            _macro_line_chart({"Giao thông": load_macro_indicator("cpi_transport")}, "CPI nhóm giao thông (so với tháng trước)")
+        with tab_prices:
+            summary_rows = [
+                _macro_summary_row("cpi_yoy", "Tỷ lệ lạm phát (so với cùng kỳ năm trước)"),
+                _macro_summary_row("cpi_mom", "Tỷ lệ lạm phát (so với tháng trước)"),
+                _macro_summary_row("core_inflation_yoy", "Tỷ lệ lạm phát cơ bản (so với cùng kỳ năm trước)"),
+                _macro_summary_row("cpi_food", "Lạm phát lương thực (so với tháng trước)"),
+                _macro_summary_row("cpi_transport", "CPI nhóm giao thông (so với tháng trước)"),
+                _macro_summary_row("ppi_yoy", "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)", freq="quarterly"),
+                {
+                    "Chỉ số": "Chỉ số giá tiêu dùng so với kỳ gốc 2019",
+                    "Kỳ gần nhất": "—", "Kỳ trước": "—", "Đơn vị": "điểm",
+                    "Kỳ báo cáo": "—", "Khoảng dữ liệu": "Chưa có dữ liệu",
+                },
+            ]
+            st.dataframe(pd.DataFrame(summary_rows), hide_index=True, width="stretch")
 
-        _macro_line_chart({"PPI": load_macro_indicator("ppi_yoy")}, "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)")
+            row1 = st.columns(2)
+            with row1[0]:
+                _macro_line_chart(
+                    {
+                        "Lạm phát (YoY)": load_macro_indicator("cpi_yoy"),
+                        "Lạm phát cơ bản (YoY)": load_macro_indicator("core_inflation_yoy"),
+                    },
+                    "Lạm phát toàn phần và lạm phát cơ bản (so với cùng kỳ năm trước)",
+                )
+            with row1[1]:
+                _macro_line_chart({"Lạm phát (MoM)": load_macro_indicator("cpi_mom")}, "Tỷ lệ lạm phát (so với tháng trước)")
+
+            row2 = st.columns(2)
+            with row2[0]:
+                _macro_line_chart({"Lương thực": load_macro_indicator("cpi_food")}, "Lạm phát lương thực (so với tháng trước)")
+            with row2[1]:
+                _macro_line_chart({"Giao thông": load_macro_indicator("cpi_transport")}, "CPI nhóm giao thông (so với tháng trước)")
+
+            _macro_line_chart({"PPI": load_macro_indicator("ppi_yoy")}, "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)")
