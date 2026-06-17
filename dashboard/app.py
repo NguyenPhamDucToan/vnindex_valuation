@@ -1384,21 +1384,25 @@ def _render_index_ticker_bar():
         _y_min  = float(_y_vals.min()) if not _y_vals.empty else _d["open"]
         _y_max  = float(_y_vals.max()) if not _y_vals.empty else _d["open"]
         _y_pad  = max((_y_max - _y_min) * 0.25, 1.0)
+        _y_rng  = (_y_max + _y_pad) - (_y_min - _y_pad)
         _xs     = list(range(len(_ia)))
-        _n      = max(len(_xs) - 1, 1)
         _cdata  = list(zip(_ia["tlabel"], _ia["volume"].fillna(0).astype(int)))
 
-        _fig_i = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                                row_heights=[0.65, 0.35], vertical_spacing=0.02)
+        # Scale volume bars into bottom 25% of the price y-range (no subplot needed)
+        _v_max  = max(float(_ia["volume"].max()), 1)
+        _v_base = _y_min - _y_pad
+        _v_h    = [(_v / _v_max) * 0.25 * _y_rng
+                   for _v in _ia["volume"].fillna(0)]
+
+        _fig_i = go.Figure()
+        _fig_i.add_trace(go.Bar(
+            x=_xs, y=_v_h, base=_v_base,
+            marker_color=_clr, opacity=0.35, hoverinfo="skip"))
         _fig_i.add_trace(go.Scatter(
             x=_xs, y=_ia["close"].tolist(), mode="lines",
             line=dict(color=_clr, width=1.5),
             customdata=_cdata,
-            hovertemplate="<b>%{customdata[0]}</b>  %{y:,.2f}<br>KL: %{customdata[1]:,}<extra></extra>"),
-            row=1, col=1)
-        _fig_i.add_trace(go.Bar(
-            x=_xs, y=_ia["volume"].tolist(),
-            marker_color=_clr, opacity=0.45, hoverinfo="skip"), row=2, col=1)
+            hovertemplate="<b>%{customdata[0]}</b>  %{y:,.2f}<br>KL: %{customdata[1]:,}<extra></extra>"))
 
         # Header annotations in top margin
         _fig_i.add_annotation(x=0.5, y=1.58, xref="paper", yref="paper",
@@ -1411,21 +1415,21 @@ def _render_index_ticker_bar():
             text=f"{_d['chg']:+.2f} ({_d['chg_pct']:+.2f}%)",
             showarrow=False, font=dict(size=11, color=_clr), xanchor="center")
 
-        # Card border covering full card area
+        # Card border
         _fig_i.add_shape(type="rect", xref="paper", yref="paper",
             x0=0, y0=0, x1=1, y1=1.7,
             line=dict(color="rgba(148,163,184,0.2)", width=1),
             fillcolor="rgba(0,0,0,0)")
 
-        _ax_hide = dict(visible=False, showticklabels=False,
-                        ticks="", showspikes=False, showgrid=False, zeroline=False)
         _fig_i.update_layout(
             height=175, margin=dict(l=8, r=8, t=70, b=8), dragmode=False,
             showlegend=False, hovermode="x", bargap=0,
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            xaxis={**_ax_hide}, xaxis2={**_ax_hide},
-            yaxis=dict(**_ax_hide, range=[_y_min - _y_pad, _y_max + _y_pad]),
-            yaxis2=dict(**_ax_hide),
+            xaxis=dict(visible=False, showticklabels=False, ticks="",
+                       showspikes=False, showgrid=False, zeroline=False),
+            yaxis=dict(visible=False, showticklabels=False, ticks="",
+                       showgrid=False, zeroline=False,
+                       range=[_y_min - _y_pad, _y_max + _y_pad]),
             hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb",
                             bordercolor="rgba(255,255,255,0.1)"))
         with _col:
