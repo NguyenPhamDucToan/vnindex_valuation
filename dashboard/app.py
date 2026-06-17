@@ -3737,7 +3737,7 @@ if view == "Company Analysis":
 
     # ── Key ratios ─────────────────────────────────────────────
     if ttm:
-        st.subheader("TTM Key Ratios")
+        st.subheader("Chỉ số tài chính chủ chốt (TTM)")
 
         gm  = gross_margin(ttm.get("gross_profit"), ttm.get("revenue"))
         nm  = net_margin(ttm.get("net_income"),     ttm.get("revenue"))
@@ -3756,30 +3756,38 @@ if view == "Company Analysis":
         def _x(value):
             return f"{value:.2f}x" if value is not None else "—"
 
-        with st.container(border=True):
-            st.markdown("**Profitability & Returns**")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Gross margin", fmt_pct(gm))
-            c2.metric("Operating margin", fmt_pct(om))
-            c3.metric("Net margin", fmt_pct(nm))
-            c4.metric("ROE", fmt_pct(roe_val))
-            c5.metric("ROA", fmt_pct(roa_val))
+        def _sig(val, good, ok, higher_better=True):
+            """Traffic-light emoji based on threshold. Empty string when val is None."""
+            if val is None:
+                return ""
+            above_good = val >= good if higher_better else val <= good
+            above_ok   = val >= ok   if higher_better else val <= ok
+            return " ✅" if above_good else (" ⚠️" if above_ok else " 🔴")
 
         with st.container(border=True):
-            st.markdown("**Liquidity**")
+            st.markdown("**Sinh lời**")
             c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("Current ratio", _x(cr))
-            c2.metric("Quick ratio", _x(qr))
-            c3.metric("Cash ratio", _x(cashr))
-            c4.metric("OCF / current liab", _x(ocf_cl))
-            c5.metric("Profit quality (OCF/NI)", fmt_pct(pq))
+            c1.metric(f"Biên LN gộp{_sig(gm,25,15)}",    fmt_pct(gm))
+            c2.metric(f"Biên hoạt động{_sig(om,15,5)}",   fmt_pct(om))
+            c3.metric(f"Biên LN ròng{_sig(nm,10,5)}",     fmt_pct(nm))
+            c4.metric(f"ROE{_sig(roe_val,15,10)}",         fmt_pct(roe_val))
+            c5.metric(f"ROA{_sig(roa_val,8,5)}",           fmt_pct(roa_val))
 
         with st.container(border=True):
-            st.markdown("**Leverage & Cash Flow**")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Debt / equity", _x(de))
-            c2.metric("Debt / assets", fmt_pct(da))
-            c3.metric("FCF margin", fmt_pct(fcfm))
+            st.markdown("**Thanh khoản**")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(f"Current ratio{_sig(cr,2,1)}",         _x(cr))
+            c2.metric(f"Quick ratio{_sig(qr,1,0.5)}",         _x(qr))
+            c3.metric(f"Cash ratio{_sig(cashr,0.5,0.2)}",     _x(cashr))
+            c4.metric(f"OCF/Nợ ngắn hạn{_sig(ocf_cl,0.4,0.2)}", _x(ocf_cl))
+
+        with st.container(border=True):
+            st.markdown("**Đòn bẩy & Dòng tiền**")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric(f"Nợ/Vốn chủ (D/E){_sig(de,1,2,higher_better=False)}", _x(de))
+            c2.metric(f"Nợ/Tổng TS{_sig(da,30,60,higher_better=False)}",      fmt_pct(da))
+            c3.metric(f"Biên FCF{_sig(fcfm,10,0)}",                            fmt_pct(fcfm))
+            c4.metric(f"Chất lượng LN (OCF/NI){_sig(pq,1,0.8)}",              fmt_pct(pq))
 
 
     # ── Valuation Football Field ───────────────────────────────
