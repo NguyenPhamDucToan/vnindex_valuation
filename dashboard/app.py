@@ -1379,10 +1379,18 @@ def _render_index_ticker_bar():
         _ia  = _d["intraday"].copy()
         _ia["tlabel"] = pd.to_datetime(_ia["time"]).dt.strftime("%H:%M")
         _open_val = _d["open"]
-        _fig_i = go.Figure()
+        _y_vals = _ia["close"].dropna()
+        _y_min  = float(_y_vals.min()) if not _y_vals.empty else _open_val
+        _y_max  = float(_y_vals.max()) if not _y_vals.empty else _open_val
+        _y_pad  = max((_y_max - _y_min) * 0.15, 0.5)
+        _fig_i  = go.Figure()
+        # invisible baseline at data min so fill stays within price range
+        _fig_i.add_trace(go.Scatter(
+            x=_ia["tlabel"], y=[_y_min] * len(_ia), mode="lines",
+            line=dict(width=0), hoverinfo="skip", showlegend=False))
         _fig_i.add_trace(go.Scatter(
             x=_ia["tlabel"], y=_ia["close"], mode="lines",
-            line=dict(color=_clr, width=1.5), fill="tozeroy",
+            line=dict(color=_clr, width=1.5), fill="tonexty",
             fillcolor=_fclr,
             hovertemplate="%{y:,.2f}<extra></extra>"))
         _fig_i.add_shape(type="line", x0=0, x1=1, xref="paper",
@@ -1393,7 +1401,8 @@ def _render_index_ticker_bar():
             showlegend=False, hovermode="x",
             hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb"))
         _fig_i.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
-        _fig_i.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
+        _fig_i.update_yaxes(showticklabels=False, showgrid=False, zeroline=False,
+                             range=[_y_min - _y_pad, _y_max + _y_pad])
         with _col:
             st.markdown(
                 f"<div style='text-align:center;'>"
