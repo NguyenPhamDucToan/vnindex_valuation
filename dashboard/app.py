@@ -1385,17 +1385,21 @@ def _render_index_ticker_bar():
         _y_max  = float(_y_vals.max()) if not _y_vals.empty else _d["open"]
         _y_pad  = max((_y_max - _y_min) * 0.25, 1.0)
         _xs     = list(range(len(_ia)))
-        _fig_i  = go.Figure()
+        _fig_i  = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                 row_heights=[0.68, 0.32], vertical_spacing=0.02)
         _fig_i.add_trace(go.Scatter(
             x=_xs, y=_ia["close"].tolist(), mode="lines",
-            line=dict(color=_clr, width=1.5), hoverinfo="skip"))
+            line=dict(color=_clr, width=1.5), hoverinfo="skip"), row=1, col=1)
+        _fig_i.add_trace(go.Bar(
+            x=_xs, y=_ia["volume"].tolist(),
+            marker_color=_clr, opacity=0.45, hoverinfo="skip"), row=2, col=1)
         _fig_i.update_layout(
-            height=90, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
-            showlegend=False, hovermode=False,
+            height=120, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
+            showlegend=False, hovermode=False, bargap=0,
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
         _fig_i.update_xaxes(visible=False)
-        _fig_i.update_yaxes(visible=False,
-                             range=[_y_min - _y_pad, _y_max + _y_pad])
+        _fig_i.update_yaxes(visible=False)
+        _fig_i.update_yaxes(range=[_y_min - _y_pad, _y_max + _y_pad], row=1, col=1)
         with _col:
             st.markdown(
                 f"<div style='text-align:center;'>"
