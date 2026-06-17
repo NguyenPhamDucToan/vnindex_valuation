@@ -1411,30 +1411,21 @@ def _render_index_ticker_bar():
             text=f"{_d['chg']:+.2f} ({_d['chg_pct']:+.2f}%)",
             showarrow=False, font=dict(size=11, color=_clr), xanchor="center")
 
-        # Time labels in bottom margin
-        for _t in ["09:15", "11:00", "13:00", "15:00"]:
-            _m = _ia[_ia["tlabel"] == _t]
-            if not _m.empty:
-                _fig_i.add_annotation(
-                    x=int(_m.index[0]) / _n, y=-0.14, xref="paper", yref="paper",
-                    text=_t, showarrow=False,
-                    font=dict(size=7, color="rgba(148,163,184,0.5)"),
-                    xanchor="center", yanchor="top")
-
         # Card border covering full card area
         _fig_i.add_shape(type="rect", xref="paper", yref="paper",
-            x0=0, y0=-0.18, x1=1, y1=1.7,
+            x0=0, y0=0, x1=1, y1=1.7,
             line=dict(color="rgba(148,163,184,0.2)", width=1),
             fillcolor="rgba(0,0,0,0)")
 
+        _ax_hide = dict(visible=False, showticklabels=False,
+                        ticks="", showspikes=False, showgrid=False, zeroline=False)
         _fig_i.update_layout(
-            height=185, margin=dict(l=8, r=8, t=70, b=26), dragmode=False,
+            height=175, margin=dict(l=8, r=8, t=70, b=8), dragmode=False,
             showlegend=False, hovermode="x", bargap=0,
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(visible=False, showspikes=False),
-            xaxis2=dict(visible=False, showspikes=False),
-            yaxis=dict(visible=False, range=[_y_min - _y_pad, _y_max + _y_pad]),
-            yaxis2=dict(visible=False),
+            xaxis={**_ax_hide}, xaxis2={**_ax_hide},
+            yaxis=dict(**_ax_hide, range=[_y_min - _y_pad, _y_max + _y_pad]),
+            yaxis2=dict(**_ax_hide),
             hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb",
                             bordercolor="rgba(255,255,255,0.1)"))
         with _col:
