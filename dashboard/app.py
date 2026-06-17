@@ -3756,38 +3756,56 @@ if view == "Company Analysis":
         def _x(value):
             return f"{value:.2f}x" if value is not None else "—"
 
-        def _sig(val, good, ok, higher_better=True):
-            """Traffic-light emoji based on threshold. Empty string when val is None."""
+        def _color(val, good, ok, higher_better=True):
             if val is None:
-                return ""
+                return "#94a3b8"
             above_good = val >= good if higher_better else val <= good
             above_ok   = val >= ok   if higher_better else val <= ok
-            return " ✅" if above_good else (" ⚠️" if above_ok else " 🔴")
+            return "#16a34a" if above_good else ("#d97706" if above_ok else "#dc2626")
 
-        with st.container(border=True):
-            st.markdown("**Sinh lời**")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric(f"Biên LN gộp{_sig(gm,25,15)}",    fmt_pct(gm))
-            c2.metric(f"Biên hoạt động{_sig(om,15,5)}",   fmt_pct(om))
-            c3.metric(f"Biên LN ròng{_sig(nm,10,5)}",     fmt_pct(nm))
-            c4.metric(f"ROE{_sig(roe_val,15,10)}",         fmt_pct(roe_val))
-            c5.metric(f"ROA{_sig(roa_val,8,5)}",           fmt_pct(roa_val))
+        def _scorecard(title: str, metrics: list[tuple[str, str, str]]) -> str:
+            cells = ""
+            for i, (label, value, color) in enumerate(metrics):
+                sep = "border-right:1px solid rgba(148,163,184,0.2);" if i < len(metrics) - 1 else ""
+                cells += (
+                    f'<div style="flex:1;text-align:center;padding:16px 10px;{sep}">'
+                    f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;'
+                    f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{label}">{label}</div>'
+                    f'<div style="font-size:22px;font-weight:700;color:{color};letter-spacing:-0.5px;">{value}</div>'
+                    f'</div>'
+                )
+            return (
+                f'<div style="border:1px solid rgba(148,163,184,0.2);border-radius:10px;'
+                f'overflow:hidden;margin-bottom:10px;">'
+                f'<div style="background:rgba(148,163,184,0.08);padding:6px 14px;'
+                f'font-size:10px;font-weight:700;letter-spacing:1.4px;color:#94a3b8;">'
+                f'{title}</div>'
+                f'<div style="display:flex;">{cells}</div>'
+                f'</div>'
+            )
 
-        with st.container(border=True):
-            st.markdown("**Thanh khoản**")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric(f"Current ratio{_sig(cr,2,1)}",         _x(cr))
-            c2.metric(f"Quick ratio{_sig(qr,1,0.5)}",         _x(qr))
-            c3.metric(f"Cash ratio{_sig(cashr,0.5,0.2)}",     _x(cashr))
-            c4.metric(f"OCF/Nợ ngắn hạn{_sig(ocf_cl,0.4,0.2)}", _x(ocf_cl))
-
-        with st.container(border=True):
-            st.markdown("**Đòn bẩy & Dòng tiền**")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric(f"Nợ/Vốn chủ (D/E){_sig(de,1,2,higher_better=False)}", _x(de))
-            c2.metric(f"Nợ/Tổng TS{_sig(da,30,60,higher_better=False)}",      fmt_pct(da))
-            c3.metric(f"Biên FCF{_sig(fcfm,10,0)}",                            fmt_pct(fcfm))
-            c4.metric(f"Chất lượng LN (OCF/NI){_sig(pq,1,0.8)}",              fmt_pct(pq))
+        scorecard_html = (
+            _scorecard("SINH LỜI", [
+                ("Biên LN gộp",    fmt_pct(gm),      _color(gm,      25, 15)),
+                ("Biên hoạt động", fmt_pct(om),      _color(om,      15,  5)),
+                ("Biên LN ròng",   fmt_pct(nm),      _color(nm,      10,  5)),
+                ("ROE",            fmt_pct(roe_val),  _color(roe_val, 15, 10)),
+                ("ROA",            fmt_pct(roa_val),  _color(roa_val,  8,  5)),
+            ]) +
+            _scorecard("THANH KHOẢN", [
+                ("Current ratio",    _x(cr),    _color(cr,     2,   1)),
+                ("Quick ratio",      _x(qr),    _color(qr,     1, 0.5)),
+                ("Cash ratio",       _x(cashr), _color(cashr, 0.5, 0.2)),
+                ("OCF / Nợ ngắn hạn", _x(ocf_cl), _color(ocf_cl, 0.4, 0.2)),
+            ]) +
+            _scorecard("ĐÒN BẨY & DÒNG TIỀN", [
+                ("Nợ / Vốn chủ (D/E)",  _x(de),       _color(de,   1,  2, higher_better=False)),
+                ("Nợ / Tổng tài sản",   fmt_pct(da),  _color(da,  30, 60, higher_better=False)),
+                ("Biên FCF",            fmt_pct(fcfm), _color(fcfm, 10,  0)),
+                ("Chất lượng LN",       fmt_pct(pq),   _color(pq,   1, 0.8)),
+            ])
+        )
+        st.markdown(scorecard_html, unsafe_allow_html=True)
 
 
     # ── Valuation Football Field ───────────────────────────────
