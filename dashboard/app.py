@@ -3864,7 +3864,21 @@ if view == "Company Analysis":
                  "Dòng tiền hoạt động / Lợi nhuận ròng. >1x: lợi nhuận được bảo chứng bằng tiền mặt thực. Tốt: ≥1x | Cảnh báo: 0.8-1x | Xấu: <0.8x"),
             ])
         )
-        st.markdown(scorecard_html, unsafe_allow_html=True)
+        _LEGEND = (
+            '<div style="display:flex;gap:18px;justify-content:flex-end;'
+            'padding:2px 4px 8px;font-size:11px;color:#94a3b8;">'
+            '<span style="display:flex;align-items:center;gap:5px;">'
+            '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;'
+            'background:#16a34a;flex-shrink:0;"></span>Tốt</span>'
+            '<span style="display:flex;align-items:center;gap:5px;">'
+            '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;'
+            'background:#d97706;flex-shrink:0;"></span>Cảnh báo</span>'
+            '<span style="display:flex;align-items:center;gap:5px;">'
+            '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;'
+            'background:#dc2626;flex-shrink:0;"></span>Nguy hiểm</span>'
+            '</div>'
+        )
+        st.markdown(scorecard_html + _LEGEND, unsafe_allow_html=True)
 
 
     # ── Valuation Football Field ───────────────────────────────
