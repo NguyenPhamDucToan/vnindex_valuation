@@ -5354,18 +5354,21 @@ elif view == "Market Overview":
             _prev_vi = float(_vi.iloc[-2]["close"]) if len(_vi) > 1 else _last_vi
             _chg_vi  = (_last_vi - _prev_vi) / _prev_vi * 100 if _prev_vi else 0
             _cc_vi   = "#22c55e" if _chg_vi >= 0 else "#ef4444"
+            _vi_ymin = float(_vi["close"].min()) * 0.975
+            _vi_ymax = float(_vi["close"].max()) * 1.015
             _fig_vi  = go.Figure()
             _fig_vi.add_trace(go.Scatter(x=_vi["dlabel"], y=_vi["close"], mode="lines", name="VN-Index",
                 line=dict(color="#5b9bd5", width=2), fill="tozeroy", fillcolor="rgba(91,155,213,0.08)",
                 hovertemplate="%{y:,.2f}<extra></extra>"))
             _fig_vi.add_trace(go.Scatter(x=_vi["dlabel"], y=_vi["ma20"], mode="lines", name="MA20",
-                line=dict(color="#fb923c", width=1.5), hovertemplate="MA20 %{y:,.2f}<extra></extra>"))
+                line=dict(color="#a78bfa", width=1.5), hovertemplate="MA20 %{y:,.2f}<extra></extra>"))
             _fig_vi.update_layout(height=320, margin=dict(l=0,r=10,t=40,b=0), dragmode=False,
                 hovermode="x unified", showlegend=True, legend=dict(orientation="h", y=-0.1),
                 title=dict(text=f"<span style='color:{_cc_vi}'>{_last_vi:,.2f}  ({_chg_vi:+.2f}%)</span>",
                            font=dict(size=16)),
                 xaxis=dict(type="category", nticks=8, showgrid=False, rangeslider=dict(visible=False)),
-                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)"))
+                yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                           range=[_vi_ymin, _vi_ymax]))
             st.plotly_chart(_fig_vi, width="stretch")
         else:
             st.info("No VN-Index data available.")
