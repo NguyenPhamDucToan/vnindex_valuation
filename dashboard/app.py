@@ -5578,17 +5578,46 @@ elif view == "Market Overview":
 
     st.divider()
 
-    # ── Return distribution
-    st.subheader("Return Distribution Today")
-    _hdf = snap_df.dropna(subset=["chg_pct"])
-    _fig_h = go.Figure(go.Histogram(x=_hdf["chg_pct"], nbinsx=40,
-        marker_color="#5b9bd5", opacity=0.8,
-        hovertemplate="%{x:.1f}%: %{y} tickers<extra></extra>"))
-    _fig_h.add_vline(x=0, line_dash="dash", line_color="white", opacity=0.5)
-    _fig_h.update_layout(height=220, margin=dict(l=0,r=0,t=10,b=0), dragmode=False,
-        xaxis_title="Daily Change %", yaxis_title="# Tickers", bargap=0.05)
-    st.plotly_chart(_fig_h, width="stretch")
-    st.caption(f"{total} tickers · Mean {_hdf['chg_pct'].mean():+.2f}% · Median {_hdf['chg_pct'].median():+.2f}%")
+    # ── Market Heatmap
+    st.subheader("Market Heatmap Today")
+    _hm_df = snap_df[snap_df["ticker"].str.match(r'^[A-Z]{3,5}$')].dropna(subset=["chg_pct"]).copy()
+    _hm_df["_vol"]    = _hm_df["volume"].fillna(0).clip(lower=1)
+    _hm_df["_chgs"]   = _hm_df["chg_pct"].apply(lambda x: f"{x:+.1f}%")
+    _hm_df["_prices"] = _hm_df["price"].fillna(0).apply(lambda x: f"{x:,.0f}")
+
+    _fig_hm = go.Figure(go.Treemap(
+        labels=_hm_df["ticker"].tolist(),
+        parents=[""] * len(_hm_df),
+        values=_hm_df["_vol"].tolist(),
+        text=_hm_df["_chgs"].tolist(),
+        texttemplate="<b>%{label}</b><br>%{text}",
+        textfont=dict(size=11, color="#ffffff"),
+        customdata=list(zip(_hm_df["name"].fillna(""), _hm_df["_prices"], _hm_df["_chgs"])),
+        hovertemplate="<b>%{label}</b>  %{customdata[0]}<br>Giá: %{customdata[1]} VND<br>Thay đổi: %{customdata[2]}<extra></extra>",
+        marker=dict(
+            colors=_hm_df["chg_pct"].tolist(),
+            colorscale=[
+                [0.0,  "#7f1d1d"],
+                [0.3,  "#dc2626"],
+                [0.5,  "#334155"],
+                [0.7,  "#16a34a"],
+                [1.0,  "#14532d"],
+            ],
+            cmin=-10, cmax=10,
+            showscale=False,
+            line=dict(width=1, color="#0f172a"),
+        ),
+        pathbar=dict(visible=False),
+    ))
+    _fig_hm.update_layout(
+        height=430, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(_fig_hm, width="stretch")
+    _hm_up   = int((_hm_df["chg_pct"] > 0).sum())
+    _hm_dn   = int((_hm_df["chg_pct"] < 0).sum())
+    _hm_flat = int((_hm_df["chg_pct"] == 0).sum())
+    st.caption(f"▲ Tăng: {_hm_up}  ·  ▼ Giảm: {_hm_dn}  ·  — Đứng: {_hm_flat}  ·  {len(_hm_df)} mã cổ phiếu")
 
 
 # ═══════════════════════════════════════════════════════════════
