@@ -3764,14 +3764,32 @@ if view == "Company Analysis":
             return "#16a34a" if above_good else ("#d97706" if above_ok else "#dc2626")
 
         def _scorecard(title: str, metrics: list) -> str:
+            def _esc(s: str) -> str:
+                return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+            def _tip_html(t: dict) -> str:
+                return (
+                    '<div class="ttm-tooltip">'
+                    f'<div style="font-size:10px;color:#64748b;margin-bottom:4px;font-style:italic;">{_esc(t["f"])}</div>'
+                    f'<div style="font-size:12px;color:#e2e8f0;margin-bottom:10px;line-height:1.45;">{_esc(t["d"])}</div>'
+                    '<div style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:#cbd5e1;">'
+                    f'<span><span style="color:#16a34a;margin-right:6px;font-size:9px;">&#9679;</span>Tốt: {_esc(t["g"])}</span>'
+                    f'<span><span style="color:#d97706;margin-right:6px;font-size:9px;">&#9679;</span>Cảnh báo: {_esc(t["w"])}</span>'
+                    f'<span><span style="color:#dc2626;margin-right:6px;font-size:9px;">&#9679;</span>Nguy hiểm: {_esc(t["b"])}</span>'
+                    '</div>'
+                    '<div class="ttm-tt-arrow"></div>'
+                    '</div>'
+                )
+
             cells = ""
             for i, metric in enumerate(metrics):
                 label, value, color = metric[0], metric[1], metric[2]
-                tip = metric[3] if len(metric) > 3 else label
+                tip_dict = metric[3] if len(metric) > 3 else {}
                 sep = "border-right:1px solid rgba(148,163,184,0.2);" if i < len(metrics) - 1 else ""
+                tooltip = _tip_html(tip_dict) if tip_dict else ""
                 cells += (
-                    f'<div class="ttm-cell" data-tip="{tip}" '
-                    f'style="flex:1;text-align:center;padding:16px 10px;{sep}">'
+                    f'<div class="ttm-cell" style="flex:1;text-align:center;padding:16px 10px;{sep}position:relative;">'
+                    f'{tooltip}'
                     f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;'
                     f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>'
                     f'<div style="font-size:22px;font-weight:700;color:{color};letter-spacing:-0.5px;">{value}</div>'
@@ -3784,84 +3802,112 @@ if view == "Company Analysis":
                 f'font-size:10px;font-weight:700;letter-spacing:1.4px;color:#94a3b8;'
                 f'border-radius:9px 9px 0 0;">'
                 f'{title}</div>'
-                f'<div style="display:flex;">{cells}</div>'
+                f'<div style="display:flex;overflow:visible;">{cells}</div>'
                 f'</div>'
             )
 
         _TOOLTIP_CSS = (
             "<style>"
             ".ttm-cell{position:relative;cursor:default;}"
-            ".ttm-cell::after{"
-            "content:attr(data-tip);"
+            ".ttm-tooltip{"
+            "display:none;"
             "position:absolute;"
-            "bottom:calc(100% + 8px);"
+            "bottom:calc(100% + 10px);"
             "left:50%;"
             "transform:translateX(-50%);"
             "background:#1e293b;"
-            "color:#e2e8f0;"
-            "padding:8px 12px;"
-            "border-radius:6px;"
-            "font-size:12px;"
-            "line-height:1.5;"
-            "white-space:normal;"
-            "word-wrap:break-word;"
-            "width:240px;"
-            "text-align:left;"
-            "pointer-events:none;"
-            "opacity:0;"
-            "transition:opacity 0.15s;"
+            "border:1px solid rgba(148,163,184,0.15);"
+            "border-radius:8px;"
+            "padding:12px 14px;"
+            "width:230px;"
             "z-index:9999;"
-            "box-shadow:0 4px 16px rgba(0,0,0,0.4);"
+            "box-shadow:0 6px 24px rgba(0,0,0,0.5);"
+            "pointer-events:none;"
+            "text-align:left;"
             "}"
-            ".ttm-cell::before{"
-            'content:"";'
+            ".ttm-tt-arrow{"
             "position:absolute;"
-            "bottom:calc(100% + 2px);"
+            "top:100%;"
             "left:50%;"
             "transform:translateX(-50%);"
-            "border:6px solid transparent;"
+            "border:7px solid transparent;"
             "border-top-color:#1e293b;"
-            "pointer-events:none;"
-            "opacity:0;"
-            "transition:opacity 0.15s;"
-            "z-index:9999;"
             "}"
-            ".ttm-cell:hover::after,.ttm-cell:hover::before{opacity:1;}"
+            ".ttm-cell:hover .ttm-tooltip{display:block;}"
             "</style>"
         )
 
         scorecard_html = _TOOLTIP_CSS + (
             _scorecard("SINH LỜI", [
-                ("Biên LN gộp",    fmt_pct(gm),      _color(gm,      25, 15),
-                 "Lợi nhuận gộp / Doanh thu. Đo hiệu quả sản xuất cốt lõi. Tốt: ≥25% | Cảnh báo: 15-25% | Xấu: <15%"),
-                ("Biên hoạt động", fmt_pct(om),      _color(om,      15,  5),
-                 "EBIT / Doanh thu. Lợi nhuận sau chi phí bán hàng & quản lý, trước lãi vay và thuế. Tốt: ≥15% | Cảnh báo: 5-15% | Xấu: <5%"),
-                ("Biên LN ròng",   fmt_pct(nm),      _color(nm,      10,  5),
-                 "Lợi nhuận sau thuế / Doanh thu. Tỷ suất sinh lời thực tế cuối cùng giữ lại cho cổ đông. Tốt: ≥10% | Cảnh báo: 5-10% | Xấu: <5%"),
-                ("ROE",            fmt_pct(roe_val),  _color(roe_val, 15, 10),
-                 "Lợi nhuận ròng / Vốn chủ sở hữu. Đo mức sinh lời trên đồng vốn cổ đông bỏ ra. Tốt: ≥15% | Cảnh báo: 10-15% | Xấu: <10%"),
-                ("ROA",            fmt_pct(roa_val),  _color(roa_val,  8,  5),
-                 "Lợi nhuận ròng / Tổng tài sản. Đo hiệu quả sử dụng toàn bộ tài sản. Tốt: ≥8% | Cảnh báo: 5-8% | Xấu: <5%"),
+                ("Biên LN gộp",    fmt_pct(gm),      _color(gm,      25, 15), {
+                    "f": "Lợi nhuận gộp / Doanh thu",
+                    "d": "Đo hiệu quả sản xuất cốt lõi trước chi phí vận hành",
+                    "g": "≥ 25%", "w": "15 – 25%", "b": "< 15%",
+                }),
+                ("Biên hoạt động", fmt_pct(om),      _color(om,      15,  5), {
+                    "f": "EBIT / Doanh thu",
+                    "d": "Lợi nhuận sau chi phí bán hàng & quản lý, trước lãi vay và thuế",
+                    "g": "≥ 15%", "w": "5 – 15%", "b": "< 5%",
+                }),
+                ("Biên LN ròng",   fmt_pct(nm),      _color(nm,      10,  5), {
+                    "f": "Lợi nhuận sau thuế / Doanh thu",
+                    "d": "Tỷ suất sinh lời thực tế cuối cùng giữ lại cho cổ đông",
+                    "g": "≥ 10%", "w": "5 – 10%", "b": "< 5%",
+                }),
+                ("ROE",            fmt_pct(roe_val),  _color(roe_val, 15, 10), {
+                    "f": "Lợi nhuận ròng / Vốn chủ sở hữu",
+                    "d": "Đo mức sinh lời trên đồng vốn cổ đông bỏ ra",
+                    "g": "≥ 15%", "w": "10 – 15%", "b": "< 10%",
+                }),
+                ("ROA",            fmt_pct(roa_val),  _color(roa_val,  8,  5), {
+                    "f": "Lợi nhuận ròng / Tổng tài sản",
+                    "d": "Đo hiệu quả sử dụng toàn bộ tài sản",
+                    "g": "≥ 8%", "w": "5 – 8%", "b": "< 5%",
+                }),
             ]) +
             _scorecard("THANH KHOẢN", [
-                ("Current ratio",      _x(cr),     _color(cr,     2,   1),
-                 "Tài sản ngắn hạn / Nợ ngắn hạn. Khả năng trả nợ ngắn hạn. Tốt: ≥2x | Cảnh báo: 1-2x | Nguy hiểm: <1x"),
-                ("Quick ratio",        _x(qr),     _color(qr,     1, 0.5),
-                 "(Tài sản ngắn hạn - Hàng tồn kho) / Nợ ngắn hạn. Loại trừ hàng tồn kho để đo thanh khoản thực tế hơn. Tốt: ≥1x | Cảnh báo: 0.5-1x | Xấu: <0.5x"),
-                ("Cash ratio",         _x(cashr),  _color(cashr, 0.5, 0.2),
-                 "Tiền & tương đương tiền / Nợ ngắn hạn. Khả năng thanh toán ngay lập tức bằng tiền mặt. Tốt: ≥0.5x | Cảnh báo: 0.2-0.5x | Xấu: <0.2x"),
-                ("OCF / Nợ ngắn hạn", _x(ocf_cl), _color(ocf_cl, 0.4, 0.2),
-                 "Dòng tiền hoạt động / Nợ ngắn hạn. Khả năng trả nợ từ tiền kinh doanh tạo ra. Tốt: ≥0.4x | Cảnh báo: 0.2-0.4x | Xấu: <0.2x"),
+                ("Current ratio",      _x(cr),     _color(cr,     2,   1), {
+                    "f": "Tài sản ngắn hạn / Nợ ngắn hạn",
+                    "d": "Khả năng trả nợ ngắn hạn bằng tài sản lưu động",
+                    "g": "≥ 2x", "w": "1 – 2x", "b": "< 1x",
+                }),
+                ("Quick ratio",        _x(qr),     _color(qr,     1, 0.5), {
+                    "f": "(Tài sản ngắn hạn − Hàng tồn kho) / Nợ ngắn hạn",
+                    "d": "Loại trừ hàng tồn kho để đo thanh khoản thực tế hơn",
+                    "g": "≥ 1x", "w": "0.5 – 1x", "b": "< 0.5x",
+                }),
+                ("Cash ratio",         _x(cashr),  _color(cashr, 0.5, 0.2), {
+                    "f": "Tiền & tương đương tiền / Nợ ngắn hạn",
+                    "d": "Khả năng thanh toán ngay lập tức bằng tiền mặt",
+                    "g": "≥ 0.5x", "w": "0.2 – 0.5x", "b": "< 0.2x",
+                }),
+                ("OCF / Nợ ngắn hạn", _x(ocf_cl), _color(ocf_cl, 0.4, 0.2), {
+                    "f": "Dòng tiền hoạt động / Nợ ngắn hạn",
+                    "d": "Khả năng trả nợ từ tiền kinh doanh tạo ra",
+                    "g": "≥ 0.4x", "w": "0.2 – 0.4x", "b": "< 0.2x",
+                }),
             ]) +
             _scorecard("ĐÒN BẨY & DÒNG TIỀN", [
-                ("Nợ / Vốn chủ (D/E)", _x(de),       _color(de,   1,  2, higher_better=False),
-                 "Tổng nợ vay / Vốn chủ sở hữu. Mức độ đòn bẩy tài chính. Tốt: ≤1x | Cảnh báo: 1-2x | Rủi ro: >2x"),
-                ("Nợ / Tổng tài sản",  fmt_pct(da),  _color(da,  30, 60, higher_better=False),
-                 "Tổng nợ vay / Tổng tài sản. Tỷ trọng nợ trong cơ cấu vốn. Tốt: ≤30% | Cảnh báo: 30-60% | Rủi ro: >60%"),
-                ("Biên FCF",           fmt_pct(fcfm), _color(fcfm, 10,  0),
-                 "Dòng tiền tự do (FCF) / Doanh thu. Khả năng tạo tiền thực sau đầu tư CAPEX. Tốt: ≥10% | Cảnh báo: 0-10% | Xấu: <0%"),
-                ("Chất lượng LN",      fmt_pct(pq),   _color(pq,   1, 0.8),
-                 "Dòng tiền hoạt động / Lợi nhuận ròng. >1x: lợi nhuận được bảo chứng bằng tiền mặt thực. Tốt: ≥1x | Cảnh báo: 0.8-1x | Xấu: <0.8x"),
+                ("Nợ / Vốn chủ (D/E)", _x(de),       _color(de,   1,  2, higher_better=False), {
+                    "f": "Tổng nợ vay / Vốn chủ sở hữu",
+                    "d": "Mức độ đòn bẩy tài chính",
+                    "g": "≤ 1x", "w": "1 – 2x", "b": "> 2x",
+                }),
+                ("Nợ / Tổng tài sản",  fmt_pct(da),  _color(da,  30, 60, higher_better=False), {
+                    "f": "Tổng nợ vay / Tổng tài sản",
+                    "d": "Tỷ trọng nợ trong cơ cấu vốn",
+                    "g": "≤ 30%", "w": "30 – 60%", "b": "> 60%",
+                }),
+                ("Biên FCF",           fmt_pct(fcfm), _color(fcfm, 10,  0), {
+                    "f": "Dòng tiền tự do (FCF) / Doanh thu",
+                    "d": "Khả năng tạo tiền thực sau đầu tư CAPEX",
+                    "g": "≥ 10%", "w": "0 – 10%", "b": "< 0%",
+                }),
+                ("Chất lượng LN",      fmt_pct(pq),   _color(pq,   1, 0.8), {
+                    "f": "Dòng tiền hoạt động / Lợi nhuận ròng",
+                    "d": "> 1x: lợi nhuận được bảo chứng bằng tiền mặt thực",
+                    "g": "≥ 1x", "w": "0.8 – 1x", "b": "< 0.8x",
+                }),
             ])
         )
         _LEGEND = (
