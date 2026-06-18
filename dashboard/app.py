@@ -104,6 +104,7 @@ from sqlalchemy import select, func as sqlfunc
 
 from models.database import get_session
 from models.schema import Financial, Price, Company, Valuation, PinnedTicker, MacroIndicator
+from collectors.worldbank_collector import WB_INDICATOR_META
 from valuation.inputs import compute_ttm, compute_fcff_ttm, prepare_dcf_inputs, build_quarter_history
 from valuation.dcf import dcf_valuation
 from valuation.graham import graham_number, bvps_from_financials
@@ -5709,7 +5710,43 @@ elif view == "Market Overview":
                 "Khoảng dữ liệu": f"{df['period'].iloc[0]:%m/%Y} - {df['period'].iloc[-1]:%m/%Y}",
             }
 
-        tab_overview, tab_gdp, tab_prices = st.tabs(["Tổng quan", "GDP", "Giá cả"])
+        def _wb_fmt_value(value: float, unit: str) -> str:
+            if unit == "USD":
+                if abs(value) >= 1e9:
+                    return f"{value/1e9:,.2f} tỷ"
+                return f"{value/1e6:,.1f} triệu"
+            if unit == "người":
+                return f"{value:,.0f}"
+            if unit == "VND":
+                return f"{value:,.0f}"
+            return f"{value:+.2f}"
+
+        def _wb_summary_row(indicator: str, label: str, unit: str) -> dict:
+            df = load_macro_indicator(indicator)
+            if df.empty:
+                return {
+                    "Chỉ số": label, "Kỳ gần nhất": "—", "Kỳ trước": "—",
+                    "Đơn vị": unit, "Kỳ báo cáo": "Hàng năm", "Khoảng dữ liệu": "Chưa có dữ liệu",
+                }
+            last = df.iloc[-1]
+            prev = df.iloc[-2] if len(df) > 1 else None
+            return {
+                "Chỉ số": label,
+                "Kỳ gần nhất": _wb_fmt_value(last["value"], unit),
+                "Kỳ trước": _wb_fmt_value(prev["value"], unit) if prev is not None else "—",
+                "Đơn vị": unit,
+                "Kỳ báo cáo": "Hàng năm",
+                "Khoảng dữ liệu": f"{df['period'].iloc[0].year} - {df['period'].iloc[-1].year}",
+            }
+
+        def _wb_category_tab(category: str):
+            rows = [_wb_summary_row(k, m["label"], m["unit"])
+                    for k, m in WB_INDICATOR_META.items() if m["category"] == category]
+            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+            st.caption("Nguồn: World Bank Open Data (api.worldbank.org) · Dữ liệu theo năm, cập nhật hàng năm")
+
+        tab_overview, tab_gdp, tab_prices, tab_biz, tab_trade, tab_labor, tab_money, tab_consumer, tab_tax, tab_rates = st.tabs(
+            ["Tổng quan", "GDP", "Giá cả", "Kinh doanh", "Thương mại", "Lao động", "Tiền tệ", "Tiêu dùng", "Thuế", "Lãi suất"])
 
         with tab_overview:
             row1 = st.columns(3)
@@ -5780,3 +5817,24 @@ elif view == "Market Overview":
                 _macro_line_chart({"Giao thông": load_macro_indicator("cpi_transport")}, "CPI nhóm giao thông (so với tháng trước)")
 
             _macro_line_chart({"PPI": load_macro_indicator("ppi_yoy")}, "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)")
+
+        with tab_biz:
+            _wb_category_tab("Kinh doanh")
+
+        with tab_trade:
+            _wb_category_tab("Thương mại")
+
+        with tab_labor:
+            _wb_category_tab("Lao động")
+
+        with tab_money:
+            _wb_category_tab("Tiền tệ")
+
+        with tab_consumer:
+            _wb_category_tab("Tiêu dùng")
+
+        with tab_tax:
+            _wb_category_tab("Thuế")
+
+        with tab_rates:
+            _wb_category_tab("Lãi suất")
