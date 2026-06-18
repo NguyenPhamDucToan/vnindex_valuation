@@ -24,6 +24,7 @@ _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit
 _CPI_LIST_URL = "https://www.nso.gov.vn/cpi-vi/"
 _GDP_LIST_URL = "https://www.nso.gov.vn/tai-khoan-quoc-gia/"
 _TRADE_LIST_URL = "https://www.nso.gov.vn/xuat-nhap-khau/"
+_LABOR_LIST_URL = "https://www.nso.gov.vn/lao-dong/thong-cao-bao-chi/"
 
 # The GDP listing page only surfaces the ~10 newest releases (no real pagination).
 # WordPress's sitemap covers the full history (back to ~2011) and is used to backfill years.
@@ -132,6 +133,22 @@ _INVESTMENT_RE = re.compile(
     r"(?:trong quý (I{1,3}|IV)/(\d{4})|(?:theo giá hiện hành )?năm (\d{4}))"
     r"(?: theo giá hiện hành)?"
     r".{0,150}?(tăng|giảm|đạt mức tăng) ([\d,]+)%"
+)
+
+# Quarterly labor market press releases ("lao động, việc làm quý X/YYYY").
+_LABOR_UNEMPLOYMENT_RE = re.compile(
+    r"Tỷ lệ thất nghiệp trong độ tuổi lao động quý (I{1,3}|IV)/(\d{4}) là ([\d,]+)%"
+)
+# The quarter/year is sometimes omitted here (annual releases) — reuses the
+# unemployment sentence's period as a fallback when its own groups are empty.
+_LABOR_UNDEREMPLOYMENT_RE = re.compile(
+    r"Tỷ lệ thiếu việc làm trong độ tuổi lao động(?: quý (I{1,3}|IV)/(\d{4}))? là ([\d,]+)%"
+)
+_LABOR_FORCE_RE = re.compile(
+    r"Lực lượng lao động từ 15 tuổi trở lên.{0,30}?quý (I{1,3}|IV)/(\d{4}) ước tính là ([\d,]+) triệu người"
+)
+_LABOR_INCOME_RE = re.compile(
+    r"thu nhập bình quân của người lao động quý (I{1,3}|IV)/(\d{4}).{0,80}?đạt ([\d,]+) triệu đồng/tháng"
 )
 
 
@@ -632,7 +649,93 @@ def collect_trade(max_pages: int = 8) -> int:
     return total
 
 
+def discover_labor_article_urls(max_pages: int = 5) -> list[str]:
+    """Return quarterly labor market press release URLs (newest first)."""
+    urls: list[str] = []
+    for page in range(1, max_pages + 1):
+        list_url = _LABOR_LIST_URL if page == 1 else f"{_LABOR_LIST_URL}?paged={page}"
+        try:
+            resp = requests.get(list_url, headers=_HEADERS, timeout=20)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logger.warning(f"Failed to fetch {list_url}: {e}")
+            break
+        found = re.findall(
+            r'href="(https://www\.nso\.gov\.vn/(?:du-lieu-va-so-lieu-thong-ke|tin-tuc-thong-ke)/[^"]*thong-cao-bao-chi[^"]*lao-dong[^"]*)"',
+            resp.text,
+        )
+        if not found:
+            break
+        urls.extend(found)
+    return list(dict.fromkeys(urls))
+
+
+def parse_labor_article(url: str) -> list[dict]:
+    """Return labor market data points (unemployment, underemployment, labor force, income) for one quarterly press release."""
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=20)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning(f"Failed to fetch {url}: {e}")
+        return []
+
+    text = re.sub(r"<[^>]+>", " ", resp.text)
+    text = text.replace("&#8211;", "-").replace("&nbsp;", " ")
+    text = re.sub(r"\s+", " ", text)
+    text = unicodedata.normalize("NFC", text)
+
+    rows: list[dict] = []
+    shared_period: date | None = None
+
+    m = _LABOR_UNEMPLOYMENT_RE.search(text)
+    if m:
+        quarter, year, value = m.group(1), int(m.group(2)), _vn_num(m.group(3))
+        shared_period = date(year, _QUARTER_END_MONTH[quarter], 1)
+        rows.append({"indicator": "unemployment_rate", "period": shared_period, "value": value, "unit": "%", "source_url": url})
+
+    m = _LABOR_UNDEREMPLOYMENT_RE.search(text)
+    if m:
+        quarter, year, value = m.group(1), m.group(2), _vn_num(m.group(3))
+        period = date(int(year), _QUARTER_END_MONTH[quarter], 1) if quarter and year else shared_period
+        if period:
+            rows.append({"indicator": "underemployment_rate", "period": period, "value": value, "unit": "%", "source_url": url})
+
+    m = _LABOR_FORCE_RE.search(text)
+    if m:
+        quarter, year, value = m.group(1), int(m.group(2)), _vn_num(m.group(3))
+        rows.append({
+            "indicator": "labor_force", "period": date(year, _QUARTER_END_MONTH[quarter], 1),
+            "value": value, "unit": "triệu", "source_url": url,
+        })
+
+    m = _LABOR_INCOME_RE.search(text)
+    if m:
+        quarter, year, value = m.group(1), int(m.group(2)), _vn_num(m.group(3))
+        rows.append({
+            "indicator": "avg_income", "period": date(year, _QUARTER_END_MONTH[quarter], 1),
+            "value": value, "unit": "triệu đồng", "source_url": url,
+        })
+
+    if not rows:
+        logger.warning(f"Could not parse labor data from {url}")
+    return rows
+
+
+def collect_labor(max_pages: int = 5) -> int:
+    """Scrape quarterly labor market data from nso.gov.vn and upsert into macro_indicators."""
+    urls = discover_labor_article_urls(max_pages=max_pages)
+    logger.info(f"Found {len(urls)} labor market articles")
+    total = 0
+    for url in urls:
+        rows = parse_labor_article(url)
+        _upsert(rows)
+        total += len(rows)
+    logger.info(f"Upserted {total} labor market data points")
+    return total
+
+
 if __name__ == "__main__":
     collect_cpi(max_pages=30)
     collect_gdp(max_pages=5)
     collect_trade(max_pages=8)
+    collect_labor(max_pages=5)

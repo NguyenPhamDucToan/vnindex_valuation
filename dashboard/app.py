@@ -241,6 +241,10 @@ _MACRO_INDICATOR_LABELS = {
     "cpi_food": "Lạm phát lương thực (so với tháng trước)",
     "cpi_transport": "CPI nhóm giao thông (so với tháng trước)",
     "ppi_yoy": "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)",
+    "unemployment_rate": "Tỷ lệ thất nghiệp",
+    "underemployment_rate": "Tỷ lệ thiếu việc làm",
+    "labor_force": "Lực lượng lao động",
+    "avg_income": "Thu nhập bình quân người lao động",
 }
 _MACRO_SEEN_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "macro_seen.json")
 
@@ -5825,6 +5829,26 @@ elif view == "Market Overview":
             _wb_category_tab("Thương mại")
 
         with tab_labor:
+            labor_rows = [
+                _macro_summary_row("unemployment_rate", "Tỷ lệ thất nghiệp", freq="quarterly"),
+                _macro_summary_row("underemployment_rate", "Tỷ lệ thiếu việc làm", freq="quarterly"),
+                _macro_summary_row("labor_force", "Lực lượng lao động", unit=" triệu người", freq="quarterly"),
+                _macro_summary_row("avg_income", "Thu nhập bình quân người lao động", unit=" triệu đồng/tháng", freq="quarterly"),
+            ]
+            st.dataframe(pd.DataFrame(labor_rows), hide_index=True, width="stretch")
+            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo quý")
+
+            row_labor = st.columns(2)
+            with row_labor[0]:
+                _macro_line_chart({"Thất nghiệp": load_macro_indicator("unemployment_rate"),
+                                    "Thiếu việc làm": load_macro_indicator("underemployment_rate")},
+                                   "Tỷ lệ thất nghiệp & thiếu việc làm (theo quý)")
+            with row_labor[1]:
+                _macro_line_chart({"Thu nhập bình quân": load_macro_indicator("avg_income")},
+                                   "Thu nhập bình quân người lao động (theo quý)", unit=" triệu đồng/tháng")
+
+            st.divider()
+            st.caption("So sánh dài hạn (World Bank, theo năm):")
             _wb_category_tab("Lao động")
 
         with tab_money:
