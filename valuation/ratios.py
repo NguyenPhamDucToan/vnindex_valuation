@@ -270,3 +270,78 @@ def check_risk_flags(
         "over_investment_risk": bool(capex and operating_cf < capex),
         "profit_quality_risk":  bool(net_income and operating_cf / net_income < 0.8),
     }
+
+
+# ---------------------------------------------------------------------------
+# Scorecard coloring + DuPont decomposition (used by the Company Analysis UI)
+# ---------------------------------------------------------------------------
+
+def rating_color(val: Optional[float], good: float, ok: float, higher_better: bool = True) -> str:
+    """Map a value to a green/amber/red hex color against two thresholds.
+
+    `good`/`ok` must be in the same unit/scale as `val` (e.g. both raw fractions
+    like 0.10, or both ratios like 2.0 — never mix a raw fraction against a
+    percentage-point threshold).
+    """
+    if val is None:
+        return "#94a3b8"
+    above_good = val >= good if higher_better else val <= good
+    above_ok   = val >= ok   if higher_better else val <= ok
+    return "#16a34a" if above_good else ("#d97706" if above_ok else "#dc2626")
+
+
+def dupont_analysis(margin: float, turnover: float, leverage: float) -> dict:
+    """Decompose ROE = Net Margin x Asset Turnover x Financial Leverage.
+
+    Classifies each factor and the resulting ROE into "cao"/"trung bình"/"thấp",
+    and builds a Vietnamese commentary explaining what drives ROE — and, when ROE
+    is high, whether that's margin-driven (sustainable) or leverage-driven (riskier).
+    """
+    roe_val = margin * turnover * leverage
+
+    margin_lvl   = "cao" if margin   >= 0.10 else "trung bình" if margin   >= 0.05 else "thấp"
+    turnover_lvl = "cao" if turnover >= 1.0  else "trung bình" if turnover >= 0.5  else "thấp"
+    leverage_lvl = "cao" if leverage >= 3.0  else "trung bình" if leverage >= 2.0  else "thấp"
+    roe_lvl      = "cao" if roe_val  >= 0.15 else "trung bình" if roe_val  >= 0.10 else "thấp"
+
+    drivers = []
+    if margin_lvl == "cao":
+        drivers.append("biên lợi nhuận tốt")
+    if turnover_lvl == "cao":
+        drivers.append("quay vòng tài sản hiệu quả")
+    if leverage_lvl == "cao":
+        drivers.append("sử dụng nhiều vay nợ (đòn bẩy tài chính)")
+
+    weaknesses = []
+    if margin_lvl == "thấp":
+        weaknesses.append("biên lợi nhuận thấp")
+    if turnover_lvl == "thấp":
+        weaknesses.append("hiệu suất sử dụng tài sản thấp")
+    if leverage_lvl == "thấp":
+        weaknesses.append("ít dùng vay nợ nên đòn bẩy không hỗ trợ thêm cho ROE")
+
+    if roe_lvl == "cao":
+        comment = (f"ROE cao chủ yếu được thúc đẩy bởi: {', '.join(drivers)}."
+                   if drivers else "ROE cao nhưng không có yếu tố nào nổi bật rõ ràng.")
+        if leverage_lvl == "cao" and margin_lvl != "cao":
+            comment += (" ⚠️ Lưu ý: ROE cao phần lớn đến từ vay nợ chứ không phải lợi nhuận kinh doanh — "
+                        "đây là tín hiệu kém bền vững hơn, vì rủi ro tăng khi lãi suất tăng hoặc kinh doanh sa sút.")
+        elif margin_lvl == "cao" and leverage_lvl != "cao":
+            comment += " ✅ Đây là dạng ROE cao bền vững — đến từ hiệu quả kinh doanh thực sự, không phải vay nợ nhiều."
+    elif roe_lvl == "thấp":
+        comment = (f"ROE thấp, chủ yếu do: {', '.join(weaknesses)}."
+                   if weaknesses else
+                   "ROE thấp dù không có yếu tố thành phần nào yếu rõ ràng — có thể do biến động bất thường trong kỳ.")
+    else:
+        comment = "ROE ở mức trung bình, không có yếu tố nào nổi bật rõ theo hướng tốt hay xấu."
+
+    return {
+        "roe": roe_val,
+        "margin_level": margin_lvl,
+        "turnover_level": turnover_lvl,
+        "leverage_level": leverage_lvl,
+        "roe_level": roe_lvl,
+        "drivers": drivers,
+        "weaknesses": weaknesses,
+        "comment": comment,
+    }

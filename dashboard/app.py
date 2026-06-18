@@ -118,7 +118,7 @@ from valuation.ratios import (
     gross_margin, net_margin, operating_margin, roe, roa,
     current_ratio, debt_to_equity, profit_quality, fcf_margin,
     quick_ratio, absolute_liquidity, debt_to_assets, ocf_to_current_liabilities,
-    asset_turnover, financial_leverage,
+    asset_turnover, financial_leverage, rating_color, dupont_analysis,
 )
 from valuation.signals import compute_quality_score, classify_signal
 
@@ -3789,12 +3789,7 @@ if view == "Company Analysis":
         def _x(value):
             return f"{value:.2f}x" if value is not None else "—"
 
-        def _color(val, good, ok, higher_better=True):
-            if val is None:
-                return "#94a3b8"
-            above_good = val >= good if higher_better else val <= good
-            above_ok   = val >= ok   if higher_better else val <= ok
-            return "#16a34a" if above_good else ("#d97706" if above_ok else "#dc2626")
+        _color = rating_color
 
         def _scorecard(title: str, metrics: list) -> str:
             def _esc(s: str) -> str:
@@ -4001,9 +3996,7 @@ if view == "Company Analysis":
             )
             st.markdown(_dp_html, unsafe_allow_html=True)
 
-            _margin_lvl   = "cao" if dp_margin >= 0.10 else "trung bình" if dp_margin >= 0.05 else "thấp"
-            _turnover_lvl = "cao" if dp_turnover >= 1.0 else "trung bình" if dp_turnover >= 0.5 else "thấp"
-            _leverage_lvl = "cao" if dp_leverage >= 3.0 else "trung bình" if dp_leverage >= 2.0 else "thấp"
+            _dp = dupont_analysis(dp_margin, dp_turnover, dp_leverage)
 
             def _badge(text, color):
                 return (f'<span style="background:{color}26;color:{color};padding:2px 9px;'
@@ -4014,50 +4007,14 @@ if view == "Company Analysis":
 
             _badges_html = (
                 '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 8px;">'
-                f'{_badge("Biên LN ròng: " + _lvl_label[_margin_lvl], _margin_c)}'
-                f'{_badge("Hiệu suất TS: " + _lvl_label[_turnover_lvl], _turnover_c)}'
-                f'{_badge("Đòn bẩy: " + _lev_label[_leverage_lvl], _leverage_c)}'
+                f'{_badge("Biên LN ròng: " + _lvl_label[_dp["margin_level"]], _margin_c)}'
+                f'{_badge("Hiệu suất TS: " + _lvl_label[_dp["turnover_level"]], _turnover_c)}'
+                f'{_badge("Đòn bẩy: " + _lev_label[_dp["leverage_level"]], _leverage_c)}'
                 '</div>'
             )
             st.markdown(_badges_html, unsafe_allow_html=True)
 
-            _roe_lvl = "cao" if _dp_roe >= 0.15 else "trung bình" if _dp_roe >= 0.10 else "thấp"
-
-            _drivers = []
-            if _margin_lvl == "cao":
-                _drivers.append("biên lợi nhuận tốt")
-            if _turnover_lvl == "cao":
-                _drivers.append("quay vòng tài sản hiệu quả")
-            if _leverage_lvl == "cao":
-                _drivers.append("sử dụng nhiều vay nợ (đòn bẩy tài chính)")
-
-            _weaknesses = []
-            if _margin_lvl == "thấp":
-                _weaknesses.append("biên lợi nhuận thấp")
-            if _turnover_lvl == "thấp":
-                _weaknesses.append("hiệu suất sử dụng tài sản thấp")
-            if _leverage_lvl == "thấp":
-                _weaknesses.append("ít dùng vay nợ nên đòn bẩy không hỗ trợ thêm cho ROE")
-
-            if _roe_lvl == "cao":
-                if _drivers:
-                    _comment = f"ROE cao chủ yếu được thúc đẩy bởi: {', '.join(_drivers)}."
-                else:
-                    _comment = "ROE cao nhưng không có yếu tố nào nổi bật rõ ràng."
-                if _leverage_lvl == "cao" and _margin_lvl != "cao":
-                    _comment += (" ⚠️ Lưu ý: ROE cao phần lớn đến từ vay nợ chứ không phải lợi nhuận kinh doanh — "
-                                 "đây là tín hiệu kém bền vững hơn, vì rủi ro tăng khi lãi suất tăng hoặc kinh doanh sa sút.")
-                elif _margin_lvl == "cao" and _leverage_lvl != "cao":
-                    _comment += " ✅ Đây là dạng ROE cao bền vững — đến từ hiệu quả kinh doanh thực sự, không phải vay nợ nhiều."
-            elif _roe_lvl == "thấp":
-                if _weaknesses:
-                    _comment = f"ROE thấp, chủ yếu do: {', '.join(_weaknesses)}."
-                else:
-                    _comment = "ROE thấp dù không có yếu tố thành phần nào yếu rõ ràng — có thể do biến động bất thường trong kỳ."
-            else:
-                _comment = "ROE ở mức trung bình, không có yếu tố nào nổi bật rõ theo hướng tốt hay xấu."
-
-            st.markdown(f'<div style="font-size:25px;color:#94a3b8;">{_comment}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:25px;color:#94a3b8;">{_dp["comment"]}</div>', unsafe_allow_html=True)
 
 
     # ── Valuation Football Field ───────────────────────────────

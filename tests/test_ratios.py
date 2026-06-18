@@ -18,6 +18,12 @@ def test_profitability_ratios():
     assert r.asset_turnover(150, 100) == pytest.approx(1.5)
 
 
+def test_financial_leverage():
+    assert r.financial_leverage(250, 100) == pytest.approx(2.5)
+    assert r.financial_leverage(100, 0) is None
+    assert r.financial_leverage(100, None) is None
+
+
 def test_revenue_and_profit_growth():
     assert r.revenue_growth(110, 100) == pytest.approx(0.10)
     assert r.revenue_growth(100, 0) is None
@@ -82,3 +88,74 @@ def test_check_risk_flags():
         interest_expense=20, capex=20, net_income=80,
     )
     assert all(v is False for v in healthy.values())
+
+
+def test_rating_color_higher_better():
+    assert r.rating_color(None, 0.10, 0.05) == "#94a3b8"          # missing data -> gray
+    assert r.rating_color(0.15, 0.10, 0.05) == "#16a34a"           # above good -> green
+    assert r.rating_color(0.07, 0.10, 0.05) == "#d97706"           # between ok/good -> amber
+    assert r.rating_color(0.02, 0.10, 0.05) == "#dc2626"           # below ok -> red
+    # Boundary values are inclusive ("good"/"ok" themselves count as passing)
+    assert r.rating_color(0.10, 0.10, 0.05) == "#16a34a"
+    assert r.rating_color(0.05, 0.10, 0.05) == "#d97706"
+
+
+def test_rating_color_lower_better():
+    # e.g. Debt/Assets: lower is safer, so the comparison direction flips
+    assert r.rating_color(0.20, 0.30, 0.60, higher_better=False) == "#16a34a"
+    assert r.rating_color(0.45, 0.30, 0.60, higher_better=False) == "#d97706"
+    assert r.rating_color(0.80, 0.30, 0.60, higher_better=False) == "#dc2626"
+
+
+def test_rating_color_thresholds_must_share_value_scale():
+    """Regression test for the bug where thresholds were written in percentage
+    points (e.g. 25 for 25%) but compared against a raw fraction (0.25) — every
+    margin/ROE/ROA card always fell through to red because 0.05-0.50 is always
+    less than 5-60. Catches any future reintroduction of that unit mismatch."""
+    healthy_margin = 0.417  # 41.7% gross margin - clearly good
+    assert r.rating_color(healthy_margin, 0.25, 0.15) == "#16a34a"
+    # The old buggy call would have been rating_color(healthy_margin, 25, 15),
+    # which incorrectly falls to red:
+    assert r.rating_color(healthy_margin, 25, 15) == "#dc2626"
+
+
+def test_dupont_analysis_high_roe_margin_driven_is_sustainable():
+    # VNM-like: strong margin & turnover, modest leverage -> high, sustainable ROE
+    result = r.dupont_analysis(margin=0.154, turnover=1.21, leverage=1.51)
+    assert result["roe"] == pytest.approx(0.154 * 1.21 * 1.51)
+    assert result["roe_level"] == "cao"
+    assert result["margin_level"] == "cao"
+    assert "biên lợi nhuận tốt" in result["comment"]
+    assert "✅" in result["comment"]
+    assert "⚠️" not in result["comment"]
+
+
+def test_dupont_analysis_high_roe_leverage_driven_is_flagged_risky():
+    # Weak margin, propped up by heavy leverage -> high ROE but flagged as risky
+    result = r.dupont_analysis(margin=0.04, turnover=1.0, leverage=4.0)
+    assert result["roe_level"] == "cao"
+    assert result["leverage_level"] == "cao"
+    assert result["margin_level"] != "cao"
+    assert "⚠️" in result["comment"]
+    assert "✅" not in result["comment"]
+
+
+def test_dupont_analysis_low_roe_explains_the_weak_factor():
+    # Regression test: VSC-like case (margin 14.3% good, turnover 0.24x weak)
+    # previously mislabeled "ROE cao ben vung" even though ROE itself was only 7.1%.
+    result = r.dupont_analysis(margin=0.143, turnover=0.24, leverage=2.09)
+    assert result["roe"] == pytest.approx(0.143 * 0.24 * 2.09)
+    assert result["roe_level"] == "thấp"
+    assert result["margin_level"] == "cao"
+    assert result["turnover_level"] == "thấp"
+    assert "ROE thấp" in result["comment"]
+    assert "hiệu suất sử dụng tài sản thấp" in result["comment"]
+    assert "cao bền vững" not in result["comment"]
+    assert "✅" not in result["comment"]
+
+
+def test_dupont_analysis_medium_roe_is_neutral():
+    result = r.dupont_analysis(margin=0.07, turnover=0.8, leverage=2.2)
+    assert 0.10 <= result["roe"] < 0.15
+    assert result["roe_level"] == "trung bình"
+    assert "trung bình" in result["comment"]
