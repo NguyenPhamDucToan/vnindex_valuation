@@ -5743,11 +5743,30 @@ elif view == "Market Overview":
                 "Khoảng dữ liệu": f"{df['period'].iloc[0].year} - {df['period'].iloc[-1].year}",
             }
 
+        def _wb_line_chart(indicator: str, label: str, unit: str):
+            df = load_macro_indicator(indicator)
+            if df.empty:
+                return
+            fig = go.Figure(go.Scatter(
+                x=[p.year for p in df["period"]], y=df["value"], mode="lines+markers",
+                line=dict(color="#60a5fa", width=2), marker=dict(size=5),
+                hovertemplate="%{x} · %{y:,.2f} " + unit + "<extra></extra>"))
+            fig.update_layout(
+                title=label, height=260, margin=dict(l=0, r=0, t=36, b=10), dragmode=False,
+                showlegend=False, xaxis=dict(type="category"), yaxis_title=unit)
+            st.plotly_chart(fig, width="stretch")
+
         def _wb_category_tab(category: str):
-            rows = [_wb_summary_row(k, m["label"], m["unit"])
-                    for k, m in WB_INDICATOR_META.items() if m["category"] == category]
+            items = [(k, m["label"], m["unit"]) for k, m in WB_INDICATOR_META.items() if m["category"] == category]
+            rows = [_wb_summary_row(k, label, unit) for k, label, unit in items]
             st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
             st.caption("Nguồn: World Bank Open Data (api.worldbank.org) · Dữ liệu theo năm, cập nhật hàng năm")
+
+            st.markdown("")
+            cols = st.columns(2)
+            for i, (k, label, unit) in enumerate(items):
+                with cols[i % 2]:
+                    _wb_line_chart(k, label, unit)
 
         tab_overview, tab_gdp, tab_prices, tab_biz, tab_trade, tab_labor, tab_money, tab_consumer, tab_tax, tab_rates = st.tabs(
             ["Tổng quan", "GDP", "Giá cả", "Kinh doanh", "Thương mại", "Lao động", "Tiền tệ", "Tiêu dùng", "Thuế", "Lãi suất"])
