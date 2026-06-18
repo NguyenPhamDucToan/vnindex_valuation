@@ -5769,9 +5769,34 @@ elif view == "Market Overview":
                     _wb_line_chart(k, label, unit)
 
         tab_overview, tab_gdp, tab_prices, tab_biz, tab_trade, tab_labor, tab_money, tab_consumer, tab_tax, tab_rates = st.tabs(
-            ["Tổng quan", "GDP", "Giá cả", "Kinh doanh", "Thương mại", "Lao động", "Tiền tệ", "Tiêu dùng", "Thuế", "Lãi suất"])
+            ["Tổng quan kinh tế", "Tăng trưởng kinh tế", "Giá cả & Lạm phát", "Đầu tư & Tiết kiệm",
+             "Xuất nhập khẩu", "Lao động & Việc làm", "Tiền tệ & Tỷ giá", "Tiêu dùng", "Thuế", "Lãi suất"])
+
+        def _kpi_metric(col, indicator: str, label: str, unit: str = "%", invert_delta: bool = False):
+            df = load_macro_indicator(indicator)
+            with col:
+                if df.empty:
+                    st.metric(label, "—")
+                    return
+                last = df.iloc[-1]
+                prev = df.iloc[-2] if len(df) > 1 else None
+                delta = f"{last['value'] - prev['value']:+.2f} điểm so kỳ trước" if prev is not None else None
+                st.metric(label, f"{last['value']:+.2f}{unit}", delta=delta,
+                           delta_color="inverse" if invert_delta else "normal")
 
         with tab_overview:
+            st.markdown("##### Các chỉ số quan trọng nhất hiện nay")
+            kpi_cols = st.columns(4)
+            _kpi_metric(kpi_cols[0], "cpi_yoy", "Lạm phát (so với năm trước)", invert_delta=True)
+            _kpi_metric(kpi_cols[1], "gdp_growth", "Tăng trưởng kinh tế (GDP)")
+            _kpi_metric(kpi_cols[2], "unemployment_rate", "Tỷ lệ thất nghiệp", invert_delta=True)
+            _kpi_metric(kpi_cols[3], "trade_balance", "Cán cân thương mại", unit=" tỷ USD")
+            st.caption(
+                "💡 Lạm phát = giá cả tăng nhanh bao nhiêu so với năm trước, cao quá thì tiền mất giá nhanh. "
+                "GDP = quy mô sản xuất của cả nước, tăng = kinh tế đang phát triển. "
+                "Cán cân thương mại dương = xuất khẩu nhiều hơn nhập khẩu (có lợi cho VND).")
+            st.divider()
+
             row1 = st.columns(3)
             row2 = st.columns(3)
 

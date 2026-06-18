@@ -41,6 +41,16 @@ _QUARTER_END_MONTH = {"I": 3, "II": 6, "III": 9, "IV": 12}
 _MOM_RE = re.compile(r"(tăng|giảm)(?:\s+\S+)?\s+([\d,]+)%\s+so với tháng trước")
 _YOY_RE = re.compile(r"(tăng|giảm)(?:\s+\S+)?\s+([\d,]+)%\s*(?:\[\d+\]\s*)?so với cùng kỳ năm trước")
 _YOY_RE_OLD = re.compile(r"[Ss]o với cùng kỳ năm trước,.{0,80}?(tăng|giảm)\s+([\d,]+)%")
+# 2007-2009-era releases phrase the headline as "Giá tiêu dùng tháng X/Y so với tháng
+# trước tăng A%" / "...so với cùng kỳ năm trước tăng B%" (rather than the later wording
+# "tiêu dùng tháng X tăng A% so với ..."), and the same article also reports gold/USD
+# price changes using near-identical phrasing ("Giá vàng ... so với cùng kỳ năm trước
+# tăng C%"). _MOM_RE/_YOY_RE aren't anchored to "Giá tiêu dùng" so when _cpi_window
+# can't isolate the CPI paragraph (see its docstring), they can match the gold/USD
+# sentence instead. These anchored variants are safe to search on the full article
+# text precisely because they require "Giá tiêu dùng tháng" as a prefix.
+_MOM_RE_ANCHORED = re.compile(r"Giá tiêu dùng tháng \S+/\d{4} so với tháng trước (tăng|giảm) ([\d,]+)%")
+_YOY_RE_ANCHORED_OLD = re.compile(r"Giá tiêu dùng tháng \S+/\d{4}.{0,80}?so với cùng kỳ năm trước (tăng|giảm) ([\d,]+)%")
 
 # "Lạm phát cơ bản [n] tháng X(/năm) tăng A% so với tháng trước(,| và) tăng B% so với cùng kỳ năm trước"
 _CORE_INFLATION_RE = re.compile(
@@ -59,10 +69,17 @@ _CPI_BODY_RE = re.compile(r"tiêu dùng(?:\s*\(CPI\))?\s+tháng\s+\S+\s+(?:tăng
 
 
 def _cpi_window(text: str) -> str:
-    """Isolate the CPI body paragraph from the title and the gold/USD-price paragraphs that follow it."""
+    """Isolate the CPI body paragraph from the title and the gold/USD-price paragraphs that follow it.
+
+    Some older releases (e.g. Dec 2009) carry no narrative CPI sentence at all — the
+    monthly figures are only in PDF attachments. Returning the unfiltered full text in
+    that case let MoM/YoY regexes fall through to the gold/USD-price paragraphs instead
+    (e.g. picking up "Chỉ số giá vàng ... tăng 10,49% so với tháng trước" as if it were
+    CPI). Returning "" instead means no data gets extracted, which is correct here.
+    """
     m = _CPI_BODY_RE.search(text)
     if not m:
-        return text
+        return ""
     start = m.start()
     end = len(text)
     for marker in ("Giá vàng", "giá vàng", "Giá đô la", "giá đô la", "Giá đôla", "giá đôla"):
@@ -251,14 +268,17 @@ def parse_cpi_article(url: str) -> list[dict]:
     cpi_text = _cpi_window(text)
 
     rows = []
-    mom = _MOM_RE.search(cpi_text)
+    # _MOM_RE_ANCHORED/_YOY_RE_ANCHORED_OLD search the full (unwindowed) text — safe
+    # because they require the "Giá tiêu dùng tháng" prefix, so they can't cross over
+    # into the gold/USD-price paragraphs the way the unanchored regexes can.
+    mom = _MOM_RE.search(cpi_text) or _MOM_RE_ANCHORED.search(text)
     if mom:
         rows.append({
             "indicator": "cpi_mom", "period": period,
             "value": _to_float(mom.group(1), mom.group(2)),
             "unit": "%", "source_url": url,
         })
-    yoy = _YOY_RE.search(cpi_text) or _YOY_RE_OLD.search(cpi_text)
+    yoy = _YOY_RE.search(cpi_text) or _YOY_RE_OLD.search(cpi_text) or _YOY_RE_ANCHORED_OLD.search(text)
     if yoy:
         rows.append({
             "indicator": "cpi_yoy", "period": period,
