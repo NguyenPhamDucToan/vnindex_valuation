@@ -118,6 +118,7 @@ from valuation.ratios import (
     gross_margin, net_margin, operating_margin, roe, roa,
     current_ratio, debt_to_equity, profit_quality, fcf_margin,
     quick_ratio, absolute_liquidity, debt_to_assets, ocf_to_current_liabilities,
+    asset_turnover, financial_leverage,
 )
 from valuation.signals import compute_quality_score, classify_signal
 
@@ -3957,6 +3958,49 @@ if view == "Company Analysis":
             '</div>'
         )
         st.markdown(scorecard_html + _LEGEND, unsafe_allow_html=True)
+
+        # ── DuPont decomposition of ROE ──────────────────────────
+        dp_margin   = net_margin(ttm.get("net_income"), ttm.get("revenue"))
+        dp_turnover = asset_turnover(ttm.get("revenue"), ttm.get("total_assets"))
+        dp_leverage = financial_leverage(ttm.get("total_assets"), ttm.get("equity"))
+
+        if dp_margin is not None and dp_turnover is not None and dp_leverage is not None:
+            st.markdown("**Phân tích DuPont (ROE = Biên LN ròng × Hiệu suất tài sản × Đòn bẩy tài chính)**")
+
+            dp_cols = st.columns(4)
+            with dp_cols[0]:
+                st.metric("Biên LN ròng", f"{dp_margin*100:.1f}%", help="Lợi nhuận ròng / Doanh thu")
+            with dp_cols[1]:
+                st.metric("Hiệu suất tài sản", f"{dp_turnover:.2f}x", help="Doanh thu / Tổng tài sản — 1 đồng tài sản tạo ra bao nhiêu đồng doanh thu")
+            with dp_cols[2]:
+                st.metric("Đòn bẩy tài chính", f"{dp_leverage:.2f}x", help="Tổng tài sản / Vốn chủ sở hữu — vay nợ nhiều thì số này cao")
+            with dp_cols[3]:
+                st.metric("= ROE", f"{dp_margin*dp_turnover*dp_leverage*100:.1f}%")
+
+            _margin_lvl   = "cao" if dp_margin >= 0.10 else "trung bình" if dp_margin >= 0.05 else "thấp"
+            _turnover_lvl = "cao" if dp_turnover >= 1.0 else "trung bình" if dp_turnover >= 0.5 else "thấp"
+            _leverage_lvl = "cao" if dp_leverage >= 3.0 else "trung bình" if dp_leverage >= 2.0 else "thấp"
+
+            _drivers = []
+            if _margin_lvl == "cao":
+                _drivers.append("biên lợi nhuận tốt")
+            if _turnover_lvl == "cao":
+                _drivers.append("quay vòng tài sản hiệu quả")
+            if _leverage_lvl == "cao":
+                _drivers.append("sử dụng nhiều vay nợ (đòn bẩy tài chính)")
+
+            if _drivers:
+                _comment = f"ROE chủ yếu được thúc đẩy bởi: {', '.join(_drivers)}."
+            else:
+                _comment = "Cả 3 yếu tố đều ở mức trung bình hoặc thấp — ROE không có động lực nổi bật."
+
+            if _leverage_lvl == "cao" and _margin_lvl != "cao":
+                _comment += (" ⚠️ Lưu ý: ROE cao phần lớn đến từ vay nợ chứ không phải lợi nhuận kinh doanh — "
+                             "đây là tín hiệu kém bền vững hơn, vì rủi ro tăng khi lãi suất tăng hoặc kinh doanh sa sút.")
+            elif _margin_lvl == "cao" and _leverage_lvl != "cao":
+                _comment += " ✅ Đây là dạng ROE cao bền vững — đến từ hiệu quả kinh doanh thực sự, không phải vay nợ nhiều."
+
+            st.caption(_comment)
 
 
     # ── Valuation Football Field ───────────────────────────────
