@@ -3965,21 +3965,60 @@ if view == "Company Analysis":
         dp_leverage = financial_leverage(ttm.get("total_assets"), ttm.get("equity"))
 
         if dp_margin is not None and dp_turnover is not None and dp_leverage is not None:
-            st.markdown("**Phân tích DuPont (ROE = Biên LN ròng × Hiệu suất tài sản × Đòn bẩy tài chính)**")
+            _dp_roe = dp_margin * dp_turnover * dp_leverage
+            _margin_c   = _color(dp_margin,   0.10, 0.05)
+            _turnover_c = _color(dp_turnover, 1.0,  0.5)
+            _leverage_c = _color(dp_leverage, 2.0,  3.0, higher_better=False)
+            _roe_c      = _color(_dp_roe,     0.15, 0.10)
 
-            dp_cols = st.columns(4)
-            with dp_cols[0]:
-                st.metric("Biên LN ròng", f"{dp_margin*100:.1f}%", help="Lợi nhuận ròng / Doanh thu")
-            with dp_cols[1]:
-                st.metric("Hiệu suất tài sản", f"{dp_turnover:.2f}x", help="Doanh thu / Tổng tài sản — 1 đồng tài sản tạo ra bao nhiêu đồng doanh thu")
-            with dp_cols[2]:
-                st.metric("Đòn bẩy tài chính", f"{dp_leverage:.2f}x", help="Tổng tài sản / Vốn chủ sở hữu — vay nợ nhiều thì số này cao")
-            with dp_cols[3]:
-                st.metric("= ROE", f"{dp_margin*dp_turnover*dp_leverage*100:.1f}%")
+            def _dp_card(label, value, color, hint):
+                return (
+                    '<div style="background:#1e293b;border-radius:10px;padding:14px 10px 12px;'
+                    'flex:1;min-width:0;text-align:center;">'
+                    f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;white-space:nowrap;">{label}</div>'
+                    f'<div style="font-size:23px;font-weight:700;color:{color};">{value}</div>'
+                    f'<div style="font-size:10px;color:#64748b;margin-top:4px;">{hint}</div>'
+                    '</div>'
+                )
+
+            def _dp_op(sym):
+                return f'<div style="font-size:20px;color:#475569;align-self:center;padding:0 2px;">{sym}</div>'
+
+            _dp_html = (
+                '<div style="margin-top:4px;">'
+                '<div style="font-weight:600;font-size:14px;margin-bottom:10px;">'
+                'Phân tích DuPont — ROE tách thành 3 nguồn gốc</div>'
+                '<div style="display:flex;align-items:center;gap:2px;">'
+                + _dp_card("Biên LN ròng", f"{dp_margin*100:.1f}%", _margin_c, "LN ròng / Doanh thu")
+                + _dp_op("×")
+                + _dp_card("Hiệu suất tài sản", f"{dp_turnover:.2f}x", _turnover_c, "Doanh thu / Tổng TS")
+                + _dp_op("×")
+                + _dp_card("Đòn bẩy tài chính", f"{dp_leverage:.2f}x", _leverage_c, "Tổng TS / Vốn CSH")
+                + _dp_op("=")
+                + _dp_card("ROE", f"{_dp_roe*100:.1f}%", _roe_c, "LN ròng / Vốn CSH")
+                + '</div></div>'
+            )
+            st.markdown(_dp_html, unsafe_allow_html=True)
 
             _margin_lvl   = "cao" if dp_margin >= 0.10 else "trung bình" if dp_margin >= 0.05 else "thấp"
             _turnover_lvl = "cao" if dp_turnover >= 1.0 else "trung bình" if dp_turnover >= 0.5 else "thấp"
             _leverage_lvl = "cao" if dp_leverage >= 3.0 else "trung bình" if dp_leverage >= 2.0 else "thấp"
+
+            def _badge(text, color):
+                return (f'<span style="background:{color}26;color:{color};padding:2px 9px;'
+                         f'border-radius:5px;font-weight:600;font-size:12px;white-space:nowrap;">{text}</span>')
+
+            _lvl_label = {"cao": "Tốt", "trung bình": "Trung bình", "thấp": "Yếu"}
+            _lev_label = {"cao": "Cao — rủi ro", "trung bình": "Trung bình", "thấp": "Thấp — an toàn"}
+
+            _badges_html = (
+                '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 8px;">'
+                f'{_badge("Biên LN ròng: " + _lvl_label[_margin_lvl], _margin_c)}'
+                f'{_badge("Hiệu suất TS: " + _lvl_label[_turnover_lvl], _turnover_c)}'
+                f'{_badge("Đòn bẩy: " + _lev_label[_leverage_lvl], _leverage_c)}'
+                '</div>'
+            )
+            st.markdown(_badges_html, unsafe_allow_html=True)
 
             _drivers = []
             if _margin_lvl == "cao":
