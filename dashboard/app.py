@@ -3986,7 +3986,7 @@ if view == "Company Analysis":
 
             _dp_html = (
                 '<div style="margin-top:4px;">'
-                '<div style="font-weight:600;font-size:14px;margin-bottom:10px;">'
+                '<div style="font-weight:600;font-size:35px;margin-bottom:10px;">'
                 'Phân tích DuPont — ROE tách thành 3 nguồn gốc</div>'
                 '<div style="display:flex;align-items:center;gap:2px;">'
                 + _dp_card("Biên LN ròng", f"{dp_margin*100:.1f}%", _margin_c, "LN ròng / Doanh thu")
@@ -4039,7 +4039,7 @@ if view == "Company Analysis":
             elif _margin_lvl == "cao" and _leverage_lvl != "cao":
                 _comment += " ✅ Đây là dạng ROE cao bền vững — đến từ hiệu quả kinh doanh thực sự, không phải vay nợ nhiều."
 
-            st.caption(_comment)
+            st.markdown(f'<div style="font-size:35px;color:#94a3b8;">{_comment}</div>', unsafe_allow_html=True)
 
 
     # ── Valuation Football Field ───────────────────────────────
