@@ -3975,9 +3975,9 @@ if view == "Company Analysis":
                 return (
                     '<div style="background:#1e293b;border-radius:10px;padding:14px 10px 12px;'
                     'flex:1;min-width:0;text-align:center;">'
-                    f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;white-space:nowrap;">{label}</div>'
+                    f'<div style="font-size:22px;color:#94a3b8;margin-bottom:6px;">{label}</div>'
                     f'<div style="font-size:23px;font-weight:700;color:{color};">{value}</div>'
-                    f'<div style="font-size:10px;color:#64748b;margin-top:4px;">{hint}</div>'
+                    f'<div style="font-size:20px;color:#64748b;margin-top:4px;">{hint}</div>'
                     '</div>'
                 )
 
