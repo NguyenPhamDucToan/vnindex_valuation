@@ -4100,47 +4100,97 @@ if view == "Company Analysis":
 # ═══════════════════════════════════════════════════════════════
 elif view == "Stock Screener":
     _ss_tab1, _ss_tab2 = st.tabs(["📋 Lọc cổ phiếu", "⭐ Watchlist"])
+
+    screen_df = load_valuation_screen_data()
+
+    # ── Shared sidebar filters (used by both Lọc cổ phiếu & Watchlist tabs) ──
+    if not screen_df.empty:
+        st.sidebar.markdown("### Filters")
+
+        preset_col1, preset_col2, preset_col3 = st.sidebar.columns(3)
+        _apply_bank   = preset_col1.button("Bank",    use_container_width=True)
+        _apply_value  = preset_col2.button("Value",   use_container_width=True)
+        _apply_growth = preset_col3.button("Growth",  use_container_width=True)
+
+        if _apply_bank:
+            st.session_state.update({
+                "f_sectors": ["Ngân hàng"], "f_min_upside": -50,
+                "f_max_pe": 20, "f_max_pb": 1.5, "f_min_roe": 12, "f_min_nm": 10,
+            })
+        elif _apply_value:
+            st.session_state.update({
+                "f_sectors": [], "f_min_upside": 20,
+                "f_max_pe": 15, "f_max_pb": 2.0, "f_min_roe": 10, "f_min_nm": 5,
+            })
+        elif _apply_growth:
+            st.session_state.update({
+                "f_sectors": [], "f_min_upside": 10,
+                "f_max_pe": 40, "f_max_pb": 5.0, "f_min_roe": 15, "f_min_nm": 8,
+            })
+
+        for _k, _v in [("f_min_upside", -1000), ("f_min_roe", -50),
+                       ("f_min_nm", -50), ("f_max_pe", 100), ("f_max_pb", 10.0)]:
+            if _k not in st.session_state:
+                st.session_state[_k] = _v
+
+        all_sectors = sorted(s for s in screen_df["Sector"].dropna().unique() if s != "Unknown")
+        _saved_sectors = [s for s in st.session_state.get("f_sectors", []) if s in all_sectors]
+
+        sel_sectors = f_sectors = st.sidebar.multiselect(
+            "Sector", all_sectors, default=_saved_sectors, placeholder="All sectors")
+        min_roe = f_min_roe = st.sidebar.slider(
+            "Min ROE (%)", -50, 50, st.session_state.get("f_min_roe", -50), step=5)
+        max_de = st.sidebar.slider("Max D/E (x)", 0.0, 30.0, 30.0, step=0.5)
+        f_min_nm = st.sidebar.slider(
+            "Min Net Margin (%)", -50, 50, st.session_state.get("f_min_nm", -50))
+        f_max_pe = st.sidebar.slider(
+            "Max P/E (×)", 0, 100, st.session_state.get("f_max_pe", 100))
+        f_max_pb = st.sidebar.slider(
+            "Max P/B (×)", 0.0, 10.0, float(st.session_state.get("f_max_pb", 10.0)), step=0.1)
+        min_upside_pct = f_min_upside = st.sidebar.slider(
+            "Min Avg upside (%)", -1000, 200, st.session_state.get("f_min_upside", -1000), step=50)
+        min_quality = f_min_qs = st.sidebar.slider(
+            "Min Quality score", 0, 100, st.session_state.get("f_min_qs", 0), step=5)
+        f_pinned_only = st.sidebar.checkbox("Saved watchlist only", value=False)
+
+        sort_col = st.sidebar.selectbox(
+            "Sort by",
+            ["Signal (Strong Buy first)", "Signal (Strong Sell first)",
+             "Upside (best first)", "Quality (best first)",
+             "ROE (best first)", "Net Margin (best first)", "Ticker (A-Z)"],
+            index=0,
+        )
+        _WJ2 = "⁠"
+        _ALL_SIGNALS_V2 = [_WJ2*1+"Strong Buy", _WJ2*2+"Buy", _WJ2*3+"Watch",
+                           _WJ2*4+"Neutral", _WJ2*5+"Reduce", _WJ2*6+"Sell", _WJ2*7+"Strong Sell"]
+        f_signals = st.sidebar.multiselect(
+            "Filter Signal", _ALL_SIGNALS_V2, default=[], placeholder="All signals")
+
+        st.session_state.update({
+            "f_sectors": f_sectors, "f_min_upside": f_min_upside,
+            "f_max_pe": f_max_pe, "f_max_pb": f_max_pb,
+            "f_min_roe": f_min_roe, "f_min_nm": f_min_nm, "f_min_qs": f_min_qs,
+        })
+
+        with st.sidebar.expander("Data Health Check"):
+            if st.button("Check completeness", key="btn_health"):
+                _comp = check_data_completeness()
+                _missing = _comp[_comp["Status"] == "Needs Update"]
+                st.caption(f"{len(_missing)} / {len(_comp)} tickers need update")
+                if not _missing.empty:
+                    st.dataframe(_missing.head(20), width="stretch")
+                else:
+                    st.success("All tickers have full data!")
+
     with _ss_tab1:
         st.title("📋 Valuation Screen")
-
-        screen_df = load_valuation_screen_data()
 
         if screen_df.empty:
             st.warning("No pre-computed valuation data. Run: `python -m collectors.compute_valuations`")
             st.info("If you haven't loaded tickers yet, run `python -m collectors.bulk_load` first.")
         else:
 
-            # ── Sidebar filters ────────────────────────────────────
-            st.sidebar.markdown("### Filters")
-
-            all_sectors = sorted(s for s in screen_df["Sector"].unique() if s != "Unknown")
-            sel_sectors = st.sidebar.multiselect(
-                "Sector", all_sectors,
-                default=[],
-                placeholder="All sectors",
-            )
-
-            min_roe = st.sidebar.slider("Min ROE (%)", -50, 50, -50, step=5)
-            max_de  = st.sidebar.slider("Max D/E (x)", 0.0, 30.0, 30.0, step=0.5)
-            min_upside_pct = st.sidebar.slider("Min Avg upside (%)", -1000, 200, -1000, step=50)
-            min_quality = st.sidebar.slider("Min Quality score", 0, 100, 0, step=5)
-
-            sort_col = st.sidebar.selectbox(
-                "Sort by",
-                ["Signal (Strong Buy first)", "Signal (Strong Sell first)",
-                 "Upside (best first)", "Quality (best first)",
-                 "ROE (best first)", "Net Margin (best first)", "Ticker (A-Z)"],
-                index=0,
-            )
-            _WJ2 = "⁠"
-            _ALL_SIGNALS_V2 = [_WJ2*1+"Strong Buy", _WJ2*2+"Buy", _WJ2*3+"Watch",
-                               _WJ2*4+"Neutral", _WJ2*5+"Reduce", _WJ2*6+"Sell", _WJ2*7+"Strong Sell"]
-            f_signals = st.sidebar.multiselect(
-                "Filter Signal", _ALL_SIGNALS_V2, default=[],
-                placeholder="All signals",
-            )
-
-            # ── Apply filters ──────────────────────────────────────
+            # ── Apply filters (widgets created in the shared sidebar block above) ──
             filtered = screen_df.copy()
             if sel_sectors:
                 filtered = filtered[filtered["Sector"].isin(sel_sectors)]
@@ -4483,82 +4533,13 @@ elif view == "Stock Screener":
     with _ss_tab2:
         st.title("Screening & Watchlist")
 
-        screen_df = load_valuation_screen_data()
-        pinned    = get_pinned_tickers()
-
-        # ── Data Health expander in sidebar ────────────────────────
-        with st.sidebar.expander("Data Health Check"):
-            if st.button("Check completeness", key="btn_health"):
-                _comp = check_data_completeness()
-                _missing = _comp[_comp["Status"] == "Needs Update"]
-                st.caption(f"{len(_missing)} / {len(_comp)} tickers need update")
-                if not _missing.empty:
-                    st.dataframe(_missing.head(20), width="stretch")
-                else:
-                    st.success("All tickers have full data!")
-
+        pinned = get_pinned_tickers()
 
         if screen_df.empty:
             st.warning("No pre-computed valuation data. Run: `python -m collectors.compute_valuations`")
             st.stop()
 
-        # ── Sidebar filters ─────────────────────────────────────────
-        st.sidebar.subheader("Filters")
-
-        # Preset buttons
-        preset_col1, preset_col2, preset_col3 = st.sidebar.columns(3)
-        _apply_bank   = preset_col1.button("Bank",    use_container_width=True)
-        _apply_value  = preset_col2.button("Value",   use_container_width=True)
-        _apply_growth = preset_col3.button("Growth",  use_container_width=True)
-
-        # Preset defaults
-        if _apply_bank:
-            st.session_state.update({
-                "f_sectors": ["Ngân hàng"], "f_min_upside": -50,
-                "f_max_pe": 20, "f_max_pb": 1.5, "f_min_roe": 12, "f_min_nm": 10,
-            })
-        elif _apply_value:
-            st.session_state.update({
-                "f_sectors": [], "f_min_upside": 20,
-                "f_max_pe": 15, "f_max_pb": 2.0, "f_min_roe": 10, "f_min_nm": 5,
-            })
-        elif _apply_growth:
-            st.session_state.update({
-                "f_sectors": [], "f_min_upside": 10,
-                "f_max_pe": 40, "f_max_pb": 5.0, "f_min_roe": 15, "f_min_nm": 8,
-            })
-
-        all_sectors = sorted(screen_df["Sector"].dropna().unique().tolist()) if "Sector" in screen_df.columns else []
-        _saved_sectors = [s for s in st.session_state.get("f_sectors", []) if s in all_sectors]
-        f_sectors  = st.sidebar.multiselect("Sectors", all_sectors, default=_saved_sectors)
-        f_min_upside = st.sidebar.slider("Min Avg Upside (%)", -1000, 200,
-                         st.session_state.get("f_min_upside", -1000), step=50)
-        f_max_pe  = st.sidebar.slider("Max P/E (×)",   0, 100,
-                         st.session_state.get("f_max_pe", 100))
-        f_max_pb  = st.sidebar.slider("Max P/B (×)",   0.0, 10.0,
-                         float(st.session_state.get("f_max_pb", 10.0)), step=0.1)
-        f_min_roe = st.sidebar.slider("Min ROE (%)",  -50, 50,
-                         st.session_state.get("f_min_roe", -50))
-        f_min_nm  = st.sidebar.slider("Min Net Margin (%)", -50, 50,
-                         st.session_state.get("f_min_nm", -50))
-        f_min_qs  = st.sidebar.slider("Min Quality Score", 0, 100,
-                         st.session_state.get("f_min_qs", 0), step=5)
-        f_pinned_only = st.sidebar.checkbox("Saved watchlist only", value=False)
-
-        # Reset stale session state defaults to new permissive values
-        for _k, _v in [("f_min_upside", -1000), ("f_min_roe", -50),
-                       ("f_min_nm", -50), ("f_max_pe", 100), ("f_max_pb", 10.0)]:
-            if _k not in st.session_state:
-                st.session_state[_k] = _v
-
-        # Save current filter state
-        st.session_state.update({
-            "f_sectors": f_sectors, "f_min_upside": f_min_upside,
-            "f_max_pe": f_max_pe, "f_max_pb": f_max_pb,
-            "f_min_roe": f_min_roe, "f_min_nm": f_min_nm, "f_min_qs": f_min_qs,
-        })
-
-        # ── Apply filters ───────────────────────────────────────────
+        # ── Apply filters (widgets created in the shared sidebar block above) ──
         res = screen_df.copy()
         if f_sectors:
             res = res[res["Sector"].isin(f_sectors)]
