@@ -3872,27 +3872,27 @@ if view == "Company Analysis":
 
         scorecard_html = _TOOLTIP_CSS + (
             _scorecard("SINH LỜI", [
-                ("Biên LN gộp",    fmt_pct(gm),      _color(gm,      25, 15), {
+                ("Biên LN gộp",    fmt_pct(gm),      _color(gm,      0.25, 0.15), {
                     "f": "Lợi nhuận gộp / Doanh thu",
                     "d": "Đo hiệu quả sản xuất cốt lõi trước chi phí vận hành",
                     "g": "≥ 25%", "w": "15 – 25%", "b": "< 15%",
                 }),
-                ("Biên hoạt động", fmt_pct(om),      _color(om,      15,  5), {
+                ("Biên hoạt động", fmt_pct(om),      _color(om,      0.15, 0.05), {
                     "f": "EBIT / Doanh thu",
                     "d": "Lợi nhuận sau chi phí bán hàng & quản lý, trước lãi vay và thuế",
                     "g": "≥ 15%", "w": "5 – 15%", "b": "< 5%",
                 }),
-                ("Biên LN ròng",   fmt_pct(nm),      _color(nm,      10,  5), {
+                ("Biên LN ròng",   fmt_pct(nm),      _color(nm,      0.10, 0.05), {
                     "f": "Lợi nhuận sau thuế / Doanh thu",
                     "d": "Tỷ suất sinh lời thực tế cuối cùng giữ lại cho cổ đông",
                     "g": "≥ 10%", "w": "5 – 10%", "b": "< 5%",
                 }),
-                ("ROE",            fmt_pct(roe_val),  _color(roe_val, 15, 10), {
+                ("ROE",            fmt_pct(roe_val),  _color(roe_val, 0.15, 0.10), {
                     "f": "Lợi nhuận ròng / Vốn chủ sở hữu",
                     "d": "Đo mức sinh lời trên đồng vốn cổ đông bỏ ra",
                     "g": "≥ 15%", "w": "10 – 15%", "b": "< 10%",
                 }),
-                ("ROA",            fmt_pct(roa_val),  _color(roa_val,  8,  5), {
+                ("ROA",            fmt_pct(roa_val),  _color(roa_val,  0.08, 0.05), {
                     "f": "Lợi nhuận ròng / Tổng tài sản",
                     "d": "Đo hiệu quả sử dụng toàn bộ tài sản",
                     "g": "≥ 8%", "w": "5 – 8%", "b": "< 5%",
@@ -3926,12 +3926,12 @@ if view == "Company Analysis":
                     "d": "Mức độ đòn bẩy tài chính",
                     "g": "≤ 1x", "w": "1 – 2x", "b": "> 2x",
                 }),
-                ("Nợ / Tổng tài sản",  fmt_pct(da),  _color(da,  30, 60, higher_better=False), {
+                ("Nợ / Tổng tài sản",  fmt_pct(da),  _color(da,  0.30, 0.60, higher_better=False), {
                     "f": "Tổng nợ vay / Tổng tài sản",
                     "d": "Tỷ trọng nợ trong cơ cấu vốn",
                     "g": "≤ 30%", "w": "30 – 60%", "b": "> 60%",
                 }),
-                ("Biên FCF",           fmt_pct(fcfm), _color(fcfm, 10,  0), {
+                ("Biên FCF",           fmt_pct(fcfm), _color(fcfm, 0.10, 0.0), {
                     "f": "Dòng tiền tự do (FCF) / Doanh thu",
                     "d": "Khả năng tạo tiền thực sau đầu tư CAPEX",
                     "g": "≥ 10%", "w": "0 – 10%", "b": "< 0%",
