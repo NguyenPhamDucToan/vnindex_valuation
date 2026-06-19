@@ -4081,27 +4081,6 @@ elif view == "Stock Screener":
     if not screen_df.empty:
         st.sidebar.markdown("### Filters")
 
-        preset_col1, preset_col2, preset_col3 = st.sidebar.columns(3)
-        _apply_bank   = preset_col1.button("Bank",    use_container_width=True)
-        _apply_value  = preset_col2.button("Value",   use_container_width=True)
-        _apply_growth = preset_col3.button("Growth",  use_container_width=True)
-
-        if _apply_bank:
-            st.session_state.update({
-                "f_sectors": ["Ngân hàng"], "f_min_upside": -50,
-                "f_max_pe": 20, "f_max_pb": 1.5, "f_min_roe": 12, "f_min_nm": 10,
-            })
-        elif _apply_value:
-            st.session_state.update({
-                "f_sectors": [], "f_min_upside": 20,
-                "f_max_pe": 15, "f_max_pb": 2.0, "f_min_roe": 10, "f_min_nm": 5,
-            })
-        elif _apply_growth:
-            st.session_state.update({
-                "f_sectors": [], "f_min_upside": 10,
-                "f_max_pe": 40, "f_max_pb": 5.0, "f_min_roe": 15, "f_min_nm": 8,
-            })
-
         for _k, _v in [("f_min_upside", -1000), ("f_min_roe", -50),
                        ("f_min_nm", -50), ("f_max_pe", 100), ("f_max_pb", 10.0)]:
             if _k not in st.session_state:
@@ -4112,20 +4091,24 @@ elif view == "Stock Screener":
 
         sel_sectors = f_sectors = st.sidebar.multiselect(
             "Sector", all_sectors, default=_saved_sectors, placeholder="All sectors")
-        min_roe = f_min_roe = st.sidebar.slider(
-            "Min ROE (%)", -50, 50, st.session_state.get("f_min_roe", -50), step=5)
-        max_de = st.sidebar.slider("Max D/E (x)", 0.0, 30.0, 30.0, step=0.5)
-        f_min_nm = st.sidebar.slider(
-            "Min Net Margin (%)", -50, 50, st.session_state.get("f_min_nm", -50))
-        f_max_pe = st.sidebar.slider(
-            "Max P/E (×)", 0, 100, st.session_state.get("f_max_pe", 100))
-        f_max_pb = st.sidebar.slider(
-            "Max P/B (×)", 0.0, 10.0, float(st.session_state.get("f_max_pb", 10.0)), step=0.1)
-        min_upside_pct = f_min_upside = st.sidebar.slider(
-            "Min Avg upside (%)", -1000, 200, st.session_state.get("f_min_upside", -1000), step=50)
-        min_quality = f_min_qs = st.sidebar.slider(
-            "Min Quality score", 0, 100, st.session_state.get("f_min_qs", 0), step=5)
-        f_pinned_only = st.sidebar.checkbox("Saved watchlist only", value=False)
+
+        _fc1, _fc2 = st.sidebar.columns(2)
+        with _fc1:
+            min_roe = f_min_roe = st.slider(
+                "Min ROE (%)", -50, 50, st.session_state.get("f_min_roe", -50), step=5)
+            f_min_nm = st.slider(
+                "Min Net Margin (%)", -50, 50, st.session_state.get("f_min_nm", -50))
+            f_max_pb = st.slider(
+                "Max P/B (×)", 0.0, 10.0, float(st.session_state.get("f_max_pb", 10.0)), step=0.1)
+            min_quality = f_min_qs = st.slider(
+                "Min Quality score", 0, 100, st.session_state.get("f_min_qs", 0), step=5)
+        with _fc2:
+            max_de = st.slider("Max D/E (x)", 0.0, 30.0, 30.0, step=0.5)
+            f_max_pe = st.slider(
+                "Max P/E (×)", 0, 100, st.session_state.get("f_max_pe", 100))
+            min_upside_pct = f_min_upside = st.slider(
+                "Min Avg upside (%)", -1000, 200, st.session_state.get("f_min_upside", -1000), step=50)
+            f_pinned_only = st.checkbox("Watchlist only", value=False)
 
         sort_col = st.sidebar.selectbox(
             "Sort by",
