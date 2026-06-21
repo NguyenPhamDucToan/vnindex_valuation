@@ -992,18 +992,22 @@ def load_detailed_financials(ticker: str):
     """Fetch raw VCI income statement + balance sheet for detailed sub-item charts.
 
     Returns (income_df, balance_df) in wide format (item_id × periods).
-    Falls back to (empty, empty) on any error.
+    Falls back to (empty, empty) on any error. The two reports are independent
+    network calls to the VCI API, fetched in parallel to cut latency roughly in half.
     """
     import warnings
+    from concurrent.futures import ThreadPoolExecutor
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             from vnstock.explorer.vci.financial import Finance
             fin = Finance(ticker, period="quarter", show_log=False)
-            inc = fin._get_report("income_statement", period="quarter",
-                                  lang="en", show_log=False, limit=50)
-            bal = fin._get_report("balance_sheet", period="quarter",
-                                  lang="en", show_log=False, limit=50)
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                f_inc = ex.submit(fin._get_report, "income_statement", period="quarter",
+                                   lang="en", show_log=False, limit=50)
+                f_bal = ex.submit(fin._get_report, "balance_sheet", period="quarter",
+                                   lang="en", show_log=False, limit=50)
+                inc, bal = f_inc.result(), f_bal.result()
         return inc, bal
     except Exception:
         return pd.DataFrame(), pd.DataFrame()
@@ -1011,15 +1015,23 @@ def load_detailed_financials(ticker: str):
 
 @st.cache_data(ttl=3600)
 def load_annual_cf(ticker: str):
-    """Fetch annual cash flow + income statement from VCI for dividends chart."""
+    """Fetch annual cash flow + income statement from VCI for dividends chart.
+
+    The two reports are independent network calls, fetched in parallel.
+    """
     import warnings
+    from concurrent.futures import ThreadPoolExecutor
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             from vnstock.explorer.vci.financial import Finance
             fin = Finance(ticker, period="year", show_log=False)
-            cf  = fin._get_report("cash_flow",        period="year", lang="en", show_log=False, limit=20)
-            inc = fin._get_report("income_statement", period="year", lang="en", show_log=False, limit=20)
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                f_cf  = ex.submit(fin._get_report, "cash_flow", period="year",
+                                   lang="en", show_log=False, limit=20)
+                f_inc = ex.submit(fin._get_report, "income_statement", period="year",
+                                   lang="en", show_log=False, limit=20)
+                cf, inc = f_cf.result(), f_inc.result()
         return cf, inc
     except Exception:
         return pd.DataFrame(), pd.DataFrame()
