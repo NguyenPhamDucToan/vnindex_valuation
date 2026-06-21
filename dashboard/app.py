@@ -2093,9 +2093,12 @@ if view == "Phân tích Cổ phiếu":
                 'Giao dịch Nước ngoài & Tự doanh <span style="color:#9ca3af;font-size:13px;'
                 'font-weight:400;">· 20 phiên gần nhất</span></div>', unsafe_allow_html=True)
 
-            tab_nn, tab_td = st.tabs(["Nước ngoài", "Tự doanh"])
+            _ffp_sel = st.segmented_control(
+                "Foreign/Proprietary tab", ["Nước ngoài", "Tự doanh"], default="Nước ngoài",
+                key="ffp_tab_sel", label_visibility="collapsed",
+            ) or "Nước ngoài"
 
-            with tab_nn:
+            if _ffp_sel == "Nước ngoài":
                 _ff20 = load_foreign_flow(ticker, sessions=20)
                 if not _ff20.empty:
                     _last = _ff20.iloc[-1]
@@ -2151,7 +2154,7 @@ if view == "Phân tích Cổ phiếu":
                 else:
                     st.info("Dữ liệu giao dịch nước ngoài hiện không có sẵn.")
 
-            with tab_td:
+            else:
                 st.info("Dữ liệu giao dịch tự doanh chưa có sẵn từ nguồn dữ liệu hiện tại.")
 
     # ── Valuation panel ────────────────────────────────────────
@@ -4561,12 +4564,18 @@ elif view == "Sàng lọc Cổ phiếu":
         _all_tickers = sorted(screen_df["Mã"].tolist())
 
         # ── Results ─────────────────────────────────────────────────
-        tab_screen, tab_saved = st.tabs([
-            f"Kết quả lọc ({len(res)})",
-            f"Theo dõi đã lưu ({len(pinned)})",
-        ])
+        # Lazy tabs (see note above) — stable option values (format_func only
+        # changes the displayed label) so the selection doesn't reset when the
+        # result/pinned counts change between reruns (e.g. from a filter edit).
+        _WL_COUNTS = {"screen": len(res), "saved": len(pinned)}
+        _wl_sel = st.segmented_control(
+            "Watchlist tab", ["screen", "saved"], default="screen",
+            format_func=lambda k: f"Kết quả lọc ({_WL_COUNTS['screen']})" if k == "screen"
+                                   else f"Theo dõi đã lưu ({_WL_COUNTS['saved']})",
+            key="wl_tab_sel", label_visibility="collapsed",
+        ) or "screen"
 
-        with tab_screen:
+        if _wl_sel == "screen":
             # Search filter only (no buttons — click row to save/remove)
             _sel_tickers = st.multiselect(
                 "Mã", _all_tickers, default=[],
@@ -4663,7 +4672,7 @@ elif view == "Sàng lọc Cổ phiếu":
                             st.success(f"★ Đã lưu {_clicked_ticker}!")
                             st.cache_data.clear(); st.rerun()
 
-        with tab_saved:
+        else:
             if not pinned:
                 st.info("Chưa có mã nào được lưu. Dùng tab Lọc cổ phiếu để tìm và lưu mã.")
             else:
@@ -5601,9 +5610,15 @@ elif view == "Tổng quan Thị trường":
                 with cols[i % 2]:
                     _wb_line_chart(k, label, unit)
 
-        tab_overview, tab_gdp, tab_prices, tab_biz, tab_trade, tab_labor, tab_money, tab_consumer, tab_tax, tab_rates = st.tabs(
-            ["Tổng quan kinh tế", "Tăng trưởng kinh tế", "Giá cả & Lạm phát", "Đầu tư & Tiết kiệm",
-             "Xuất nhập khẩu", "Lao động & Việc làm", "Tiền tệ & Tỷ giá", "Tiêu dùng", "Thuế", "Lãi suất"])
+        _VM_LABELS = ["Tổng quan kinh tế", "Tăng trưởng kinh tế", "Giá cả & Lạm phát", "Đầu tư & Tiết kiệm",
+                      "Xuất nhập khẩu", "Lao động & Việc làm", "Tiền tệ & Tỷ giá", "Tiêu dùng", "Thuế", "Lãi suất"]
+        # Lazy tabs (see note on Stock Screener tabs above) — with 10 tabs each
+        # rendering several charts, real st.tabs() here was the single biggest
+        # source of rerun cost in the whole app.
+        _vm_sel = st.segmented_control(
+            "Macro tab", _VM_LABELS, default=_VM_LABELS[0],
+            key="vm_tab_sel", label_visibility="collapsed",
+        ) or _VM_LABELS[0]
 
         def _kpi_metric(col, indicator: str, label: str, unit: str = "%", invert_delta: bool = False):
             df = load_macro_indicator(indicator)
@@ -5617,7 +5632,7 @@ elif view == "Tổng quan Thị trường":
                 st.metric(label, f"{last['value']:+.2f}{unit}", delta=delta,
                            delta_color="inverse" if invert_delta else "normal")
 
-        with tab_overview:
+        if _vm_sel == "Tổng quan kinh tế":
             st.markdown("##### Các chỉ số quan trọng nhất hiện nay")
             kpi_cols = st.columns(4)
             _kpi_metric(kpi_cols[0], "cpi_yoy", "Lạm phát (so với năm trước)", invert_delta=True)
@@ -5646,7 +5661,7 @@ elif view == "Tổng quan Thị trường":
             with row2[2]:
                 _macro_bar_chart(load_macro_indicator("fdi"), "Vốn đầu tư nước ngoài (FDI đăng ký, theo quý)", unit=" tỷ USD")
 
-        with tab_gdp:
+        elif _vm_sel == "Tăng trưởng kinh tế":
             _macro_line_chart(
                 {
                     "Nông, lâm nghiệp và thủy sản": load_macro_indicator("gdp_sector_agri"),
@@ -5663,7 +5678,7 @@ elif view == "Tổng quan Thị trường":
             with row3[2]:
                 _macro_line_chart({"Tăng trưởng vốn đầu tư": load_macro_indicator("investment_growth")}, "Tăng trưởng vốn đầu tư toàn xã hội (so với cùng kỳ)")
 
-        with tab_prices:
+        elif _vm_sel == "Giá cả & Lạm phát":
             summary_rows = [
                 _macro_summary_row("cpi_yoy", "Tỷ lệ lạm phát (so với cùng kỳ năm trước)"),
                 _macro_summary_row("cpi_mom", "Tỷ lệ lạm phát (so với tháng trước)"),
@@ -5699,13 +5714,13 @@ elif view == "Tổng quan Thị trường":
 
             _macro_line_chart({"PPI": load_macro_indicator("ppi_yoy")}, "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)")
 
-        with tab_biz:
+        elif _vm_sel == "Đầu tư & Tiết kiệm":
             _wb_category_tab("Kinh doanh")
 
-        with tab_trade:
+        elif _vm_sel == "Xuất nhập khẩu":
             _wb_category_tab("Thương mại")
 
-        with tab_labor:
+        elif _vm_sel == "Lao động & Việc làm":
             labor_rows = [
                 _macro_summary_row("unemployment_rate", "Tỷ lệ thất nghiệp", freq="quarterly"),
                 _macro_summary_row("underemployment_rate", "Tỷ lệ thiếu việc làm", freq="quarterly"),
@@ -5728,14 +5743,14 @@ elif view == "Tổng quan Thị trường":
             st.caption("So sánh dài hạn (World Bank, theo năm):")
             _wb_category_tab("Lao động")
 
-        with tab_money:
+        elif _vm_sel == "Tiền tệ & Tỷ giá":
             _wb_category_tab("Tiền tệ")
 
-        with tab_consumer:
+        elif _vm_sel == "Tiêu dùng":
             _wb_category_tab("Tiêu dùng")
 
-        with tab_tax:
+        elif _vm_sel == "Thuế":
             _wb_category_tab("Thuế")
 
-        with tab_rates:
+        elif _vm_sel == "Lãi suất":
             _wb_category_tab("Lãi suất")
