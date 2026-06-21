@@ -4077,7 +4077,13 @@ if view == "Phân tích Cổ phiếu":
 # VIEW 2 — STOCK SCREENER
 # ═══════════════════════════════════════════════════════════════
 elif view == "Sàng lọc Cổ phiếu":
-    _ss_tab1, _ss_tab2 = st.tabs(["📋 Lọc cổ phiếu", "⭐ Theo dõi"])
+    # st.tabs() runs both tabs' bodies on every rerun even when only one is
+    # visible (no native lazy tabs in Streamlit) — use segmented_control + if/else
+    # instead so only the active tab's (expensive) code actually executes.
+    _ss_sel = st.segmented_control(
+        "Tab", ["📋 Lọc cổ phiếu", "⭐ Theo dõi"], default="📋 Lọc cổ phiếu",
+        key="ss_tab_sel", label_visibility="collapsed",
+    ) or "📋 Lọc cổ phiếu"
 
     screen_df = load_valuation_screen_data()
 
@@ -4143,7 +4149,7 @@ elif view == "Sàng lọc Cổ phiếu":
                 else:
                     st.success("Tất cả mã đã có đầy đủ dữ liệu!")
 
-    with _ss_tab1:
+    if _ss_sel == "📋 Lọc cổ phiếu":
         st.title("📋 Lọc cổ phiếu")
 
         if screen_df.empty:
@@ -4491,7 +4497,7 @@ elif view == "Sàng lọc Cổ phiếu":
                 f"{_offrange_note}")
 
 
-    with _ss_tab2:
+    else:
         st.title("Lọc & Theo dõi")
 
         pinned = get_pinned_tickers()
@@ -5117,8 +5123,13 @@ iframe[title="heatmap_click.heatmap_click"] {
 # VIEW 6 — MARKET OVERVIEW
 # ═══════════════════════════════════════════════════════════════
 elif view == "Tổng quan Thị trường":
-    _mo_tab1, _mo_tab2 = st.tabs(["📊 Thị trường", "📈 Vĩ mô"])
-    with _mo_tab1:
+    # See note above on Stock Screener tabs: segmented_control + if/else keeps
+    # the inactive tab's chart-building code from running on every rerun.
+    _mo_sel = st.segmented_control(
+        "Tab", ["📊 Thị trường", "📈 Vĩ mô"], default="📊 Thị trường",
+        key="mo_tab_sel", label_visibility="collapsed",
+    ) or "📊 Thị trường"
+    if _mo_sel == "📊 Thị trường":
         st.title("Tổng quan Thị trường")
 
         # ── Intraday index ticker bar (auto-refreshes every 30s during trading hours)
@@ -5429,7 +5440,7 @@ elif view == "Tổng quan Thị trường":
 
 
 
-    with _mo_tab2:
+    else:
         st.title("Kinh tế vĩ mô")
         st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn)")
 
