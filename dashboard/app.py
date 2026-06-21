@@ -5398,13 +5398,11 @@ elif view == "Tổng quan Thị trường":
             marker=dict(
                 colors=_hm_df["chg_pct"].tolist(),
                 colorscale=[
-                    [0.0,  "#7f1d1d"],
-                    [0.3,  "#dc2626"],
-                    [0.5,  "#334155"],
-                    [0.7,  "#16a34a"],
-                    [1.0,  "#14532d"],
+                    [0.0, "#dc2626"],
+                    [0.5, "#374151"],
+                    [1.0, "#16a34a"],
                 ],
-                cmin=-10, cmax=10,
+                cmin=-7, cmax=7,
                 showscale=False,
                 line=dict(width=1, color="#0f172a"),
             ),
