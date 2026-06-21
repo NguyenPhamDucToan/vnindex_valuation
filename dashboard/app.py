@@ -5399,10 +5399,10 @@ elif view == "Tổng quan Thị trường":
                 colors=_hm_df["chg_pct"].tolist(),
                 colorscale=[
                     [0.0, "#dc2626"],
-                    [0.5, "#374151"],
+                    [0.5, "#555555"],
                     [1.0, "#16a34a"],
                 ],
-                cmin=-7, cmax=7,
+                cmin=-4, cmax=4,
                 showscale=False,
                 line=dict(width=1, color="#0f172a"),
             ),
