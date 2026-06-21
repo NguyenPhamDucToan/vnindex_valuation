@@ -5215,27 +5215,27 @@ elif view == "Tổng quan Thị trường":
                 _pe_ymax = float(_mv["median_pe"].max()) * 1.06
                 fig_mpe = go.Figure(go.Scatter(
                     x=_mv_lbl, y=_mv["median_pe"], mode="lines", name="P/E trung vị",
-                    line=dict(color="#60a5fa", width=2), fill="tozeroy",
-                    fillcolor="rgba(96,165,250,0.07)",
+                    line=dict(color="#60a5fa", width=2.5), fill="tozeroy",
+                    fillcolor="rgba(96,165,250,0.08)",
                     hovertemplate="P/E: %{y:.1f}x<extra></extra>"))
                 fig_mpe.add_trace(go.Scatter(
                     x=_mv_lbl, y=[_avg_pe] * len(_mv_lbl), mode="lines", name="Trung bình",
                     line=dict(color="#94a3b8", width=1, dash="dot"),
                     hovertemplate=f"Trung bình: {_avg_pe:.1f}x<extra></extra>"))
                 fig_mpe.add_trace(go.Scatter(
-                    x=_mv_lbl, y=[_cur_pe] * len(_mv_lbl), mode="lines", name="Hiện tại",
-                    line=dict(color=_pe_clr, width=1.2, dash="dash"),
-                    hovertemplate=f"Hiện tại: {_cur_pe:.1f}x<extra></extra>"))
+                    x=[_mv_lbl[-1]], y=[_cur_pe], mode="markers", name="Hiện tại",
+                    marker=dict(color=_pe_clr, size=10, line=dict(color="#0e1117", width=1.5)),
+                    hovertemplate=f"Hiện tại: {_cur_pe:.1f}x<extra></extra>", showlegend=False))
                 fig_mpe.update_layout(
-                    height=300, margin=dict(l=0, r=0, t=30, b=0), dragmode=False,
-                    hovermode="x unified",
+                    height=300, margin=dict(l=0, r=10, t=30, b=0), dragmode=False,
+                    hovermode="x unified", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                     hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
                     title=dict(text=f"P/E hiện tại: <span style='color:{_pe_clr}'>{_cur_pe:.1f}x "
                                     f"({_pe_diff:+.0f}% so TB)</span>", font=dict(size=14)),
                     legend=dict(orientation="h", y=-0.15),
                     xaxis=dict(type="category", nticks=8, showgrid=False),
-                    yaxis=dict(title="P/E (x)", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                               range=[_pe_ymin, _pe_ymax]))
+                    yaxis=dict(title="P/E (x)", showgrid=True, gridcolor="rgba(255,255,255,0.05)",
+                               zeroline=False, range=[_pe_ymin, _pe_ymax]))
                 st.plotly_chart(fig_mpe, width="stretch")
 
             with _vc2:
@@ -5245,27 +5245,27 @@ elif view == "Tổng quan Thị trường":
                 _pb_ymax = float(_mv["median_pb"].max()) * 1.06
                 fig_mpb = go.Figure(go.Scatter(
                     x=_mv_lbl, y=_mv["median_pb"], mode="lines", name="P/B trung vị",
-                    line=dict(color="#34d399", width=2), fill="tozeroy",
-                    fillcolor="rgba(52,211,153,0.07)",
+                    line=dict(color="#34d399", width=2.5), fill="tozeroy",
+                    fillcolor="rgba(52,211,153,0.08)",
                     hovertemplate="P/B: %{y:.2f}x<extra></extra>"))
                 fig_mpb.add_trace(go.Scatter(
                     x=_mv_lbl, y=[_avg_pb] * len(_mv_lbl), mode="lines", name="Trung bình",
                     line=dict(color="#94a3b8", width=1, dash="dot"),
                     hovertemplate=f"Trung bình: {_avg_pb:.2f}x<extra></extra>"))
                 fig_mpb.add_trace(go.Scatter(
-                    x=_mv_lbl, y=[_cur_pb] * len(_mv_lbl), mode="lines", name="Hiện tại",
-                    line=dict(color=_pb_clr, width=1.2, dash="dash"),
-                    hovertemplate=f"Hiện tại: {_cur_pb:.2f}x<extra></extra>"))
+                    x=[_mv_lbl[-1]], y=[_cur_pb], mode="markers", name="Hiện tại",
+                    marker=dict(color=_pb_clr, size=10, line=dict(color="#0e1117", width=1.5)),
+                    hovertemplate=f"Hiện tại: {_cur_pb:.2f}x<extra></extra>", showlegend=False))
                 fig_mpb.update_layout(
-                    height=300, margin=dict(l=0, r=0, t=30, b=0), dragmode=False,
-                    hovermode="x unified",
+                    height=300, margin=dict(l=0, r=10, t=30, b=0), dragmode=False,
+                    hovermode="x unified", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                     hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
                     title=dict(text=f"P/B hiện tại: <span style='color:{_pb_clr}'>{_cur_pb:.2f}x "
                                     f"({_pb_diff:+.0f}% so TB)</span>", font=dict(size=14)),
                     legend=dict(orientation="h", y=-0.15),
                     xaxis=dict(type="category", nticks=8, showgrid=False),
-                    yaxis=dict(title="P/B (x)", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
-                               range=[_pb_ymin, _pb_ymax]))
+                    yaxis=dict(title="P/B (x)", showgrid=True, gridcolor="rgba(255,255,255,0.05)",
+                               zeroline=False, range=[_pb_ymin, _pb_ymax]))
                 st.plotly_chart(fig_mpb, width="stretch")
 
             st.caption(
