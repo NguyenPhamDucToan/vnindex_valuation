@@ -1755,8 +1755,22 @@ if view == "Phân tích Cổ phiếu":
         _default_idx = 0
     ticker = st.sidebar.selectbox("Mã", _available, index=_default_idx, key="ticker_selector")
 
-    prices_df   = load_prices(ticker)
-    fin_q       = load_financials_q(ticker)
+    # Warm the cache for the independent per-ticker fetches used later on this
+    # page in one parallel batch — 3 of these hit external VCI/VNDirect APIs
+    # and running them sequentially (as each was called inline further down)
+    # cost 5-13s on a never-before-seen ticker. Running them together cuts
+    # that to ~the slowest single call (~2s), since later calls to the same
+    # functions with the same args just hit the now-warm cache.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=5) as _warm_ex:
+        _f_prices = _warm_ex.submit(load_prices, ticker)
+        _f_finq   = _warm_ex.submit(load_financials_q, ticker)
+        _f_detfin = _warm_ex.submit(load_detailed_financials, ticker)
+        _f_ff20   = _warm_ex.submit(load_foreign_flow, ticker, sessions=20)
+        _f_anncf  = _warm_ex.submit(load_annual_cf, ticker)
+        prices_df = _f_prices.result()
+        fin_q     = _f_finq.result()
+        _f_detfin.result(); _f_ff20.result(); _f_anncf.result()
     ttm         = compute_ttm(ticker)
     valuations  = get_all_valuations(ticker)
 
