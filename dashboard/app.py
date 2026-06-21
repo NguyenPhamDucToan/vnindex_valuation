@@ -1888,11 +1888,11 @@ if view == "Phân tích Cổ phiếu":
         # Valuation lines (hidden by default) — computed first so proxy can include values
         vh = valuation_history(ticker)
         _val_series = [
-            ("dcf",    "#4ade80", "DCF Intrinsic Value",         "dash",  1),
-            ("fcfe",   "#00bcd4", "FCFE / Cash Flow to Equity",  "dash",  1),
+            ("dcf",    "#4ade80", "Giá trị nội tại DCF",         "dash",  1),
+            ("fcfe",   "#00bcd4", "FCFE / Dòng tiền cho Vốn chủ",  "dash",  1),
             ("graham", "#fbbf24", "Graham Number",               "dash",  1),
-            ("pe",     "#c084fc", f"P/E Implied (×{MARKET_PE})", "dash",  1),
-            ("avg",    "#f87171", "Avg of Estimates",            "solid", 2),
+            ("pe",     "#c084fc", f"P/E Hàm ý (×{MARKET_PE})", "dash",  1),
+            ("avg",    "#f87171", "Trung bình các Ước tính",            "solid", 2),
         ]
         vh_daily = pd.DataFrame()
         if not vh.empty:
@@ -2244,7 +2244,7 @@ if view == "Phân tích Cổ phiếu":
                 f'<div style="font-size:21px;font-weight:800;color:#f9fafb;letter-spacing:.3px;">'
                 f'{price_val:,.0f} <span style="font-size:13px;font-weight:600;color:#9ca3af;">₫</span></div>'
                 f'<div style="font-size:12px;font-weight:700;color:{clr};margin-top:4px;">'
-                f'{arrow} {u:+.1f}% <span style="color:#6b7280;font-weight:400;">vs market</span></div>'
+                f'{arrow} {u:+.1f}% <span style="color:#6b7280;font-weight:400;">so với thị trường</span></div>'
                 f'</div>')
 
         _cards_html = "".join(_val_card(label, v[key], hint) for key, label, hint in _valid_methods)
@@ -4059,9 +4059,9 @@ if view == "Phân tích Cổ phiếu":
             _ff_cc = "#22c55e" if _ff_up >= 0 else "#ef4444"
             st.markdown(
                 f"<div style='font-size:13px;color:#9ca3af;'>"
-                f"{len(_ff)} methods · Average intrinsic value "
-                f"<b style='color:{_ff_cc}'>{_ff_avg:,.0f} VND ({_ff_up:+.1f}% vs market)</b> · "
-                f"Green = above market price (undervalued signal)</div>",
+                f"{len(_ff)} phương pháp · Giá trị nội tại trung bình "
+                f"<b style='color:{_ff_cc}'>{_ff_avg:,.0f} VND ({_ff_up:+.1f}% so với thị trường)</b> · "
+                f"Xanh = cao hơn giá thị trường (tín hiệu định giá thấp)</div>",
                 unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════
@@ -4415,7 +4415,7 @@ elif view == "Sàng lọc Cổ phiếu":
                     dragmode=False, xaxis_title="Avg Upside trung vị %")
                 st.plotly_chart(fig_sec_up, width="stretch")
                 st.caption("Trung vị mức tăng giá 'Avg Estimate' giữa các mã trong từng ngành — "
-                           "negative = sector trading above estimated fair value.")
+                           "âm = ngành đang giao dịch cao hơn giá trị hợp lý ước tính.")
 
             # ── Chart 3: Quality vs Upside scatter ──────────────────
             st.subheader("Quality vs Avg Upside (tất cả mã đã lọc)")
@@ -4444,19 +4444,19 @@ elif view == "Sàng lọc Cổ phiếu":
             # Quadrant reference lines
             fig_qs.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.4)
             fig_qs.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.4)
-            fig_qs.add_annotation(x=75, y=85, text="★ Cheap & Quality", showarrow=False,
+            fig_qs.add_annotation(x=75, y=85, text="★ Rẻ & Chất lượng", showarrow=False,
                                   font=dict(color="#22c55e", size=12))
-            fig_qs.add_annotation(x=-50, y=15, text="Avoid", showarrow=False,
+            fig_qs.add_annotation(x=-50, y=15, text="Tránh", showarrow=False,
                                   font=dict(color="#ef4444", size=12))
             fig_qs.update_layout(
                 height=420, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
                 xaxis_title=f"Avg Upside % (giới hạn {_CLIP_LO}…{_CLIP_HI}%)", yaxis_title="Quality Score",
                 hovermode="closest")
             st.plotly_chart(fig_qs, width="stretch")
-            _clip_note = (f" · {_n_clipped} tickers off-chart (upside outside "
-                           f"{_CLIP_LO}%…{_CLIP_HI}%, jittered at the edge)" if _n_clipped else "")
+            _clip_note = (f" · {_n_clipped} mã ngoài biểu đồ (upside ngoài khoảng "
+                           f"{_CLIP_LO}%…{_CLIP_HI}%, đã dịch nhẹ ra mép)" if _n_clipped else "")
             st.caption("Góc trên-phải = định giá thấp + chất lượng cao (cơ hội tốt nhất). "
-                       f"Bubble color = signal.{_clip_note}")
+                       f"Màu chấm = tín hiệu.{_clip_note}")
 
             # ── Chart 4: Upside distribution histogram ──────────────
             st.subheader("Phân bố Avg Upside")
@@ -4478,8 +4478,8 @@ elif view == "Sàng lọc Cổ phiếu":
                 xaxis=dict(title="Avg Upside %", range=[_CLIP_LO, _CLIP_HI]),
                 yaxis_title="Số mã", bargap=0.05)
             st.plotly_chart(fig_hist, width="stretch")
-            _offrange_note = (f" - {_n_offrange} tickers with upside outside "
-                              f"{_CLIP_LO}%...{_CLIP_HI}% not shown" if _n_offrange else "")
+            _offrange_note = (f" - {_n_offrange} mã có upside ngoài khoảng "
+                              f"{_CLIP_LO}%...{_CLIP_HI}% không hiển thị" if _n_offrange else "")
             st.caption(
                 "Mỗi cột = số mã có mức upside trong khoảng đó. "
                 "🟢 Xanh (bên phải vạch 0) = đang bị định giá thấp, có thể tăng giá. "
@@ -4608,10 +4608,10 @@ elif view == "Sàng lọc Cổ phiếu":
                     _act_col, _info_col = st.columns([3, 7])
                     _info_col.markdown(
                         f"**{_clicked_ticker}** — "
-                        f"{'already in watchlist ★' if _is_pinned else 'not in watchlist ✩'}"
+                        f"{'đã có trong Theo dõi ★' if _is_pinned else 'chưa có trong Theo dõi ✩'}"
                     )
                     if _is_pinned:
-                        if _act_col.button(f"✕ Remove {_clicked_ticker} from watchlist",
+                        if _act_col.button(f"✕ Xóa {_clicked_ticker} khỏi Theo dõi",
                                            key="wl_rm_click", use_container_width=True):
                             if st.session_state.get("wl_rm_confirm") == _clicked_ticker:
                                 unpin_ticker(_clicked_ticker)
@@ -4621,7 +4621,7 @@ elif view == "Sàng lọc Cổ phiếu":
                                 st.session_state["wl_rm_confirm"] = _clicked_ticker
                                 st.warning(f"Bấm Xóa lần nữa để xác nhận xóa **{_clicked_ticker}**")
                     else:
-                        if _act_col.button(f"★ Save {_clicked_ticker} to watchlist",
+                        if _act_col.button(f"★ Lưu {_clicked_ticker} vào Theo dõi",
                                            key="wl_save_click", use_container_width=True):
                             pin_ticker(_clicked_ticker)
                             st.success(f"★ Đã lưu {_clicked_ticker}!")
@@ -4641,7 +4641,7 @@ elif view == "Sàng lọc Cổ phiếu":
                 # Search + remove row
                 sw_col, rem_col = st.columns([4, 2])
                 _saved_search = sw_col.multiselect(
-                    "Filter", sorted(saved_df["Mã"].tolist()),
+                    "Lọc", sorted(saved_df["Mã"].tolist()),
                     default=[], placeholder="Tìm trong mã đã lưu...",
                     key="wl_saved_search", label_visibility="collapsed",
                 )
@@ -4690,7 +4690,7 @@ elif view == "Sàng lọc Cổ phiếu":
                 # Remove button
                 _rem2 = rem_col.text_input("Xóa mã", placeholder="e.g. VNM",
                                            key="wl_rem2_input", label_visibility="collapsed").upper().strip()
-                if rem_col.button("✕ Remove from watchlist", key="wl_rem2_btn", use_container_width=True):
+                if rem_col.button("✕ Xóa khỏi Theo dõi", key="wl_rem2_btn", use_container_width=True):
                     if _rem2:
                         unpin_ticker(_rem2)
                         st.cache_data.clear()
@@ -4713,7 +4713,7 @@ elif view == "Phân tích Ngành":
     else:
         n_sectors = len(sector_df)
         st.caption(f"{n_sectors} ngành · Chỉ số là trung vị giữa các mã · "
-                   f"{len(ticker_df)} tickers with valuation data")
+                   f"{len(ticker_df)} mã có dữ liệu định giá")
 
         # ── Global metric selector — used by heatmap AND top-5 ────
         _METRIC_OPTIONS = {
@@ -4724,7 +4724,7 @@ elif view == "Phân tích Ngành":
             "ROE (cao hơn = tốt hơn)":    ("roe",        -20,   40,  "ROE %",               "roe",    False),
         }
         _metric_sel = st.radio(
-            "Color / Sort by:", list(_METRIC_OPTIONS.keys()),
+            "Màu / Sắp xếp theo:", list(_METRIC_OPTIONS.keys()),
             horizontal=True, index=0, key="heatmap_metric",
             label_visibility="collapsed",
         )
@@ -5301,9 +5301,9 @@ elif view == "Tổng quan Thị trường":
                            zeroline=False))
             st.plotly_chart(_fig_ff, width="stretch")
             st.caption(
-                f"Net buy = green, net sell = red. 15-session cumulative: "
+                f"Mua ròng = xanh, bán ròng = đỏ. Lũy kế 15 phiên: "
                 f"<span style='color:{_cc_sum};font-weight:600'>{_net_15:+,.0f} tỷ VND</span>. "
-                f"Source: VNDirect (NN = nhà đầu tư nước ngoài).", unsafe_allow_html=True)
+                f"Nguồn: VNDirect (NN = nhà đầu tư nước ngoài).", unsafe_allow_html=True)
         else:
             st.info("Dữ liệu giao dịch nước ngoài hiện không có sẵn.")
 
@@ -5322,9 +5322,13 @@ elif view == "Tổng quan Thị trường":
         # Exclude covered warrants (chứng quyền): tickers with digits, e.g. CMBB2601
         _stocks_only = snap_df[snap_df["ticker"].str.match(r'^[A-Z]{3,5}$')]
 
+        # Only rank movers among the most liquid names — otherwise illiquid
+        # tickers with a handful of shares traded dominate with meaningless % swings.
+        _liquid_pool = _stocks_only.nlargest(20, "volume")
+
         with gain_col:
-            st.subheader("Top 10 Tăng giá")
-            _g = _stocks_only.nlargest(10, "chg_pct").copy()
+            st.subheader("Top 10 Tăng giá (thanh khoản tốt)")
+            _g = _liquid_pool.nlargest(10, "chg_pct").copy()
             _g["Giá"]  = _g["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
             _g["Thay đổi"] = _g["chg_pct"].apply(lambda x: f"{x:+.2f}%")
             _g["Khối lượng"] = _g["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
@@ -5332,8 +5336,8 @@ elif view == "Tổng quan Thị trường":
             st.dataframe(_gd.set_index("Mã").style.map(_chg_color, subset=["Thay đổi"]), width="stretch")
 
         with lose_col:
-            st.subheader("Top 10 Giảm giá")
-            _l = _stocks_only.nsmallest(10, "chg_pct").copy()
+            st.subheader("Top 10 Giảm giá (thanh khoản tốt)")
+            _l = _liquid_pool.nsmallest(10, "chg_pct").copy()
             _l["Giá"]  = _l["price"].apply(lambda x: f"{x:,.0f}" if x else "—")
             _l["Thay đổi"] = _l["chg_pct"].apply(lambda x: f"{x:+.2f}%")
             _l["Khối lượng"] = _l["volume"].apply(lambda x: f"{x/1e6:.2f}M" if x else "—")
