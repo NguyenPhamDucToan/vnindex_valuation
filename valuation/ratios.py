@@ -290,6 +290,38 @@ def rating_color(val: Optional[float], good: float, ok: float, higher_better: bo
     return "#16a34a" if above_good else ("#d97706" if above_ok else "#dc2626")
 
 
+def _margin_note(level: str, value: float) -> str:
+    pct = value * 100
+    if level == "cao":
+        return (f"Biên lợi nhuận ròng cao ({pct:.1f}%) — doanh nghiệp giữ được phần lớn doanh thu "
+                 "thành lợi nhuận, thường nhờ định giá tốt hoặc kiểm soát chi phí hiệu quả.")
+    if level == "trung bình":
+        return f"Biên lợi nhuận ròng ở mức trung bình ({pct:.1f}%) — không nổi bật nhưng cũng không đáng lo."
+    return (f"Biên lợi nhuận ròng thấp ({pct:.1f}%) — doanh nghiệp giữ lại rất ít lợi nhuận trên mỗi đồng "
+             "doanh thu, dễ bị ảnh hưởng khi chi phí tăng hoặc giá bán giảm.")
+
+
+def _turnover_note(level: str, value: float) -> str:
+    if level == "cao":
+        return (f"Hiệu suất sử dụng tài sản cao ({value:.2f}x) — mỗi đồng tài sản tạo ra nhiều doanh thu, "
+                 "cho thấy tài sản được sử dụng hiệu quả.")
+    if level == "trung bình":
+        return f"Hiệu suất sử dụng tài sản ở mức trung bình ({value:.2f}x)."
+    return (f"Hiệu suất sử dụng tài sản thấp ({value:.2f}x) — mỗi đồng tài sản chỉ tạo ra ít doanh thu, "
+             "có thể do tài sản dư thừa hoặc đặc thù ngành có vòng quay vốn chậm (ngân hàng, BĐS, hạ tầng).")
+
+
+def _leverage_note(level: str, value: float) -> str:
+    if level == "cao":
+        return (f"Đòn bẩy tài chính cao ({value:.2f}x) — công ty dùng nhiều nợ vay để tài trợ tài sản, "
+                 "khuếch đại ROE nhưng cũng làm tăng rủi ro khi lãi suất tăng hoặc kinh doanh khó khăn.")
+    if level == "trung bình":
+        return (f"Đòn bẩy tài chính ở mức trung bình ({value:.2f}x) — cơ cấu vốn cân bằng "
+                 "giữa nợ và vốn chủ sở hữu.")
+    return (f"Đòn bẩy tài chính thấp ({value:.2f}x) — công ty dùng ít nợ vay, an toàn hơn nhưng "
+             "cũng không tận dụng đòn bẩy để khuếch đại ROE.")
+
+
 def dupont_analysis(margin: float, turnover: float, leverage: float) -> dict:
     """Decompose ROE = Net Margin x Asset Turnover x Financial Leverage.
 
@@ -344,4 +376,7 @@ def dupont_analysis(margin: float, turnover: float, leverage: float) -> dict:
         "drivers": drivers,
         "weaknesses": weaknesses,
         "comment": comment,
+        "margin_note": _margin_note(margin_lvl, margin),
+        "turnover_note": _turnover_note(turnover_lvl, turnover),
+        "leverage_note": _leverage_note(leverage_lvl, leverage),
     }

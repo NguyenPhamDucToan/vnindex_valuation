@@ -4008,7 +4008,16 @@ if view == "Phân tích Cổ phiếu":
             )
             st.markdown(_badges_html, unsafe_allow_html=True)
 
-            st.markdown(f'<div style="font-size:25px;color:#94a3b8;">{_dp["comment"]}</div>', unsafe_allow_html=True)
+            _dp_notes_html = (
+                '<div style="font-size:15px;color:#cbd5e1;line-height:1.8;margin-bottom:8px;">'
+                f'<div>• {_dp["margin_note"]}</div>'
+                f'<div>• {_dp["turnover_note"]}</div>'
+                f'<div>• {_dp["leverage_note"]}</div>'
+                '</div>'
+            )
+            st.markdown(_dp_notes_html, unsafe_allow_html=True)
+            st.markdown(f'<div style="font-size:16px;font-weight:600;color:#e2e8f0;">{_dp["comment"]}</div>',
+                        unsafe_allow_html=True)
 
 
     # ── Valuation Football Field ───────────────────────────────
