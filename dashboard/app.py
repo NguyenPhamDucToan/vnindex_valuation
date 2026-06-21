@@ -5417,6 +5417,11 @@ elif view == "Tổng quan Thị trường":
         _hm_dn   = int((_hm_df["chg_pct"] < 0).sum())
         _hm_flat = int((_hm_df["chg_pct"] == 0).sum())
         st.caption(f"▲ Tăng: {_hm_up}  ·  ▼ Giảm: {_hm_dn}  ·  — Đứng: {_hm_flat}  ·  {len(_hm_df)} mã cổ phiếu")
+        st.caption(
+            "🔴 Đỏ = giảm giá · ⚪ Xám = đi ngang (gần 0%) · 🟢 Xanh = tăng giá. "
+            "Màu càng đậm = mức tăng/giảm càng lớn (đậm nhất từ ±4% trở lên). "
+            "Kích thước ô = khối lượng giao dịch."
+        )
 
 
 
