@@ -856,45 +856,40 @@ def unpin_ticker(ticker: str) -> None:
 
 @st.cache_data(ttl=300)
 def load_market_snapshot() -> "pd.DataFrame":
-    """Return today's price snapshot: close, prev_close, change%, volume for all tickers."""
-    with get_session() as s:
-        price_subq = (
-            select(Price.ticker, sqlfunc.max(Price.date).label("max_date"))
-            .group_by(Price.ticker).subquery()
-        )
-        # Latest price
-        latest = s.execute(
-            select(Price.ticker, Price.close, Price.volume, Price.date)
-            .join(price_subq, (Price.ticker == price_subq.c.ticker) &
-                               (Price.date == price_subq.c.max_date))
-        ).all()
-        latest_map = {r[0]: {"close": r[1], "volume": r[2], "date": r[3]} for r in latest}
+    """Return today's price snapshot: close, prev_close, change%, volume for all tickers.
 
-        # Second latest price (for change calc)
-        all_prices = s.execute(
-            select(Price.ticker, Price.close, Price.date)
-            .order_by(Price.ticker, Price.date.desc())
+    Fetches only the 2 most-recent price rows per ticker via a window function,
+    instead of pulling the entire price-history table just to find prev-close.
+    """
+    with get_session() as s:
+        rn = sqlfunc.row_number().over(
+            partition_by=Price.ticker, order_by=Price.date.desc()
+        ).label("rn")
+        ranked = (
+            select(Price.ticker, Price.close, Price.volume, Price.date, rn)
+            .subquery()
+        )
+        top2 = s.execute(
+            select(ranked.c.ticker, ranked.c.close, ranked.c.volume, ranked.c.date, ranked.c.rn)
+            .where(ranked.c.rn <= 2)
         ).all()
         comp_rows = s.execute(select(Company.ticker, Company.sector, Company.name)).all()
         sector_map = {r[0]: r[1] for r in comp_rows}
         name_map   = {r[0]: r[2] for r in comp_rows}
 
-    # Build prev-close map (second most recent)
     from collections import defaultdict
-    ticker_dates: dict = defaultdict(list)
-    for r in all_prices:
-        ticker_dates[r[0]].append((r[2], r[1]))
-    prev_map = {}
-    for tkr, dates in ticker_dates.items():
-        dates.sort(key=lambda x: x[0], reverse=True)
-        if len(dates) >= 2:
-            prev_map[tkr] = dates[1][1]
+    by_ticker: dict = defaultdict(dict)
+    for tkr, close, volume, date, rank in top2:
+        by_ticker[tkr][rank] = {"close": close, "volume": volume}
 
     rows = []
-    for tkr, data in latest_map.items():
-        cur = data["close"] * 1000 if data["close"] else None
-        prev = prev_map.get(tkr)
-        prev_vnd = prev * 1000 if prev else None
+    for tkr, snaps in by_ticker.items():
+        latest = snaps.get(1)
+        if not latest:
+            continue
+        cur = latest["close"] * 1000 if latest["close"] else None
+        prev = snaps.get(2)
+        prev_vnd = prev["close"] * 1000 if prev and prev["close"] else None
         chg_pct = ((cur - prev_vnd) / prev_vnd * 100) if (cur and prev_vnd and prev_vnd > 0) else None
         rows.append({
             "ticker":   tkr,
@@ -903,7 +898,7 @@ def load_market_snapshot() -> "pd.DataFrame":
             "price":    cur,
             "prev":     prev_vnd,
             "chg_pct":  chg_pct,
-            "volume":   data["volume"],
+            "volume":   latest["volume"],
         })
     return pd.DataFrame(rows)
 
