@@ -162,7 +162,42 @@ def fmt_vnd(v) -> str:
     return f"{v:,.0f}"
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────
+# vnstock rate limiting — the free "Guest" tier caps at 20 requests/min,
+# shared across every vnstock call this app makes (index ticker bar, ticker
+# switches, VN-Index history). Without throttling, a burst of concurrent
+# calls (several fresh ticker switches, or those plus the index bar) can
+# trip that limit, which manifests as the page hanging while the library
+# internally retries. Stay under a conservative 15/min so there's headroom.
+# ─────────────────────────────────────────────
+import threading as _threading
+from collections import deque as _deque
+
+_vnstock_lock = _threading.Lock()
+_vnstock_call_times: "_deque[float]" = _deque()
+_VNSTOCK_MAX_PER_MIN = 15
+
+
+def vnstock_throttle() -> None:
+    """Block briefly if needed to stay under vnstock's request-rate cap.
+
+    Call this immediately before every network-triggering vnstock call
+    (Quote.history, Finance._get_report, stock.quote.history, etc.).
+    """
+    import time as _time
+    while True:
+        with _vnstock_lock:
+            now = _time.time()
+            while _vnstock_call_times and now - _vnstock_call_times[0] >= 60:
+                _vnstock_call_times.popleft()
+            if len(_vnstock_call_times) < _VNSTOCK_MAX_PER_MIN:
+                _vnstock_call_times.append(now)
+                return
+            sleep_for = 60 - (now - _vnstock_call_times[0]) + 0.05
+        _time.sleep(sleep_for)
+
+
+# ─────────────────────────────────────────────
 # Data helpers (cached so they don't re-query on every rerun)
 # ─────────────────────────────────────────────
 
@@ -915,6 +950,7 @@ def load_vnindex_prices(days: int = 504) -> "pd.DataFrame":
             from datetime import date, timedelta
             end = date.today().strftime("%Y-%m-%d")
             start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+            vnstock_throttle()
             df = stock.quote.history(start=start, end=end, interval="1D")
             if df is None or df.empty:
                 return pd.DataFrame()
@@ -1001,11 +1037,15 @@ def load_detailed_financials(ticker: str):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             from vnstock.explorer.vci.financial import Finance
+            vnstock_throttle()
             fin = Finance(ticker, period="quarter", show_log=False)
+            def _report(report_type, **kw):
+                vnstock_throttle()
+                return fin._get_report(report_type, **kw)
             with ThreadPoolExecutor(max_workers=2) as ex:
-                f_inc = ex.submit(fin._get_report, "income_statement", period="quarter",
+                f_inc = ex.submit(_report, "income_statement", period="quarter",
                                    lang="en", show_log=False, limit=50)
-                f_bal = ex.submit(fin._get_report, "balance_sheet", period="quarter",
+                f_bal = ex.submit(_report, "balance_sheet", period="quarter",
                                    lang="en", show_log=False, limit=50)
                 inc, bal = f_inc.result(), f_bal.result()
         return inc, bal
@@ -1025,11 +1065,15 @@ def load_annual_cf(ticker: str):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             from vnstock.explorer.vci.financial import Finance
+            vnstock_throttle()
             fin = Finance(ticker, period="year", show_log=False)
+            def _report(report_type, **kw):
+                vnstock_throttle()
+                return fin._get_report(report_type, **kw)
             with ThreadPoolExecutor(max_workers=2) as ex:
-                f_cf  = ex.submit(fin._get_report, "cash_flow", period="year",
+                f_cf  = ex.submit(_report, "cash_flow", period="year",
                                    lang="en", show_log=False, limit=20)
-                f_inc = ex.submit(fin._get_report, "income_statement", period="year",
+                f_inc = ex.submit(_report, "income_statement", period="year",
                                    lang="en", show_log=False, limit=20)
                 cf, inc = f_cf.result(), f_inc.result()
         return cf, inc
@@ -1310,11 +1354,14 @@ def _fetch_one_index_intraday(sym: str, today, week_ago) -> tuple[str, dict | No
     from concurrent.futures import ThreadPoolExecutor
     try:
         q = Quote(symbol=sym, source="VCI")
+        def _hist(**kw):
+            vnstock_throttle()
+            return q.history(**kw)
         # The daily-range query doesn't depend on the intraday result, so fetch
         # both at once — only the rare weekend/holiday retry below stays sequential.
         with ThreadPoolExecutor(max_workers=2) as _ex:
-            _f_intraday = _ex.submit(q.history, start=today.isoformat(), end=today.isoformat(), interval="1m")
-            _f_daily    = _ex.submit(q.history, start=week_ago.isoformat(), end=today.isoformat(), interval="1D")
+            _f_intraday = _ex.submit(_hist, start=today.isoformat(), end=today.isoformat(), interval="1m")
+            _f_daily    = _ex.submit(_hist, start=week_ago.isoformat(), end=today.isoformat(), interval="1D")
             intraday = _f_intraday.result()
             daily    = _f_daily.result()
         if intraday.empty:
@@ -1325,7 +1372,7 @@ def _fetch_one_index_intraday(sym: str, today, week_ago) -> tuple[str, dict | No
             # the most recent session — re-fetch and keep only that session's rows
             # (vnstock's 1m interval ignores the single-day range and may
             # return a wider recent window).
-            intraday = q.history(start=intraday_date.isoformat(), end=intraday_date.isoformat(), interval="1m")
+            intraday = _hist(start=intraday_date.isoformat(), end=intraday_date.isoformat(), interval="1m")
             intraday = intraday[pd.to_datetime(intraday["time"]).dt.date == intraday_date]
             if intraday.empty:
                 return sym, None
@@ -1655,6 +1702,34 @@ def _render_company_header(ticker, prices_df, co_name, co_exch, co_sect, sh, eq,
         _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, ni, ebit_, dep_, debt_, cash_),
         unsafe_allow_html=True,
     )
+
+
+# ─────────────────────────────────────────────
+# One-time background cache pre-warm for popular tickers — runs once per
+# server process (guarded by a module-global flag, which persists across
+# reruns since Streamlit execs each rerun into the same module namespace).
+# Spawned as a daemon thread so it never blocks a real user's page load;
+# its vnstock calls go through the same throttle as everything else, so it
+# just gradually warms the cache over the first couple of minutes after
+# server start without starving real requests.
+# ─────────────────────────────────────────────
+if not globals().get("_PREWARM_STARTED"):
+    _PREWARM_STARTED = True
+
+    def _prewarm_popular_tickers():
+        for _tkr in ["VNM", "VCB", "HPG", "FPT", "VIC"]:
+            try:
+                load_prices(_tkr)
+                load_financials_q(_tkr)
+                compute_ttm(_tkr)
+                get_all_valuations(_tkr)
+                load_detailed_financials(_tkr)
+                load_foreign_flow(_tkr, sessions=20)
+                load_annual_cf(_tkr)
+            except Exception:
+                pass
+
+    _threading.Thread(target=_prewarm_popular_tickers, daemon=True).start()
 
 
 VIEWS = [
@@ -4126,7 +4201,12 @@ elif view == "Sàng lọc Cổ phiếu":
         key="ss_tab_sel", label_visibility="collapsed",
     ) or "📋 Lọc cổ phiếu"
 
-    screen_df = load_valuation_screen_data()
+    # This pulls valuation+price+sector data for 600+ tickers, so the whole
+    # page (filters, table, charts) waits on it — there's no partial content
+    # to show progressively, but a clear spinner beats a blank screen on the
+    # one-time cold-cache cost (DB connection warm-up, ~a few seconds once).
+    with st.spinner("Đang tải dữ liệu lọc cổ phiếu..."):
+        screen_df = load_valuation_screen_data()
 
     # ── Shared sidebar filters (used by both Lọc cổ phiếu & Watchlist tabs) ──
     if not screen_df.empty:
