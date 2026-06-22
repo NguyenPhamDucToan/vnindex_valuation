@@ -1755,22 +1755,16 @@ if view == "Phân tích Cổ phiếu":
         _default_idx = 0
     ticker = st.sidebar.selectbox("Mã", _available, index=_default_idx, key="ticker_selector")
 
-    # Warm the cache for the independent per-ticker fetches used later on this
-    # page in one parallel batch — 3 of these hit external VCI/VNDirect APIs
-    # and running them sequentially (as each was called inline further down)
-    # cost 5-13s on a never-before-seen ticker. Running them together cuts
-    # that to ~the slowest single call (~2s), since later calls to the same
-    # functions with the same args just hit the now-warm cache.
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=5) as _warm_ex:
-        _f_prices = _warm_ex.submit(load_prices, ticker)
-        _f_finq   = _warm_ex.submit(load_financials_q, ticker)
-        _f_detfin = _warm_ex.submit(load_detailed_financials, ticker)
-        _f_ff20   = _warm_ex.submit(load_foreign_flow, ticker, sessions=20)
-        _f_anncf  = _warm_ex.submit(load_annual_cf, ticker)
-        prices_df = _f_prices.result()
-        fin_q     = _f_finq.result()
-        _f_detfin.result(); _f_ff20.result(); _f_anncf.result()
+    # Only eagerly fetch what the header actually needs (cheap DB queries).
+    # The 3 slower external-API calls (load_detailed_financials,
+    # load_foreign_flow, load_annual_cf) are intentionally NOT pre-fetched
+    # here anymore — left at their original inline positions further down so
+    # Streamlit can paint the header/price/DuPont/valuation sections (which
+    # don't depend on them) immediately, instead of blocking the whole page
+    # behind a ~2s upfront batch. Total time-to-fully-loaded is about the
+    # same either way; this trades it for a much faster first paint.
+    prices_df   = load_prices(ticker)
+    fin_q       = load_financials_q(ticker)
     ttm         = compute_ttm(ticker)
     valuations  = get_all_valuations(ticker)
 
@@ -2099,7 +2093,8 @@ if view == "Phân tích Cổ phiếu":
             ) or "Nước ngoài"
 
             if _ffp_sel == "Nước ngoài":
-                _ff20 = load_foreign_flow(ticker, sessions=20)
+                with st.spinner("Đang tải dữ liệu giao dịch nước ngoài..."):
+                    _ff20 = load_foreign_flow(ticker, sessions=20)
                 if not _ff20.empty:
                     _last = _ff20.iloc[-1]
                     c1, c2, c3 = st.columns(3)
@@ -2871,7 +2866,8 @@ if view == "Phân tích Cổ phiếu":
             st.plotly_chart(fig6, width="stretch")
 
         # ── Row 3: Provisions · Financial Revenue · Financial Costs ──
-        inc_raw, bal_raw = load_detailed_financials(ticker)
+        with st.spinner("Đang tải báo cáo tài chính chi tiết..."):
+            inc_raw, bal_raw = load_detailed_financials(ticker)
         periods_r3 = df_q["period"].tolist()
 
         def _rv(df, iid, p, scale=1e9):
@@ -3465,7 +3461,8 @@ if view == "Phân tích Cổ phiếu":
 
         # Chart 17 — Dividends (annual)
         with r6c2:
-            cf_ann, inc_ann = load_annual_cf(ticker)
+            with st.spinner("Đang tải dữ liệu cổ tức..."):
+                cf_ann, inc_ann = load_annual_cf(ticker)
             import re as _re3
             _ypat = _re3.compile(r'^\d{4}$')
 
