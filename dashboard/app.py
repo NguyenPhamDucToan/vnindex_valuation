@@ -1307,9 +1307,16 @@ _INDEX_SYMBOLS = ["VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30", "HNX30"]
 
 def _fetch_one_index_intraday(sym: str, today, week_ago) -> tuple[str, dict | None]:
     from vnstock import Quote
+    from concurrent.futures import ThreadPoolExecutor
     try:
         q = Quote(symbol=sym, source="VCI")
-        intraday = q.history(start=today.isoformat(), end=today.isoformat(), interval="1m")
+        # The daily-range query doesn't depend on the intraday result, so fetch
+        # both at once — only the rare weekend/holiday retry below stays sequential.
+        with ThreadPoolExecutor(max_workers=2) as _ex:
+            _f_intraday = _ex.submit(q.history, start=today.isoformat(), end=today.isoformat(), interval="1m")
+            _f_daily    = _ex.submit(q.history, start=week_ago.isoformat(), end=today.isoformat(), interval="1D")
+            intraday = _f_intraday.result()
+            daily    = _f_daily.result()
         if intraday.empty:
             return sym, None
         intraday_date = pd.to_datetime(intraday["time"]).dt.date.iloc[-1]
@@ -1322,7 +1329,6 @@ def _fetch_one_index_intraday(sym: str, today, week_ago) -> tuple[str, dict | No
             intraday = intraday[pd.to_datetime(intraday["time"]).dt.date == intraday_date]
             if intraday.empty:
                 return sym, None
-        daily = q.history(start=week_ago.isoformat(), end=today.isoformat(), interval="1D")
         current  = float(intraday["close"].iloc[-1])
         day_open = float(intraday["open"].iloc[0])
         prev_close = day_open
@@ -1350,13 +1356,16 @@ def _fetch_one_index_intraday(sym: str, today, week_ago) -> tuple[str, dict | No
         return sym, None
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=120)
 def load_index_intraday() -> dict:
     """Today's 1-minute OHLCV for the main indices, via vnstock VCI source.
 
     Returns {symbol: {"intraday": df, "current", "open", "prev_close",
     "chg", "chg_pct", "volume"}}. Symbols with no data are omitted.
-    Fetched in parallel since each symbol needs 2 sequential API calls.
+    Fetched in parallel (both per-symbol and across symbols) since vnstock's
+    free tier caps at 20 requests/min — this alone uses 10 per fetch, so the
+    ttl/run_every cadence (see _render_index_ticker_bar) is intentionally
+    coarse to leave headroom for other vnstock calls (ticker switches, etc).
     """
     import datetime
     from concurrent.futures import ThreadPoolExecutor
@@ -1378,9 +1387,15 @@ _IDX_LABELS = {
 }
 
 
-@st.fragment(run_every=30)
+@st.fragment(run_every=60)
 def _render_index_ticker_bar():
-    """Live intraday mini-charts for the main indices — re-fetches every 30s during trading hours."""
+    """Live intraday mini-charts for the main indices — re-fetches every 60s during trading hours.
+
+    Was 30s/ttl=60; this section alone burns 10 of vnstock's 20 req/min
+    guest-tier quota per fetch, so a coarser cadence leaves headroom for
+    other vnstock calls (ticker switches, VN-Index chart) to not collide
+    with it and trip the rate limit.
+    """
     _idx_data = load_index_intraday()
     if not _idx_data:
         return
