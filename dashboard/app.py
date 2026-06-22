@@ -1961,6 +1961,27 @@ if view == "Phân tích Cổ phiếu":
         # String labels for categorical x-axis → no gaps for weekends/holidays
         df1y["dlabel"] = pd.to_datetime(df1y["date"]).dt.strftime("%Y-%m-%d")
 
+        # Append today's still-forming candle from the live quote during
+        # trading hours — the DB only gets today's bar after the evening
+        # EOD refresh, so without this the chart always lags one day behind.
+        _live_q = load_live_quote(ticker)
+        if _live_q:
+            from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+            _today = _dt.now(_tz(_td(hours=7))).date()
+            if df1y.empty or pd.to_datetime(df1y["date"].iloc[-1]).date() < _today:
+                df1y = pd.concat([df1y, pd.DataFrame([{
+                    "date": pd.Timestamp(_today),
+                    "open": _live_q["open"], "high": _live_q["high"],
+                    "low": _live_q["low"], "close": _live_q["price"],
+                    "volume": _live_q["volume"],
+                    "open_vnd": _live_q["open"] * 1000, "high_vnd": _live_q["high"] * 1000,
+                    "low_vnd": _live_q["low"] * 1000, "close_vnd": _live_q["price"] * 1000,
+                    "ma10": df1y["ma10"].iloc[-1] if not df1y.empty else None,
+                    "ma50": df1y["ma50"].iloc[-1] if not df1y.empty else None,
+                    "vol_color": "#22c55e" if _live_q["price"] >= _live_q["open"] else "#ef4444",
+                    "dlabel": _today.strftime("%Y-%m-%d"),
+                }])], ignore_index=True)
+
         # Single figure, two y-axes with domains — one shared x-axis so spike spans full height
         fig_price = go.Figure()
         df1y["vol_m"] = df1y["volume"] / 1e6
