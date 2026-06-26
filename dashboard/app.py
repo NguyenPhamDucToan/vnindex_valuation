@@ -141,7 +141,37 @@ body,[data-testid="stApp"],.main,.block-container { background-color:#0e1117!imp
 [data-testid="stModal"],[data-testid="stModalContent"],[data-testid="stModalOverlay"]{
     animation:none!important; transition:none!important;
 }
+
+/* Mobile responsiveness — the stock header below is built as inline-styled
+   HTML (3 fixed-min-width blocks in one flex row) which overflows badly on
+   phone-width screens (price/badges get cut off). These overrides need
+   !important since they're fighting inline styles, not just normal CSS. */
+@media (max-width: 640px) {
+    .ch-row { gap:10px!important; }
+    .ch-left, .ch-center, .ch-right {
+        min-width:100%!important; flex-basis:100%!important; padding-right:0!important;
+    }
+    .ch-ticker { font-size:26px!important; }
+    .ch-price { font-size:32px!important; }
+    .ch-right { grid-template-columns:repeat(3,1fr)!important; gap:10px 8px!important; }
+}
+.mobile-sidebar-hint { display:none; }
+@media (max-width: 640px) {
+    .mobile-sidebar-hint {
+        display:block!important; background:#1e3a5f; color:#93c5fd;
+        font-size:13px; font-weight:600; padding:8px 14px; border-radius:8px;
+        margin-bottom:10px;
+    }
+}
 </style>""", unsafe_allow_html=True)
+
+# Mobile-only hint (hidden on desktop via the media query above) — the
+# sidebar collapses by default on phone-width screens and isn't an obvious
+# tap target for a first-time visitor.
+st.markdown(
+    '<div class="mobile-sidebar-hint">📱 Bấm ›› ở góc trên-trái để mở menu chọn mục & mã cổ phiếu</div>',
+    unsafe_allow_html=True,
+)
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Utility functions
@@ -1638,11 +1668,11 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
     )
 
     return (
-        f'<div style="padding:22px 0px;margin-bottom:18px;display:flex;gap:28px;align-items:center;">'
+        f'<div class="ch-row" style="padding:22px 0px;margin-bottom:18px;display:flex;gap:28px;align-items:center;flex-wrap:wrap;">'
 
         # LEFT — ticker + name
-        f'<div style="min-width:230px;padding-right:28px;">'
-        f'<div style="font-size:33px;font-weight:800;color:#f9fafb;line-height:1.2;">'
+        f'<div class="ch-left" style="min-width:230px;padding-right:28px;">'
+        f'<div class="ch-ticker" style="font-size:33px;font-weight:800;color:#f9fafb;line-height:1.2;">'
         f'{ticker}'
         f'<span style="font-size:16px;background:#1e3a5f;color:#60a5fa;padding:3px 10px;'
         f'border-radius:6px;margin-left:9px;vertical-align:middle;">{co_exch}</span>'
@@ -1651,9 +1681,9 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
         f'</div>'
 
         # CENTER — price + change + day range
-        f'<div style="min-width:300px;padding-right:28px;">'
+        f'<div class="ch-center" style="min-width:300px;padding-right:28px;">'
         f'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">'
-        f'<span style="font-size:45px;font-weight:800;color:#f9fafb;">{current_price:,.0f}</span>'
+        f'<span class="ch-price" style="font-size:45px;font-weight:800;color:#f9fafb;">{current_price:,.0f}</span>'
         f'<span style="font-size:22px;color:{_cc};font-weight:600;">{_chg_disp}</span>'
         f'<span style="font-size:18px;background:{_cbg};color:{_cc};padding:3px 12px;'
         f'border-radius:8px;font-weight:600;">{_arrow}{abs(_chg_pct):.2f}%</span>'
@@ -1679,7 +1709,7 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
         f'</div>'
 
         # RIGHT — 3×3 metrics grid
-        f'<div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:16px 18px;">'
+        f'<div class="ch-right" style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:16px 18px;min-width:280px;">'
         + _mc("Market Cap (bn)", _hv(_mcap))
         + _mc("Book Value (bn)", _hv(eq))
         + _mc("P/E", _hf(_pe_h, 1, "x"), accent=True)
