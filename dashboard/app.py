@@ -251,6 +251,28 @@ def vnstock_throttle() -> None:
         _time.sleep(sleep_for)
 
 
+def vnstock_call(fn, attempts: int = 3, delay: float = 1.5):
+    """Throttle + retry wrapper for a vnstock network call.
+
+    The VCI API intermittently returns a transient 500 even under normal
+    (non-rate-limited) load — confirmed by retrying a failed call seconds
+    later and having it succeed. vnstock's own internal tenacity retries
+    aren't always enough, so without this a single blip shows as "no data"
+    in the UI (e.g. the VN-Index chart) instead of just quietly recovering.
+    """
+    import time as _time
+    last_exc = None
+    for i in range(attempts):
+        vnstock_throttle()
+        try:
+            return fn()
+        except Exception as e:
+            last_exc = e
+            if i < attempts - 1:
+                _time.sleep(delay)
+    raise last_exc
+
+
 # ─────────────────────────────────────────────
 # Data helpers (cached so they don't re-query on every rerun)
 # ─────────────────────────────────────────────
@@ -1004,8 +1026,7 @@ def load_vnindex_prices(days: int = 504) -> "pd.DataFrame":
             from datetime import date, timedelta
             end = date.today().strftime("%Y-%m-%d")
             start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
-            vnstock_throttle()
-            df = stock.quote.history(start=start, end=end, interval="1D")
+            df = vnstock_call(lambda: stock.quote.history(start=start, end=end, interval="1D"))
             if df is None or df.empty:
                 return pd.DataFrame()
             df = df.rename(columns={"time": "date"})
@@ -1091,11 +1112,9 @@ def load_detailed_financials(ticker: str):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             from vnstock.explorer.vci.financial import Finance
-            vnstock_throttle()
-            fin = Finance(ticker, period="quarter", show_log=False)
+            fin = vnstock_call(lambda: Finance(ticker, period="quarter", show_log=False))
             def _report(report_type, **kw):
-                vnstock_throttle()
-                return fin._get_report(report_type, **kw)
+                return vnstock_call(lambda: fin._get_report(report_type, **kw))
             with ThreadPoolExecutor(max_workers=2) as ex:
                 f_inc = ex.submit(_report, "income_statement", period="quarter",
                                    lang="en", show_log=False, limit=50)
@@ -1119,11 +1138,9 @@ def load_annual_cf(ticker: str):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             from vnstock.explorer.vci.financial import Finance
-            vnstock_throttle()
-            fin = Finance(ticker, period="year", show_log=False)
+            fin = vnstock_call(lambda: Finance(ticker, period="year", show_log=False))
             def _report(report_type, **kw):
-                vnstock_throttle()
-                return fin._get_report(report_type, **kw)
+                return vnstock_call(lambda: fin._get_report(report_type, **kw))
             with ThreadPoolExecutor(max_workers=2) as ex:
                 f_cf  = ex.submit(_report, "cash_flow", period="year",
                                    lang="en", show_log=False, limit=20)
@@ -1409,8 +1426,7 @@ def _fetch_one_index_intraday(sym: str, today, week_ago) -> tuple[str, dict | No
     try:
         q = Quote(symbol=sym, source="VCI")
         def _hist(**kw):
-            vnstock_throttle()
-            return q.history(**kw)
+            return vnstock_call(lambda: q.history(**kw))
         # The daily-range query doesn't depend on the intraday result, so fetch
         # both at once — only the rare weekend/holiday retry below stays sequential.
         with ThreadPoolExecutor(max_workers=2) as _ex:
