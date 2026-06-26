@@ -169,6 +169,16 @@ body,[data-testid="stApp"],.main,.block-container { background-color:#0e1117!imp
     .ttm-value { font-size:17px!important; }
     .ttm-label { font-size:10px!important; }
 }
+
+/* DuPont breakdown (Biên LN ròng × Hiệu suất tài sản × Đòn bẩy = ROE) — same
+   one-row-of-4-cards overflow issue. Stack cards full-width; the × / =
+   operators then naturally fall on their own centered line between them. */
+@media (max-width: 640px) {
+    .dp-row { flex-wrap:wrap!important; justify-content:center!important; }
+    .dp-card { flex:1 1 100%!important; min-width:100%!important; }
+    .dp-op { flex:1 1 100%!important; text-align:center!important; padding:2px 0!important; }
+    .dp-value { font-size:19px!important; }
+}
 .mobile-sidebar-hint { display:none; }
 @media (max-width: 640px) {
     .mobile-sidebar-hint {
@@ -4144,23 +4154,23 @@ if view == "Phân tích Cổ phiếu":
 
             def _dp_card(label, value, color, hint):
                 return (
-                    '<div style="background:#1e293b;border-radius:10px;padding:14px 10px 12px;'
+                    '<div class="dp-card" style="background:#1e293b;border-radius:10px;padding:14px 10px 12px;'
                     'flex:1;min-width:0;text-align:center;">'
                     f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;'
                     f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>'
-                    f'<div style="font-size:22px;font-weight:700;color:{color};letter-spacing:-0.5px;">{value}</div>'
+                    f'<div class="dp-value" style="font-size:22px;font-weight:700;color:{color};letter-spacing:-0.5px;">{value}</div>'
                     f'<div style="font-size:10px;color:#64748b;margin-top:4px;">{hint}</div>'
                     '</div>'
                 )
 
             def _dp_op(sym):
-                return f'<div style="font-size:18px;color:#475569;align-self:center;padding:0 2px;">{sym}</div>'
+                return f'<div class="dp-op" style="font-size:18px;color:#475569;align-self:center;padding:0 2px;">{sym}</div>'
 
             _dp_html = (
                 '<div style="margin-top:4px;">'
                 '<div style="font-weight:600;font-size:25px;margin-bottom:10px;">'
                 'Phân tích DuPont — ROE tách thành 3 nguồn gốc</div>'
-                '<div style="display:flex;align-items:center;gap:2px;">'
+                '<div class="dp-row" style="display:flex;align-items:center;gap:2px;">'
                 + _dp_card("Biên LN ròng", f"{dp_margin*100:.1f}%", _margin_c, "LN ròng / Doanh thu")
                 + _dp_op("×")
                 + _dp_card("Hiệu suất tài sản", f"{dp_turnover:.2f}x", _turnover_c, "Doanh thu / Tổng TS")
