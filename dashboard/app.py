@@ -113,9 +113,9 @@ from valuation.multiples import (
     pb_implied, ev_ebitda_implied, epv_implied,
     ps_implied, residual_income_implied, pocf_implied,
 )
-from config import MARKET_PE
+from config import MARKET_PE, TAX_RATE
 from valuation.ratios import (
-    gross_margin, net_margin, operating_margin, roe, roa,
+    gross_margin, net_margin, operating_margin, roe, roa, roic,
     current_ratio, debt_to_equity, profit_quality, fcf_margin,
     quick_ratio, absolute_liquidity, debt_to_assets, ocf_to_current_liabilities,
     asset_turnover, financial_leverage, rating_color, dupont_analysis,
@@ -4226,6 +4226,75 @@ if view == "Phân tích Cổ phiếu":
             st.markdown(_dp_notes_html, unsafe_allow_html=True)
             st.markdown(f'<div style="font-size:16px;font-weight:600;color:#e2e8f0;">{_dp["comment"]}</div>',
                         unsafe_allow_html=True)
+
+        # ── ROIC vs WACC — economic value creation check ────────
+        _roic_val = roic(ttm.get("ebit"), TAX_RATE, ttm.get("debt"), ttm.get("equity"), ttm.get("cash"))
+        _dcf_r    = get_dcf(ticker)
+        _wacc_val = _dcf_r.get("wacc") if _dcf_r else None
+        if _roic_val is not None and _wacc_val is not None:
+            _rw_diff = _roic_val - _wacc_val
+            if _rw_diff > 0.005:
+                _rw_color   = "#22c55e"
+                _rw_verdict = ("✅ ROIC > WACC — công ty đang <b>tạo ra giá trị</b>: lợi nhuận từ vốn đầu tư "
+                               "cao hơn chi phí vốn, cổ phiếu xứng đáng được định giá cao hơn sổ sách.")
+            elif _rw_diff < -0.005:
+                _rw_color   = "#ef4444"
+                _rw_verdict = ("⚠️ ROIC &lt; WACC — công ty đang <b>phá hủy giá trị</b>: dù có lợi nhuận kế toán, "
+                               "vẫn không đủ bù chi phí vốn đã huy động — tín hiệu kém bền vững.")
+            else:
+                _rw_color   = "#eab308"
+                _rw_verdict = "➖ ROIC ≈ WACC — công ty đang ở mức <b>hòa vốn kinh tế</b>."
+
+            def _rw_card(label, value, color, hint):
+                return (
+                    '<div class="dp-card" style="background:#1e293b;border-radius:10px;padding:14px 10px 12px;'
+                    'flex:1;min-width:0;text-align:center;">'
+                    f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">{label}</div>'
+                    f'<div class="dp-value" style="font-size:22px;font-weight:700;color:{color};'
+                    f'letter-spacing:-0.5px;">{value}</div>'
+                    f'<div style="font-size:10px;color:#64748b;margin-top:4px;">{hint}</div>'
+                    '</div>'
+                )
+
+            st.markdown(
+                '<div style="font-weight:600;font-size:25px;margin:18px 0 10px;">'
+                'ROIC vs WACC — Công ty có đang tạo ra giá trị?</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                '<div class="dp-row" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
+                + _rw_card("ROIC", f"{_roic_val*100:.1f}%", "#60a5fa", "NOPAT / Vốn đầu tư")
+                + _rw_card("WACC", f"{_wacc_val*100:.1f}%", "#a78bfa", "Chi phí vốn bình quân")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f'<div style="font-size:15px;color:#cbd5e1;line-height:1.7;'
+                f'border-left:3px solid {_rw_color};padding:4px 0 4px 12px;margin-bottom:14px;">{_rw_verdict}</div>',
+                unsafe_allow_html=True,
+            )
+            with st.expander("Bảng quy tắc ROIC vs WACC"):
+                st.markdown(
+                    '<table style="width:100%;font-size:14px;border-collapse:collapse;">'
+                    '<tr style="color:#94a3b8;"><th style="text-align:left;padding:6px 10px;">So sánh</th>'
+                    '<th style="text-align:left;padding:6px 10px;">Ý nghĩa</th></tr>'
+                    '<tr style="border-top:1px solid rgba(148,163,184,0.2);">'
+                    '<td style="padding:6px 10px;color:#22c55e;font-weight:600;">ROIC &gt; WACC</td>'
+                    '<td style="padding:6px 10px;color:#cbd5e1;">Công ty tạo ra giá trị → cổ phiếu xứng đáng premium</td></tr>'
+                    '<tr style="border-top:1px solid rgba(148,163,184,0.2);">'
+                    '<td style="padding:6px 10px;color:#ef4444;font-weight:600;">ROIC &lt; WACC</td>'
+                    '<td style="padding:6px 10px;color:#cbd5e1;">Công ty phá hủy giá trị → dù lãi vẫn là tệ</td></tr>'
+                    '<tr style="border-top:1px solid rgba(148,163,184,0.2);">'
+                    '<td style="padding:6px 10px;color:#eab308;font-weight:600;">ROIC = WACC</td>'
+                    '<td style="padding:6px 10px;color:#cbd5e1;">Hòa vốn kinh tế</td></tr>'
+                    '</table>'
+                    '<div style="margin-top:12px;font-size:13px;color:#94a3b8;">'
+                    '<b>Tóm lại:</b> WACC → input để định giá (DCF) · ROIC → thước đo để đánh giá chất lượng</div>'
+                    '<div style="margin-top:10px;font-size:14px;color:#cbd5e1;border-left:3px solid #475569;'
+                    'padding:4px 0 4px 12px;">DCF cho bạn biết giá bao nhiêu — ROIC cho bạn biết công ty đó '
+                    'có đáng mua không.</div>',
+                    unsafe_allow_html=True,
+                )
 
 
     # ── Valuation Football Field ───────────────────────────────

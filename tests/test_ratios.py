@@ -18,6 +18,16 @@ def test_profitability_ratios():
     assert r.asset_turnover(150, 100) == pytest.approx(1.5)
 
 
+def test_roic():
+    # NOPAT = 100*(1-0.20) = 80; Invested Capital = 200+300-50 = 450
+    assert r.roic(ebit=100, tax_rate=0.20, debt=200, equity=300, cash=50) == pytest.approx(80 / 450)
+    assert r.roic(ebit=None, tax_rate=0.20, debt=200, equity=300, cash=50) is None
+    # Zero invested capital -> None (via _safe), not a ZeroDivisionError
+    assert r.roic(ebit=100, tax_rate=0.20, debt=0, equity=0, cash=0) is None
+    # Missing debt/cash default to 0 rather than raising
+    assert r.roic(ebit=100, tax_rate=0.20, debt=None, equity=300, cash=None) == pytest.approx(80 / 300)
+
+
 def test_financial_leverage():
     assert r.financial_leverage(250, 100) == pytest.approx(2.5)
     assert r.financial_leverage(100, 0) is None

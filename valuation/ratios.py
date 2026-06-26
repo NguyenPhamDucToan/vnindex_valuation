@@ -57,6 +57,20 @@ def roa(net_income: float, total_assets: float) -> Optional[float]:
     return _safe(net_income, total_assets)
 
 
+def roic(ebit: float, tax_rate: float, debt: float, equity: float, cash: float) -> Optional[float]:
+    """Return on Invested Capital = NOPAT / (Debt + Equity − Cash).
+
+    NOPAT = EBIT × (1 − tax_rate). Compare against WACC: ROIC > WACC means
+    the company creates economic value; ROIC < WACC means it destroys value
+    even if accounting profit is positive.
+    """
+    if ebit is None:
+        return None
+    nopat = ebit * (1 - tax_rate)
+    invested_capital = (debt or 0) - (cash or 0) + (equity or 0)
+    return _safe(nopat, invested_capital)
+
+
 def asset_turnover(revenue: float, total_assets: float) -> Optional[float]:
     """Revenue / Total Assets. Benchmark 1.2–2.0×."""
     return _safe(revenue, total_assets)
