@@ -37,7 +37,17 @@ function onRender(event) {
     var fig = JSON.parse(args.fig_json);
     fig.layout.paper_bgcolor = "rgba(0,0,0,0)";
     fig.layout.plot_bgcolor  = "rgba(0,0,0,0)";
-    Streamlit.setFrameHeight(1050);
+
+    // On narrow screens, the fixed desktop height (1050px) gets squeezed
+    // into a much narrower width, shrinking every box to an unreadable
+    // sliver. Compensate by making the treemap taller (more vertical
+    // scroll, but each box keeps a readable amount of area) instead of
+    // letting box size shrink along with the width.
+    var w = window.innerWidth || document.documentElement.clientWidth;
+    var plotHeight = w < 640 ? 2400 : 1050;
+    fig.layout.height = plotHeight;
+    document.getElementById("plot").style.height = plotHeight + "px";
+    Streamlit.setFrameHeight(plotHeight);
 
     Plotly.react("plot", fig.data, fig.layout, {responsive: true, displayModeBar: false})
       .then(function(gd) {
