@@ -155,6 +155,20 @@ body,[data-testid="stApp"],.main,.block-container { background-color:#0e1117!imp
     .ch-price { font-size:32px!important; }
     .ch-right { grid-template-columns:repeat(3,1fr)!important; gap:10px 8px!important; }
 }
+
+/* TTM scorecard rows (Sinh lời / Thanh khoản / Đòn bẩy & Dòng tiền) — each
+   row crams 4-5 cells onto one flex line, which squeezes the bold value
+   text past readability on phone width. Wrap to 2 cells/row instead. */
+@media (max-width: 640px) {
+    .ttm-row { flex-wrap:wrap!important; }
+    .ttm-cell {
+        flex:1 1 50%!important; min-width:50%!important; box-sizing:border-box!important;
+        border-right:none!important; border-bottom:1px solid rgba(148,163,184,0.2)!important;
+        padding:12px 6px!important;
+    }
+    .ttm-value { font-size:17px!important; }
+    .ttm-label { font-size:10px!important; }
+}
 .mobile-sidebar-hint { display:none; }
 @media (max-width: 640px) {
     .mobile-sidebar-hint {
@@ -3979,9 +3993,10 @@ if view == "Phân tích Cổ phiếu":
                 cells += (
                     f'<div class="ttm-cell" style="flex:1;text-align:center;padding:16px 10px;{sep}position:relative;">'
                     f'{tooltip}'
-                    f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;'
+                    f'<div class="ttm-label" style="font-size:11px;color:#94a3b8;margin-bottom:6px;'
                     f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>'
-                    f'<div style="font-size:22px;font-weight:700;color:{color};letter-spacing:-0.5px;">{value}</div>'
+                    f'<div class="ttm-value" style="font-size:22px;font-weight:700;color:{color};letter-spacing:-0.5px;'
+                    f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{value}</div>'
                     f'</div>'
                 )
             return (
@@ -3991,7 +4006,7 @@ if view == "Phân tích Cổ phiếu":
                 f'font-size:10px;font-weight:700;letter-spacing:1.4px;color:#94a3b8;'
                 f'border-radius:9px 9px 0 0;">'
                 f'{title}</div>'
-                f'<div style="display:flex;overflow:visible;">{cells}</div>'
+                f'<div class="ttm-row" style="display:flex;overflow:visible;">{cells}</div>'
                 f'</div>'
             )
 
