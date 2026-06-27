@@ -805,6 +805,120 @@ def collect_exchange_rate(days: int = 1825) -> int:
     return len(rows)
 
 
+_SBV_HOME_URL = "https://www.sbv.gov.vn/"
+_SBV_BASE = "https://www.sbv.gov.vn"
+# Homepage pins a "policy-title-link" to the latest monthly rate bulletin —
+# no JS rendering needed, the link + title are present in the static HTML
+# (the article BODY isn't, but we don't need it — the actual figures are in
+# a linked PDF attachment, found the same way).
+_SBV_BULLETIN_LINK_RE = re.compile(
+    r'href="(/w/[^"]+)"[^>]*class="policy-title-link">\s*(Diễn biến lãi suất[^<]*)'
+)
+_SBV_MONTH_RE = re.compile(r"tháng\s+(\d{1,2})[./](\d{4})")
+_SBV_PDF_LINK_RE = re.compile(r'href="([^"]*\.pdf[^"]*)"')
+_SBV_LENDING_RE = re.compile(
+    r"Lãi\s+suất\s+cho\s+vay\s+bình\s+quân.{0,250}?ở\s+mức\s*([\d,]+)\s*-\s*([\d,]+)\s*%/năm", re.S
+)
+_SBV_DEPOSIT_6_12M_RE = re.compile(
+    r"([\d,]+)\s*-\s*([\d,]+)\s*%/năm\s+đối\s+với\s+tiền\s+gửi\s+có\s+kỳ\s+hạn\s+từ\s+6\s+tháng\s+đến\s+12\s+tháng"
+)
+
+
+def _sbv_vn_pct(s: str) -> float:
+    """'8,0' -> 8.0 (Vietnamese decimal comma, no thousands separator here)."""
+    return float(s.replace(",", "."))
+
+
+def discover_latest_sbv_rate_bulletin() -> tuple[str, date] | None:
+    """Return (article_url, period) for the most recent monthly rate bulletin."""
+    try:
+        resp = requests.get(_SBV_HOME_URL, headers=_HEADERS, timeout=20)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning(f"Failed to fetch {_SBV_HOME_URL}: {e}")
+        return None
+    m = _SBV_BULLETIN_LINK_RE.search(resp.text)
+    if not m:
+        logger.warning("Could not find the latest SBV rate bulletin link on the homepage")
+        return None
+    href, title = m.group(1), m.group(2)
+    mm = _SBV_MONTH_RE.search(title)
+    if not mm:
+        logger.warning(f"Could not parse month/year from SBV bulletin title: {title!r}")
+        return None
+    month, year = int(mm.group(1)), int(mm.group(2))
+    return _SBV_BASE + href, date(year, month, 1)
+
+
+def parse_sbv_rate_article(url: str, period: date) -> list[dict]:
+    """Fetch the bulletin article page, follow its PDF attachment, extract
+    VND lending rate and the 6-12 month VND deposit rate (each as the
+    midpoint of the published range) for `period`.
+    """
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=20)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning(f"Failed to fetch {url}: {e}")
+        return []
+    pdf_m = _SBV_PDF_LINK_RE.search(resp.text)
+    if not pdf_m:
+        logger.warning(f"Could not find PDF attachment link on {url}")
+        return []
+    pdf_url = pdf_m.group(1)
+    if pdf_url.startswith("/"):
+        pdf_url = _SBV_BASE + pdf_url
+
+    try:
+        pdf_resp = requests.get(pdf_url, headers=_HEADERS, timeout=30)
+        pdf_resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning(f"Failed to fetch PDF {pdf_url}: {e}")
+        return []
+
+    import pdfplumber
+    with pdfplumber.open(io.BytesIO(pdf_resp.content)) as pdf:
+        text = "\n".join(p.extract_text() or "" for p in pdf.pages)
+
+    rows = []
+    m_lend = _SBV_LENDING_RE.search(text)
+    if m_lend:
+        mid = (_sbv_vn_pct(m_lend.group(1)) + _sbv_vn_pct(m_lend.group(2))) / 2
+        rows.append({
+            "indicator": "lending_rate", "period": period,
+            "value": round(mid, 2), "unit": "%/năm", "source_url": pdf_url,
+        })
+    m_dep = _SBV_DEPOSIT_6_12M_RE.search(text)
+    if m_dep:
+        mid = (_sbv_vn_pct(m_dep.group(1)) + _sbv_vn_pct(m_dep.group(2))) / 2
+        rows.append({
+            "indicator": "deposit_rate", "period": period,
+            "value": round(mid, 2), "unit": "%/năm", "source_url": pdf_url,
+        })
+    if not rows:
+        logger.warning(f"Could not parse lending/deposit rates from PDF {pdf_url}")
+    return rows
+
+
+def collect_sbv_interest_rates() -> int:
+    """Fetch the latest monthly VND lending/deposit rate bulletin from SBV.
+
+    Replaces World Bank's wb_lending_rate/wb_deposit_rate (annual, lagging
+    to 2023) — this is monthly and current. Only fetches the single newest
+    bulletin (found via the homepage); older months would need a different
+    discovery path (no stable listing page found), so historical backfill
+    isn't covered here, only going-forward collection.
+    """
+    found = discover_latest_sbv_rate_bulletin()
+    if not found:
+        return 0
+    url, period = found
+    rows = parse_sbv_rate_article(url, period)
+    _upsert(rows)
+    logger.info(f"Upserted {len(rows)} SBV interest rate data points for {period:%m/%Y}")
+    return len(rows)
+
+
 if __name__ == "__main__":
     collect_cpi(max_pages=30)
     collect_gdp(max_pages=5)

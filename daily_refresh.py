@@ -57,7 +57,9 @@ def run_macro_refresh() -> None:
     rarely changes, so this just picks up the latest monthly/quarterly release.
     The upsert is idempotent, so re-checking already-seen articles is harmless.
     """
-    from collectors.macro_collector import collect_cpi, collect_gdp, collect_trade
+    from collectors.macro_collector import (
+        collect_cpi, collect_gdp, collect_trade, collect_exchange_rate, collect_sbv_interest_rates,
+    )
 
     logger.info("=== Macro data refresh triggered ===")
     try:
@@ -67,6 +69,15 @@ def run_macro_refresh() -> None:
         logger.info(f"Macro refresh complete: cpi={n_cpi}, gdp/fdi/retail={n_gdp}, trade={n_trade}")
     except Exception:
         logger.exception("Macro refresh failed")
+
+    # vnstock/SBV-sourced replacements for stale World Bank indicators —
+    # independent try/except so a failure here doesn't block the NSO refresh above.
+    try:
+        n_fx = collect_exchange_rate(days=14)  # weekly job, only need to top up recent days
+        n_rates = collect_sbv_interest_rates()
+        logger.info(f"Rate refresh complete: exchange_rate={n_fx}, sbv_rates={n_rates}")
+    except Exception:
+        logger.exception("Exchange rate / SBV rate refresh failed")
 
 
 if __name__ == "__main__":
