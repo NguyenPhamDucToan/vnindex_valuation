@@ -5824,11 +5824,33 @@ elif view == "Tổng quan Thị trường":
                 showlegend=False, xaxis=dict(type="category"), yaxis_title=unit)
             st.plotly_chart(fig, width="stretch")
 
+        # World Bank data is annual and inherently lags 1-2 years — audited
+        # all 29 WB-sourced indicators and only 3 (labor) had a 2025 data
+        # point; the rest were stuck at 2024 or earlier (one, tourism, at
+        # 2020), with one having no data at all. Hide anything whose latest
+        # point isn't current instead of showing stale/empty rows & charts.
+        _WB_RECENT_CUTOFF_YEAR = 2025
+        _macro_latest_periods = load_macro_latest_periods()
+
+        def _wb_is_recent(indicator: str) -> bool:
+            period_str = _macro_latest_periods.get(indicator)
+            return bool(period_str) and int(period_str[:4]) >= _WB_RECENT_CUTOFF_YEAR
+
         def _wb_category_tab(category: str):
-            items = [(k, m["label"], m["unit"]) for k, m in WB_INDICATOR_META.items() if m["category"] == category]
+            all_items = [(k, m["label"], m["unit"]) for k, m in WB_INDICATOR_META.items()
+                         if m["category"] == category]
+            items = [it for it in all_items if _wb_is_recent(it[0])]
+            n_hidden = len(all_items) - len(items)
+            if not items:
+                st.info("Chưa có chỉ số nào trong nhóm này được cập nhật gần đây (World Bank có độ trễ "
+                        "dữ liệu 1-2 năm) — đã ẩn để tránh hiển thị số liệu cũ.")
+                return
             rows = [_wb_summary_row(k, label, unit) for k, label, unit in items]
             st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-            st.caption("Nguồn: World Bank Open Data (api.worldbank.org) · Dữ liệu theo năm, cập nhật hàng năm")
+            _caption = "Nguồn: World Bank Open Data (api.worldbank.org) · Dữ liệu theo năm, cập nhật hàng năm"
+            if n_hidden:
+                _caption += f" · đã ẩn {n_hidden} chỉ số chưa cập nhật gần đây"
+            st.caption(_caption)
 
             st.markdown("")
             cols = st.columns(2)
