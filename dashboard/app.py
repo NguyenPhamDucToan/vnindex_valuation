@@ -222,14 +222,17 @@ def fmt_vnd(v) -> str:
 # switches, VN-Index history). Without throttling, a burst of concurrent
 # calls (several fresh ticker switches, or those plus the index bar) can
 # trip that limit, which manifests as the page hanging while the library
-# internally retries. Stay under a conservative 15/min so there's headroom.
+# internally retries. Stay under a conservative 12/min so there's headroom
+# (a prior pre-warm-cache feature competed with real page loads for this
+# same budget and made things worse — removed; don't re-add background
+# vnstock usage without a lot of headroom to spare).
 # ─────────────────────────────────────────────
 import threading as _threading
 from collections import deque as _deque
 
 _vnstock_lock = _threading.Lock()
 _vnstock_call_times: "_deque[float]" = _deque()
-_VNSTOCK_MAX_PER_MIN = 15
+_VNSTOCK_MAX_PER_MIN = 12
 
 
 def vnstock_throttle() -> None:
@@ -254,11 +257,18 @@ def vnstock_throttle() -> None:
 def vnstock_call(fn, attempts: int = 3, delay: float = 1.5):
     """Throttle + retry wrapper for a vnstock network call.
 
-    The VCI API intermittently returns a transient 500 even under normal
-    (non-rate-limited) load — confirmed by retrying a failed call seconds
-    later and having it succeed. vnstock's own internal tenacity retries
-    aren't always enough, so without this a single blip shows as "no data"
-    in the UI (e.g. the VN-Index chart) instead of just quietly recovering.
+    Handles two distinct failure modes differently:
+    - Transient 500s from the VCI API happen even under normal (non-rate-
+      limited) load — confirmed by retrying seconds later and succeeding.
+      A short retry (`delay`) is enough here.
+    - A real rate-limit response (vnai's own quota tracker, separate from
+      our local throttle — it can fire even when our throttle thinks we're
+      under budget, e.g. from other processes hitting the same IP) needs a
+      much longer wait; retrying after 1.5s just fails again and burns the
+      attempt budget for nothing.
+
+    Without this, a single blip surfaces as "no data" in the UI (e.g. the
+    VN-Index chart) instead of quietly recovering.
     """
     import time as _time
     last_exc = None
@@ -269,7 +279,9 @@ def vnstock_call(fn, attempts: int = 3, delay: float = 1.5):
         except Exception as e:
             last_exc = e
             if i < attempts - 1:
-                _time.sleep(delay)
+                msg = str(e).lower()
+                is_rate_limit = "giới hạn" in msg or "rate limit" in msg or "429" in msg
+                _time.sleep(12.0 if is_rate_limit else delay)
     raise last_exc
 
 
@@ -1772,34 +1784,6 @@ def _render_company_header(ticker, prices_df, co_name, co_exch, co_sect, sh, eq,
         _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, ni, ebit_, dep_, debt_, cash_),
         unsafe_allow_html=True,
     )
-
-
-# ─────────────────────────────────────────────
-# One-time background cache pre-warm for popular tickers — runs once per
-# server process (guarded by a module-global flag, which persists across
-# reruns since Streamlit execs each rerun into the same module namespace).
-# Spawned as a daemon thread so it never blocks a real user's page load;
-# its vnstock calls go through the same throttle as everything else, so it
-# just gradually warms the cache over the first couple of minutes after
-# server start without starving real requests.
-# ─────────────────────────────────────────────
-if not globals().get("_PREWARM_STARTED"):
-    _PREWARM_STARTED = True
-
-    def _prewarm_popular_tickers():
-        for _tkr in ["VNM", "VCB", "HPG", "FPT", "VIC"]:
-            try:
-                load_prices(_tkr)
-                load_financials_q(_tkr)
-                compute_ttm(_tkr)
-                get_all_valuations(_tkr)
-                load_detailed_financials(_tkr)
-                load_foreign_flow(_tkr, sessions=20)
-                load_annual_cf(_tkr)
-            except Exception:
-                pass
-
-    _threading.Thread(target=_prewarm_popular_tickers, daemon=True).start()
 
 
 VIEWS = [
