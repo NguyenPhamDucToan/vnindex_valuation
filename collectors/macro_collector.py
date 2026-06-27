@@ -577,10 +577,23 @@ def parse_trade_article(url: str) -> list[dict]:
         export_val, import_val = export_row[col], import_row[col]
         if pd.isna(export_val) or pd.isna(import_val):
             continue
-        balance = (float(export_val) - float(import_val)) / 1e6  # thousand USD -> tỷ (billion) USD
+        export_bn = float(export_val) / 1e6  # thousand USD -> tỷ (billion) USD
+        import_bn = float(import_val) / 1e6
+        period = date(year, month, 1)
         rows.append({
-            "indicator": "trade_balance", "period": date(year, month, 1),
-            "value": round(balance, 3), "unit": "tỷ USD", "source_url": url,
+            "indicator": "trade_balance", "period": period,
+            "value": round(export_bn - import_bn, 3), "unit": "tỷ USD", "source_url": url,
+        })
+        # Exports/imports themselves — same source, just not previously kept
+        # (only the balance was). World Bank's wb_exports/wb_imports are
+        # annual and lag ~1-2 years; this is monthly and current.
+        rows.append({
+            "indicator": "exports", "period": period,
+            "value": round(export_bn, 3), "unit": "tỷ USD", "source_url": url,
+        })
+        rows.append({
+            "indicator": "imports", "period": period,
+            "value": round(import_bn, 3), "unit": "tỷ USD", "source_url": url,
         })
     return rows
 
