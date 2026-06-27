@@ -767,6 +767,44 @@ def collect_labor(max_pages: int = 5) -> int:
     return total
 
 
+def collect_exchange_rate(days: int = 1825) -> int:
+    """Fetch daily USD/VND exchange rate via vnstock (MSN source) and upsert.
+
+    Replaces World Bank's wb_exchange_rate, which is annual and lags 1-2
+    years — this is daily and current to the last trading day. Not an
+    nso.gov.vn scrape like the rest of this module, but lives here since
+    this is the general "macro indicators ingestion" module.
+    """
+    import warnings
+    from datetime import date as _date, timedelta as _timedelta
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from vnstock import Vnstock
+        fx = Vnstock().fx(symbol="USDVND", source="MSN")
+        end = _date.today().strftime("%Y-%m-%d")
+        start = (_date.today() - _timedelta(days=days)).strftime("%Y-%m-%d")
+        df = fx.quote.history(start=start, end=end, interval="1D")
+
+    if df is None or df.empty:
+        logger.warning("No USD/VND exchange rate data returned from vnstock")
+        return 0
+
+    rows = [
+        {
+            "indicator": "exchange_rate",
+            "period": pd.to_datetime(row["time"]).date(),
+            "value": round(float(row["close"]), 1),
+            "unit": "VND",
+            "source_url": "vnstock (MSN source, USDVND)",
+        }
+        for _, row in df.iterrows() if pd.notna(row["close"])
+    ]
+    _upsert(rows)
+    logger.info(f"Upserted {len(rows)} USD/VND exchange rate data points")
+    return len(rows)
+
+
 if __name__ == "__main__":
     collect_cpi(max_pages=30)
     collect_gdp(max_pages=5)

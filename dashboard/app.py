@@ -369,6 +369,9 @@ _MACRO_INDICATOR_LABELS = {
     "underemployment_rate": "Tỷ lệ thiếu việc làm",
     "labor_force": "Lực lượng lao động",
     "avg_income": "Thu nhập bình quân người lao động",
+    "exports": "Xuất khẩu",
+    "imports": "Nhập khẩu",
+    "exchange_rate": "Tỷ giá USD/VND",
 }
 _MACRO_SEEN_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "macro_seen.json")
 
@@ -5992,6 +5995,23 @@ elif view == "Tổng quan Thị trường":
             _wb_category_tab("Lao động")
 
         elif _vm_sel == "Tiền tệ & Tỷ giá":
+            _fx_df = load_macro_indicator("exchange_rate")
+            if not _fx_df.empty:
+                st.markdown("##### Tỷ giá USD/VND (theo ngày)")
+                _fx_last = _fx_df.iloc[-1]
+                _fx_prev = _fx_df.iloc[-2] if len(_fx_df) > 1 else None
+                _fx_chg = (_fx_last["value"] - _fx_prev["value"]) if _fx_prev is not None else 0
+                st.metric("Tỷ giá USD/VND", f"{_fx_last['value']:,.0f} VND", delta=f"{_fx_chg:+,.0f} VND")
+                fig_fx = go.Figure(go.Scatter(
+                    x=_fx_df["period"], y=_fx_df["value"], mode="lines",
+                    line=dict(color="#60a5fa", width=1.8),
+                    hovertemplate="%{x|%d/%m/%Y}: %{y:,.0f} VND<extra></extra>"))
+                fig_fx.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0),
+                                      dragmode=False, yaxis_title="VND")
+                st.plotly_chart(fig_fx, width="stretch")
+                st.caption(f"Nguồn: vnstock (MSN, USD/VND) · Cập nhật đến {_fx_df['period'].iloc[-1]:%d/%m/%Y} "
+                           "— thay cho World Bank (theo năm, trễ 1-2 năm)")
+                st.divider()
             _wb_category_tab("Tiền tệ")
 
         elif _vm_sel == "Tiêu dùng":
