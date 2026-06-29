@@ -104,7 +104,6 @@ from sqlalchemy import select, func as sqlfunc
 
 from models.database import get_session
 from models.schema import Financial, Price, Company, Valuation, PinnedTicker, MacroIndicator
-from collectors.worldbank_collector import WB_INDICATOR_META
 from valuation.inputs import compute_ttm, compute_fcff_ttm, prepare_dcf_inputs, build_quarter_history
 from valuation.dcf import dcf_valuation
 from valuation.graham import graham_number, bvps_from_financials
@@ -5787,84 +5786,8 @@ elif view == "Tổng quan Thị trường":
                 "Khoảng dữ liệu": f"{df['period'].iloc[0]:%m/%Y} - {df['period'].iloc[-1]:%m/%Y}",
             }
 
-        def _wb_fmt_value(value: float, unit: str) -> str:
-            if unit == "USD":
-                if abs(value) >= 1e9:
-                    return f"{value/1e9:,.2f} tỷ"
-                return f"{value/1e6:,.1f} triệu"
-            if unit == "người":
-                return f"{value:,.0f}"
-            if unit == "VND":
-                return f"{value:,.0f}"
-            return f"{value:+.2f}"
-
-        def _wb_summary_row(indicator: str, label: str, unit: str) -> dict:
-            df = load_macro_indicator(indicator)
-            if df.empty:
-                return {
-                    "Chỉ số": label, "Kỳ gần nhất": "—", "Kỳ trước": "—",
-                    "Đơn vị": unit, "Kỳ báo cáo": "Hàng năm", "Khoảng dữ liệu": "Chưa có dữ liệu",
-                }
-            last = df.iloc[-1]
-            prev = df.iloc[-2] if len(df) > 1 else None
-            return {
-                "Chỉ số": label,
-                "Kỳ gần nhất": _wb_fmt_value(last["value"], unit),
-                "Kỳ trước": _wb_fmt_value(prev["value"], unit) if prev is not None else "—",
-                "Đơn vị": unit,
-                "Kỳ báo cáo": "Hàng năm",
-                "Khoảng dữ liệu": f"{df['period'].iloc[0].year} - {df['period'].iloc[-1].year}",
-            }
-
-        def _wb_line_chart(indicator: str, label: str, unit: str):
-            df = load_macro_indicator(indicator)
-            if df.empty:
-                return
-            fig = go.Figure(go.Scatter(
-                x=[p.year for p in df["period"]], y=df["value"], mode="lines+markers",
-                line=dict(color="#60a5fa", width=2), marker=dict(size=5),
-                hovertemplate="%{x} · %{y:,.2f} " + unit + "<extra></extra>"))
-            fig.update_layout(
-                title=label, height=260, margin=dict(l=0, r=0, t=36, b=10), dragmode=False,
-                showlegend=False, xaxis=dict(type="category"), yaxis_title=unit)
-            st.plotly_chart(fig, width="stretch")
-
-        # World Bank data is annual and inherently lags 1-2 years — audited
-        # all 29 WB-sourced indicators and only 3 (labor) had a 2025 data
-        # point; the rest were stuck at 2024 or earlier (one, tourism, at
-        # 2020), with one having no data at all. Hide anything whose latest
-        # point isn't current instead of showing stale/empty rows & charts.
-        _WB_RECENT_CUTOFF_YEAR = 2025
-        _macro_latest_periods = load_macro_latest_periods()
-
-        def _wb_is_recent(indicator: str) -> bool:
-            period_str = _macro_latest_periods.get(indicator)
-            return bool(period_str) and int(period_str[:4]) >= _WB_RECENT_CUTOFF_YEAR
-
-        def _wb_category_tab(category: str):
-            all_items = [(k, m["label"], m["unit"]) for k, m in WB_INDICATOR_META.items()
-                         if m["category"] == category]
-            items = [it for it in all_items if _wb_is_recent(it[0])]
-            n_hidden = len(all_items) - len(items)
-            if not items:
-                st.info("Chưa có chỉ số nào trong nhóm này được cập nhật gần đây (World Bank có độ trễ "
-                        "dữ liệu 1-2 năm) — đã ẩn để tránh hiển thị số liệu cũ.")
-                return
-            rows = [_wb_summary_row(k, label, unit) for k, label, unit in items]
-            st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-            _caption = "Nguồn: World Bank Open Data (api.worldbank.org) · Dữ liệu theo năm, cập nhật hàng năm"
-            if n_hidden:
-                _caption += f" · đã ẩn {n_hidden} chỉ số chưa cập nhật gần đây"
-            st.caption(_caption)
-
-            st.markdown("")
-            cols = st.columns(2)
-            for i, (k, label, unit) in enumerate(items):
-                with cols[i % 2]:
-                    _wb_line_chart(k, label, unit)
-
         _VM_LABELS = ["Tổng quan kinh tế", "Tăng trưởng kinh tế", "Giá cả & Lạm phát", "Đầu tư & Tiết kiệm",
-                      "Xuất nhập khẩu", "Lao động & Việc làm", "Tiền tệ & Tỷ giá", "Tiêu dùng", "Thuế", "Lãi suất"]
+                      "Xuất nhập khẩu", "Lao động & Việc làm", "Tiền tệ & Tỷ giá", "Tiêu dùng", "Lãi suất"]
         # Lazy tabs (see note on Stock Screener tabs above) — with 10 tabs each
         # rendering several charts, real st.tabs() here was the single biggest
         # source of rerun cost in the whole app.
@@ -5968,10 +5891,36 @@ elif view == "Tổng quan Thị trường":
             _macro_line_chart({"PPI": load_macro_indicator("ppi_yoy")}, "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)")
 
         elif _vm_sel == "Đầu tư & Tiết kiệm":
-            _wb_category_tab("Kinh doanh")
+            inv_rows = [
+                _macro_summary_row("investment_growth", "Tăng trưởng vốn đầu tư toàn xã hội", freq="quarterly"),
+                _macro_summary_row("fdi", "Vốn FDI đăng ký (theo quý)", unit=" tỷ USD", freq="quarterly"),
+                _macro_summary_row("fdi_cumulative", "Vốn FDI đăng ký lũy kế từ đầu năm", unit=" tỷ USD", freq="quarterly"),
+            ]
+            st.dataframe(pd.DataFrame(inv_rows), hide_index=True, width="stretch")
+            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo quý")
+            row_inv = st.columns(2)
+            with row_inv[0]:
+                _macro_line_chart({"Tăng trưởng vốn đầu tư": load_macro_indicator("investment_growth")},
+                                   "Tăng trưởng vốn đầu tư toàn xã hội (so với cùng kỳ)")
+            with row_inv[1]:
+                _macro_line_chart({"FDI theo quý": load_macro_indicator("fdi"),
+                                    "FDI lũy kế": load_macro_indicator("fdi_cumulative")},
+                                   "Vốn đầu tư nước ngoài (FDI đăng ký)", unit=" tỷ USD")
 
         elif _vm_sel == "Xuất nhập khẩu":
-            _wb_category_tab("Thương mại")
+            trade_rows = [
+                _macro_summary_row("trade_balance", "Cán cân thương mại", unit=" tỷ USD", freq="monthly"),
+                _macro_summary_row("exports", "Xuất khẩu", unit=" tỷ USD", freq="monthly"),
+                _macro_summary_row("imports", "Nhập khẩu", unit=" tỷ USD", freq="monthly"),
+            ]
+            st.dataframe(pd.DataFrame(trade_rows), hide_index=True, width="stretch")
+            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo tháng")
+            _exp_df, _imp_df = load_macro_indicator("exports"), load_macro_indicator("imports")
+            if not _exp_df.empty or not _imp_df.empty:
+                _macro_line_chart({"Xuất khẩu": _exp_df, "Nhập khẩu": _imp_df},
+                                   "Xuất khẩu & Nhập khẩu (theo tháng)", unit=" tỷ USD")
+            _macro_line_chart({"Cán cân thương mại": load_macro_indicator("trade_balance")},
+                               "Cán cân thương mại (theo tháng)", unit=" tỷ USD")
 
         elif _vm_sel == "Lao động & Việc làm":
             labor_rows = [
@@ -5992,10 +5941,6 @@ elif view == "Tổng quan Thị trường":
                 _macro_line_chart({"Thu nhập bình quân": load_macro_indicator("avg_income")},
                                    "Thu nhập bình quân người lao động (theo quý)", unit=" triệu đồng/tháng")
 
-            st.divider()
-            st.caption("So sánh dài hạn (World Bank, theo năm):")
-            _wb_category_tab("Lao động")
-
         elif _vm_sel == "Tiền tệ & Tỷ giá":
             _fx_df = load_macro_indicator("exchange_rate")
             if not _fx_df.empty:
@@ -6011,16 +5956,18 @@ elif view == "Tổng quan Thị trường":
                 fig_fx.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0),
                                       dragmode=False, yaxis_title="VND")
                 st.plotly_chart(fig_fx, width="stretch")
-                st.caption(f"Nguồn: vnstock (MSN, USD/VND) · Cập nhật đến {_fx_df['period'].iloc[-1]:%d/%m/%Y} "
-                           "— thay cho World Bank (theo năm, trễ 1-2 năm)")
-                st.divider()
-            _wb_category_tab("Tiền tệ")
+                st.caption(f"Nguồn: vnstock (MSN, USD/VND) · Cập nhật đến {_fx_df['period'].iloc[-1]:%d/%m/%Y}")
+            else:
+                st.info("Chưa có dữ liệu tỷ giá.")
 
         elif _vm_sel == "Tiêu dùng":
-            _wb_category_tab("Tiêu dùng")
-
-        elif _vm_sel == "Thuế":
-            _wb_category_tab("Thuế")
+            cons_rows = [
+                _macro_summary_row("retail_sales_growth", "Tăng trưởng bán lẻ hàng hóa & dịch vụ", freq="monthly"),
+            ]
+            st.dataframe(pd.DataFrame(cons_rows), hide_index=True, width="stretch")
+            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo tháng")
+            _macro_line_chart({"Tăng trưởng bán lẻ": load_macro_indicator("retail_sales_growth")},
+                               "Tăng trưởng bán lẻ hàng hóa & dịch vụ tiêu dùng (so với cùng kỳ năm trước)")
 
         elif _vm_sel == "Lãi suất":
             _lend_df = load_macro_indicator("lending_rate")
@@ -6050,6 +5997,6 @@ elif view == "Tổng quan Thị trường":
                 st.plotly_chart(fig_rate, width="stretch")
                 _rate_latest = max(d["period"].max() for d in [_lend_df, _dep_df] if not d.empty)
                 st.caption(f"Nguồn: Ngân hàng Nhà nước (sbv.gov.vn), bản tin lãi suất hàng tháng · "
-                           f"Cập nhật đến {_rate_latest:%m/%Y} — thay cho World Bank (theo năm, trễ đến 2023)")
-                st.divider()
-            _wb_category_tab("Lãi suất")
+                           f"Cập nhật đến {_rate_latest:%m/%Y}")
+            else:
+                st.info("Chưa có dữ liệu lãi suất.")
