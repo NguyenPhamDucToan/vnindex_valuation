@@ -1941,6 +1941,123 @@ if view == "Phân tích Cổ phiếu":
     _render_company_header(ticker, prices_df, _co_name, _co_exch, _co_sect, _sh, _eq, _ni, _ebit_, _dep_, _debt_, _cash_)
     st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:0 0 8px 0;">', unsafe_allow_html=True)
 
+    # ── Cổ đông lớn & Ban lãnh đạo ────────────────────────────────
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _load_shareholders(t: str):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from vnstock import Vnstock
+            stk = Vnstock().stock(symbol=t, source="VCI")
+            return stk.company.shareholders(), stk.company.officers()
+
+    def _owner_type(name: str) -> str:
+        n = (name or "").upper()
+        if any(k in n for k in ["NHÀ NƯỚC", "SCIC", "TỔNG CÔNG TY ĐẦU TƯ VÀ KINH DOANH VỐN",
+                                 "UBND", "BỘ TÀI CHÍNH"]):
+            return "Nhà nước"
+        if any(k in n for k in ["ETF", "FUND", "TRUST", "LIMITED", "PTE", "LTD",
+                                 "INTERNATIONAL", "GLOBAL", "VANGUARD", "FIDELITY",
+                                 "MATTHEWS", "NORGES", "DEUTSCHE", "BARCLAYS",
+                                 "MERCER", "BROWN", "PZENA", "FUBON", "CITIGROUP"]):
+            return "Nước ngoài"
+        if any(k in n for k in ["QUỸ", "CÔNG TY TNHH", "CÔNG TY CỔ PHẦN", "NGÂN HÀNG"]):
+            return "Tổ chức trong nước"
+        return "Cá nhân"
+
+    _TYPE_COLORS = {
+        "Nhà nước":           "#60a5fa",
+        "Nước ngoài":         "#34d399",
+        "Tổ chức trong nước": "#fb923c",
+        "Cá nhân":            "#c084fc",
+        "Khác (nhỏ lẻ)":     "#475569",
+    }
+
+    with st.expander("🏛 Cổ đông lớn & Ban lãnh đạo", expanded=True):
+        try:
+            with st.spinner("Đang tải dữ liệu cổ đông..."):
+                _sh_df, _off_df = _load_shareholders(ticker)
+
+            _sh_df = _sh_df.copy()
+            _sh_df["_type"] = _sh_df["share_holder"].apply(_owner_type)
+            _sh_df["_pct"]  = (_sh_df["share_own_percent"] * 100).round(3)
+            _top12 = _sh_df.nlargest(12, "_pct").iloc[::-1]  # ascending for horizontal bar
+
+            # Truncate long names for display, keep full name in hover
+            def _short(name: str) -> str:
+                return name if len(name) <= 42 else name[:40] + "…"
+
+            _sh_col, _pie_col = st.columns([3, 2], gap="large")
+
+            with _sh_col:
+                st.caption("Top 12 cổ đông lớn nhất · màu theo nhóm sở hữu")
+                _bar_colors = [_TYPE_COLORS.get(t, "#94a3b8") for t in _top12["_type"]]
+                _short_names = [_short(n) for n in _top12["share_holder"]]
+                _fig_sh = go.Figure(go.Bar(
+                    x=_top12["_pct"],
+                    y=_short_names,
+                    orientation="h",
+                    marker_color=_bar_colors,
+                    text=[f"{p:.2f}%" for p in _top12["_pct"]],
+                    textposition="outside",
+                    customdata=_top12["share_holder"],
+                    hovertemplate="<b>%{customdata}</b><br>%{x:.3f}%<extra></extra>",
+                ))
+                _fig_sh.update_layout(
+                    height=400, margin=dict(l=0, r=70, t=4, b=0),
+                    dragmode=False, showlegend=False,
+                    xaxis=dict(title="Tỷ lệ sở hữu (%)", ticksuffix="%"),
+                    yaxis=dict(tickfont=dict(size=12), automargin=True),
+                )
+                st.plotly_chart(_fig_sh, width="stretch")
+
+            with _pie_col:
+                st.caption("Cơ cấu theo nhóm")
+                _grp = _sh_df.groupby("_type")["_pct"].sum().reset_index()
+                _other = round(max(0.0, 100.0 - _grp["_pct"].sum()), 2)
+                if _other > 0.1:
+                    _grp = pd.concat(
+                        [_grp, pd.DataFrame([{"_type": "Khác (nhỏ lẻ)", "_pct": _other}])],
+                        ignore_index=True,
+                    )
+                _fig_pie = go.Figure(go.Pie(
+                    labels=_grp["_type"],
+                    values=_grp["_pct"],
+                    marker_colors=[_TYPE_COLORS.get(t, "#475569") for t in _grp["_type"]],
+                    hole=0.48,
+                    textinfo="label+percent",
+                    textfont_size=13,
+                    insidetextorientation="radial",
+                    hovertemplate="%{label}: <b>%{value:.2f}%</b><extra></extra>",
+                ))
+                _fig_pie.update_layout(
+                    height=400, margin=dict(l=10, r=10, t=10, b=10),
+                    dragmode=False, showlegend=False,
+                )
+                st.plotly_chart(_fig_pie, width="stretch")
+
+            # ── Officers ─────────────────────────────────────────
+            if not _off_df.empty:
+                _off_show = (
+                    _off_df[["officer_name", "officer_position", "officer_own_percent"]]
+                    .copy()
+                    .rename(columns={
+                        "officer_name":        "Họ tên",
+                        "officer_position":    "Chức vụ",
+                        "officer_own_percent": "Sở hữu (%)",
+                    })
+                )
+                _off_show["Sở hữu (%)"] = (_off_show["Sở hữu (%)"] * 100).round(4)
+                _off_show = _off_show[_off_show["Sở hữu (%)"] > 0].reset_index(drop=True)
+                if not _off_show.empty:
+                    st.caption("Ban lãnh đạo có cổ phần")
+                    st.dataframe(_off_show, hide_index=True, width="stretch")
+
+        except Exception as _sh_err:
+            st.info(f"Không thể tải dữ liệu cổ đông: {_sh_err}")
+
+    st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:4px 0 12px 0;">', unsafe_allow_html=True)
+
     # During trading hours, overlay a live quote on top of the last stored
     # (previous-day) EOD bar — DB is only refreshed after market close.
     # Used by the valuation comparisons below.
@@ -4322,113 +4439,6 @@ if view == "Phân tích Cổ phiếu":
                 f"Xanh = cao hơn giá thị trường (tín hiệu định giá thấp)</div>",
                 unsafe_allow_html=True)
 
-    # ══════════════════════════════════════════════════════════════
-    # Cổ đông lớn & Ban lãnh đạo
-    # ══════════════════════════════════════════════════════════════
-    st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:24px 0 16px;">', unsafe_allow_html=True)
-    st.markdown("### Cổ đông lớn & Ban lãnh đạo")
-
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def _load_shareholders(t: str):
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from vnstock import Vnstock
-            stk = Vnstock().stock(symbol=t, source="VCI")
-            sh  = stk.company.shareholders()
-            off = stk.company.officers()
-        return sh, off
-
-    try:
-        with st.spinner("Đang tải dữ liệu cổ đông..."):
-            _sh_df, _off_df = _load_shareholders(ticker)
-
-        # ── Ownership type classification ───────────────────────
-        def _owner_type(name: str) -> str:
-            n = (name or "").upper()
-            if any(k in n for k in ["NHÀ NƯỚC", "SCIC", "TỔNG CÔNG TY ĐẦU TƯ VÀ KINH DOANH VỐN",
-                                     "UBND", "BỘ TÀI CHÍNH"]):
-                return "Nhà nước"
-            if any(k in n for k in ["ETF", "FUND", "TRUST", "LIMITED", "PTE", "LTD",
-                                     "INTERNATIONAL", "GLOBAL", "VANGUARD", "FIDELITY",
-                                     "MATTHEWS", "NORGES", "DEUTSCHE", "BARCLAYS",
-                                     "MERCER", "BROWN", "PZENA", "FUBON", "CITIGROUP"]):
-                return "Nước ngoài"
-            if any(k in n for k in ["QUỸ", "CÔNG TY TNHH", "CÔNG TY CỔ PHẦN", "NGÂN HÀNG"]):
-                return "Tổ chức trong nước"
-            return "Cá nhân"
-
-        _sh_df = _sh_df.copy()
-        _sh_df["_type"] = _sh_df["share_holder"].apply(_owner_type)
-        _sh_df["_pct"]  = (_sh_df["share_own_percent"] * 100).round(2)
-
-        # Top 15 by ownership
-        _top15 = _sh_df.nlargest(15, "_pct")
-
-        _type_colors = {
-            "Nhà nước":          "#60a5fa",
-            "Nước ngoài":        "#34d399",
-            "Tổ chức trong nước":"#fb923c",
-            "Cá nhân":           "#c084fc",
-        }
-
-        _col_sh, _col_pie = st.columns([3, 2], gap="large")
-
-        with _col_sh:
-            st.caption("Top 15 cổ đông lớn nhất")
-            _bar_colors = [_type_colors.get(t, "#94a3b8") for t in _top15["_type"]]
-            _fig_sh = go.Figure(go.Bar(
-                x=_top15["_pct"],
-                y=_top15["share_holder"],
-                orientation="h",
-                marker_color=_bar_colors,
-                text=[f"{p:.2f}%" for p in _top15["_pct"]],
-                textposition="outside",
-                hovertemplate="%{y}<br><b>%{x:.3f}%</b><extra></extra>",
-            ))
-            _fig_sh.update_layout(
-                height=420, margin=dict(l=0, r=60, t=4, b=0),
-                dragmode=False, showlegend=False,
-                xaxis_title="Tỷ lệ sở hữu (%)",
-                yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
-            )
-            st.plotly_chart(_fig_sh, width="stretch")
-
-        with _col_pie:
-            st.caption("Cơ cấu sở hữu theo nhóm")
-            _grp = _sh_df.groupby("_type")["_pct"].sum().reset_index()
-            _other = max(0.0, 100.0 - _grp["_pct"].sum())
-            if _other > 0.1:
-                import pandas as _pd2
-                _grp = _pd2.concat([_grp, _pd2.DataFrame([{"_type": "Khác (nhỏ lẻ)", "_pct": _other}])],
-                                    ignore_index=True)
-            _pie_colors = [_type_colors.get(t, "#475569") for t in _grp["_type"]]
-            _fig_pie = go.Figure(go.Pie(
-                labels=_grp["_type"],
-                values=_grp["_pct"],
-                marker_colors=_pie_colors,
-                hole=0.45,
-                textinfo="label+percent",
-                textfont_size=12,
-                hovertemplate="%{label}: <b>%{value:.2f}%</b><extra></extra>",
-            ))
-            _fig_pie.update_layout(
-                height=420, margin=dict(l=0, r=0, t=4, b=0),
-                dragmode=False, showlegend=False,
-            )
-            st.plotly_chart(_fig_pie, width="stretch")
-
-        # ── Officers / Ban lãnh đạo ─────────────────────────────
-        if not _off_df.empty:
-            st.caption("Ban lãnh đạo")
-            _off_show = _off_df[["officer_name", "officer_position", "officer_own_percent"]].copy()
-            _off_show.columns = ["Họ tên", "Chức vụ", "Tỷ lệ SH (%)"]
-            _off_show["Tỷ lệ SH (%)"] = (_off_show["Tỷ lệ SH (%)"] * 100).round(4)
-            _off_show = _off_show[_off_show["Tỷ lệ SH (%)"] > 0].reset_index(drop=True)
-            st.dataframe(_off_show, hide_index=True, width="stretch")
-
-    except Exception as _sh_err:
-        st.info(f"Không thể tải dữ liệu cổ đông: {_sh_err}")
 
 # ═══════════════════════════════════════════════════════════════
 # VIEW 2 — VALUATION SCREEN
