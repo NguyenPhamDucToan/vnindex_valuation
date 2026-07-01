@@ -4418,62 +4418,73 @@ if view == "Phân tích Cổ phiếu":
                 unsafe_allow_html=True,
             )
 
-            # Trend chart: ROIC each year vs WACC reference line
+            # Trend chart: stacked bar — gray=WACC base, color=spread above WACC
             if len(_roic_by_year) >= 2:
-                _years_lbl = [y for y, _ in _roic_by_year]
-                _roic_vals = [v for _, v in _roic_by_year]
-                _wacc_pct  = _wacc_val * 100
-                _bar_clrs  = [
-                    "rgba(34,197,94,0.85)" if v >= _wacc_pct else "rgba(239,68,68,0.85)"
-                    for v in _roic_vals
+                _years_lbl  = [y for y, _ in _roic_by_year]
+                _roic_vals  = [v for _, v in _roic_by_year]
+                _wacc_pct   = _wacc_val * 100
+                _spread_vals = [v - _wacc_pct for v in _roic_vals]
+                _ymax = max(_roic_vals) + 7
+                _sp_clrs = [
+                    "rgba(34,197,94,0.85)" if s >= 0 else "rgba(239,68,68,0.85)"
+                    for s in _spread_vals
                 ]
-                _ymax = max(_roic_vals) + 6
                 _fig_rw = go.Figure()
-                # Subtle green shading above WACC (value-creation zone)
-                _fig_rw.add_hrect(
-                    y0=_wacc_pct, y1=_ymax,
-                    fillcolor="rgba(34,197,94,0.05)", line_width=0,
-                )
+                # Gray base: 0 → WACC (minimum required return)
                 _fig_rw.add_trace(go.Bar(
-                    x=_years_lbl, y=_roic_vals,
-                    marker=dict(
-                        color=_bar_clrs,
-                        line=dict(color="rgba(255,255,255,0.08)", width=1),
-                    ),
-                    name="ROIC",
-                    text=[f"{v:.1f}%" for v in _roic_vals],
-                    textposition="inside",
-                    textfont=dict(color="white", size=13),
-                    hovertemplate="%{x}: ROIC <b>%{y:.2f}%</b><extra></extra>",
-                    width=0.5,
+                    x=_years_lbl,
+                    y=[_wacc_pct] * len(_years_lbl),
+                    marker=dict(color="rgba(71,85,105,0.45)", line=dict(width=0)),
+                    hoverinfo="skip", showlegend=False, width=0.45,
                 ))
-                # WACC dashed line with right-side label
+                # Colored top: WACC → ROIC (value created)
+                _fig_rw.add_trace(go.Bar(
+                    x=_years_lbl,
+                    y=_spread_vals,
+                    base=[_wacc_pct] * len(_years_lbl),
+                    marker=dict(
+                        color=_sp_clrs,
+                        line=dict(color="rgba(255,255,255,0.12)", width=1),
+                    ),
+                    text=[f"ROIC {v:.1f}%" for v in _roic_vals],
+                    textposition="outside",
+                    textfont=dict(color="#cbd5e1", size=12),
+                    hovertemplate=(
+                        "<b>%{x}</b><br>"
+                        "ROIC: <b>%{customdata:.1f}%</b><br>"
+                        "Spread: <b>%{y:+.1f}%</b><extra></extra>"
+                    ),
+                    customdata=_roic_vals,
+                    showlegend=False, width=0.45,
+                ))
+                # WACC line + avg ROIC line
                 _fig_rw.add_hline(
                     y=_wacc_pct,
                     line=dict(color="#f59e0b", dash="dash", width=2),
                     annotation_text=f"WACC {_wacc_pct:.1f}%",
-                    annotation_position="top right",
-                    annotation_font=dict(color="#f59e0b", size=12),
+                    annotation_position="right",
+                    annotation_font=dict(color="#f59e0b", size=11),
                 )
-                # Avg ROIC dotted line with left-side label
                 _fig_rw.add_hline(
                     y=_avg_roic,
                     line=dict(color="#60a5fa", dash="dot", width=1.5),
-                    annotation_text=f"TB {_avg_roic:.1f}%",
-                    annotation_position="top left",
+                    annotation_text=f"TB ROIC {_avg_roic:.1f}%",
+                    annotation_position="right",
                     annotation_font=dict(color="#60a5fa", size=11),
                 )
                 _fig_rw.update_layout(
-                    height=260,
-                    margin=dict(l=10, r=90, t=16, b=10),
+                    barmode="stack",
+                    height=290,
+                    margin=dict(l=10, r=120, t=28, b=10),
                     dragmode=False, showlegend=False,
                     plot_bgcolor="rgba(15,23,42,0)",
                     paper_bgcolor="rgba(0,0,0,0)",
                     yaxis=dict(
                         ticksuffix="%", title="",
-                        gridcolor="rgba(148,163,184,0.1)",
+                        gridcolor="rgba(148,163,184,0.08)",
                         zeroline=False,
                         range=[0, _ymax],
+                        tickfont=dict(size=11),
                     ),
                     xaxis=dict(title="", tickfont=dict(size=13)),
                     bargap=0.45,
