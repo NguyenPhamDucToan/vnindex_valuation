@@ -4322,6 +4322,72 @@ if view == "Phân tích Cổ phiếu":
                 f"Xanh = cao hơn giá thị trường (tín hiệu định giá thấp)</div>",
                 unsafe_allow_html=True)
 
+    # ══════════════════════════════════════════════════════════════
+    # Báo cáo thường niên — qualitative content from annual reports
+    # ══════════════════════════════════════════════════════════════
+    st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:24px 0 16px;">', unsafe_allow_html=True)
+    st.markdown("### Báo cáo thường niên")
+
+    @st.cache_data(ttl=3600)
+    def _ar_get_years(t: str) -> list[int]:
+        from collectors.annual_report_collector import get_available_years
+        return get_available_years(t)
+
+    _ar_years = _ar_get_years(ticker)
+
+    if not _ar_years:
+        st.info("Không tìm thấy dữ liệu báo cáo thường niên cho mã này trong dataset.")
+    else:
+        _ar_c1, _ar_c2, _ar_c3 = st.columns([2, 2, 8])
+        _ar_year = _ar_c1.selectbox(
+            "Năm báo cáo", _ar_years, key=f"ar_year_{ticker}", label_visibility="collapsed"
+        )
+
+        from collectors.annual_report_collector import (
+            is_pdf_cached, fetch_annual_report_pdf, extract_report_sections, SECTIONS,
+        )
+
+        _ar_cached = is_pdf_cached(ticker, _ar_year)
+        _ar_btn_label = "📄 Tải lại" if _ar_cached else "📄 Tải báo cáo"
+        _ar_btn = _ar_c2.button(_ar_btn_label, key=f"ar_fetch_{ticker}_{_ar_year}")
+
+        if _ar_btn:
+            with st.spinner(f"Đang tải báo cáo {ticker} {_ar_year} từ Zenodo..."):
+                _ar_pdf = fetch_annual_report_pdf(ticker, _ar_year)
+            if _ar_pdf:
+                mb = _ar_pdf.stat().st_size / 1e6
+                st.success(f"Đã tải: {_ar_pdf.name} ({mb:.1f} MB)")
+                st.rerun()
+            else:
+                st.error("Không thể tải báo cáo. Kiểm tra kết nối internet hoặc mã không có trong dataset.")
+
+        if _ar_cached:
+            _ar_sections = extract_report_sections(ticker, _ar_year)
+
+            if _ar_sections.get("_scanned") == "1":
+                st.warning(
+                    "Báo cáo này là file scan (ảnh chụp). "
+                    "Không thể trích xuất văn bản tự động — vui lòng mở file gốc."
+                )
+            elif _ar_sections:
+                _ar_found = [k for k in SECTIONS if k in _ar_sections]
+                if not _ar_found and "raw_intro" in _ar_sections:
+                    with st.expander("📑 Nội dung trang đầu", expanded=True):
+                        st.text(_ar_sections["raw_intro"])
+                else:
+                    for _ar_key in _ar_found:
+                        with st.expander(
+                            f"📑 {SECTIONS[_ar_key]['label']}",
+                            expanded=(_ar_key == "gioi_thieu"),
+                        ):
+                            st.text(_ar_sections[_ar_key])
+                    if not _ar_found:
+                        st.info("Không tìm thấy phần nào được nhận diện trong báo cáo này.")
+            else:
+                st.info("Đang trích xuất nội dung báo cáo...")
+        else:
+            st.caption(f"Báo cáo {_ar_year} chưa được tải. Nhấn 'Tải báo cáo' để xem nội dung định tính.")
+
 # ═══════════════════════════════════════════════════════════════
 # VIEW 2 — VALUATION SCREEN
 # ═══════════════════════════════════════════════════════════════
