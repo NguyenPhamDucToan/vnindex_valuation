@@ -4439,7 +4439,7 @@ if view == "Phân tích Cổ phiếu":
                     x=_years_lbl, y=_roic_vals,
                     mode="lines+markers+text",
                     fill="tonexty",
-                    fillcolor="rgba(74,222,128,0.12)",
+                    fillcolor="rgba(74,222,128,0.25)",
                     line=dict(color="#4ade80", width=2.5),
                     marker=dict(
                         size=10, color="#22c55e",
@@ -4468,10 +4468,13 @@ if view == "Phân tích Cổ phiếu":
                         ticksuffix="%", title="",
                         gridcolor="rgba(148,163,184,0.07)",
                         zeroline=False,
-                        range=[_ymin, _ymax],
+                        range=[_wacc_pct - 2, _ymax],
                         tickfont=dict(size=11),
                     ),
-                    xaxis=dict(title="", tickfont=dict(size=13)),
+                    xaxis=dict(
+                        title="", tickfont=dict(size=13),
+                        type="category",
+                    ),
                     font=dict(color="#cbd5e1"),
                 )
                 st.plotly_chart(_fig_rw, width="stretch")
