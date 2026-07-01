@@ -4418,46 +4418,39 @@ if view == "Phân tích Cổ phiếu":
                 unsafe_allow_html=True,
             )
 
-            # Trend chart: stacked bar — gray=WACC base, color=spread above WACC
+            # Trend chart: line + filled area between ROIC and WACC
             if len(_roic_by_year) >= 2:
-                _years_lbl  = [y for y, _ in _roic_by_year]
-                _roic_vals  = [v for _, v in _roic_by_year]
-                _wacc_pct   = _wacc_val * 100
-                _spread_vals = [v - _wacc_pct for v in _roic_vals]
-                _ymax = max(_roic_vals) + 7
-                _sp_clrs = [
-                    "rgba(34,197,94,0.85)" if s >= 0 else "rgba(239,68,68,0.85)"
-                    for s in _spread_vals
-                ]
+                _years_lbl = [y for y, _ in _roic_by_year]
+                _roic_vals = [v for _, v in _roic_by_year]
+                _wacc_pct  = _wacc_val * 100
+                _ymin = max(0, _wacc_pct - 6)
+                _ymax = max(_roic_vals) + 5
                 _fig_rw = go.Figure()
-                # Gray base: 0 → WACC (minimum required return)
-                _fig_rw.add_trace(go.Bar(
+                # Invisible WACC baseline — tonexty fills between this and ROIC
+                _fig_rw.add_trace(go.Scatter(
                     x=_years_lbl,
                     y=[_wacc_pct] * len(_years_lbl),
-                    marker=dict(color="rgba(71,85,105,0.45)", line=dict(width=0)),
-                    hoverinfo="skip", showlegend=False, width=0.45,
+                    mode="lines",
+                    line=dict(color="rgba(0,0,0,0)", width=0),
+                    showlegend=False, hoverinfo="skip",
                 ))
-                # Colored top: WACC → ROIC (value created)
-                _fig_rw.add_trace(go.Bar(
-                    x=_years_lbl,
-                    y=_spread_vals,
-                    base=[_wacc_pct] * len(_years_lbl),
+                # ROIC line filled down to WACC level
+                _fig_rw.add_trace(go.Scatter(
+                    x=_years_lbl, y=_roic_vals,
+                    mode="lines+markers+text",
+                    fill="tonexty",
+                    fillcolor="rgba(74,222,128,0.12)",
+                    line=dict(color="#4ade80", width=2.5),
                     marker=dict(
-                        color=_sp_clrs,
-                        line=dict(color="rgba(255,255,255,0.12)", width=1),
+                        size=10, color="#22c55e",
+                        line=dict(color="rgba(255,255,255,0.5)", width=1.5),
                     ),
-                    text=[f"ROIC {v:.1f}%" for v in _roic_vals],
-                    textposition="outside",
-                    textfont=dict(color="#cbd5e1", size=12),
-                    hovertemplate=(
-                        "<b>%{x}</b><br>"
-                        "ROIC: <b>%{customdata:.1f}%</b><br>"
-                        "Spread: <b>%{y:+.1f}%</b><extra></extra>"
-                    ),
-                    customdata=_roic_vals,
-                    showlegend=False, width=0.45,
+                    text=[f"  {v:.1f}%" for v in _roic_vals],
+                    textposition="top right",
+                    textfont=dict(size=11, color="#94a3b8"),
+                    hovertemplate="%{x}: ROIC <b>%{y:.1f}%</b><extra></extra>",
+                    showlegend=False,
                 ))
-                # WACC line + avg ROIC line
                 _fig_rw.add_hline(
                     y=_wacc_pct,
                     line=dict(color="#f59e0b", dash="dash", width=2),
@@ -4465,29 +4458,20 @@ if view == "Phân tích Cổ phiếu":
                     annotation_position="right",
                     annotation_font=dict(color="#f59e0b", size=11),
                 )
-                _fig_rw.add_hline(
-                    y=_avg_roic,
-                    line=dict(color="#60a5fa", dash="dot", width=1.5),
-                    annotation_text=f"TB ROIC {_avg_roic:.1f}%",
-                    annotation_position="right",
-                    annotation_font=dict(color="#60a5fa", size=11),
-                )
                 _fig_rw.update_layout(
-                    barmode="stack",
-                    height=290,
-                    margin=dict(l=10, r=120, t=28, b=10),
+                    height=230,
+                    margin=dict(l=10, r=110, t=12, b=10),
                     dragmode=False, showlegend=False,
-                    plot_bgcolor="rgba(15,23,42,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
                     paper_bgcolor="rgba(0,0,0,0)",
                     yaxis=dict(
                         ticksuffix="%", title="",
-                        gridcolor="rgba(148,163,184,0.08)",
+                        gridcolor="rgba(148,163,184,0.07)",
                         zeroline=False,
-                        range=[0, _ymax],
+                        range=[_ymin, _ymax],
                         tickfont=dict(size=11),
                     ),
                     xaxis=dict(title="", tickfont=dict(size=13)),
-                    bargap=0.45,
                     font=dict(color="#cbd5e1"),
                 )
                 st.plotly_chart(_fig_rw, width="stretch")
