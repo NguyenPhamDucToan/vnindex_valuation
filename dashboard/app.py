@@ -4343,9 +4343,9 @@ if view == "Phân tích Cổ phiếu":
                     .where(Financial.ticker == t, Financial.period_type == "Y")
                     .order_by(Financial.period.desc())
                 ).scalars().all()
-            return [{"year": str(r.period)[:4], "ebit": r.ebit,
-                     "debt": r.debt, "equity": r.equity, "cash": r.cash}
-                    for r in _rows[:5]]
+                return [{"year": str(r.period)[:4], "ebit": r.ebit,
+                         "debt": r.debt, "equity": r.equity, "cash": r.cash}
+                        for r in _rows[:5]]
 
         _ann_fin = _load_annual_fin(ticker)
         _roic_by_year: list[tuple[str, float]] = []
