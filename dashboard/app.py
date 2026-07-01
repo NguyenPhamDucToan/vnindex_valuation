@@ -4422,34 +4422,64 @@ if view == "Phân tích Cổ phiếu":
             if len(_roic_by_year) >= 2:
                 _years_lbl = [y for y, _ in _roic_by_year]
                 _roic_vals = [v for _, v in _roic_by_year]
-                _wacc_line = [_wacc_val * 100] * len(_years_lbl)
-                _bar_clrs  = ["#22c55e" if v >= _wacc_val * 100 else "#ef4444" for v in _roic_vals]
+                _wacc_pct  = _wacc_val * 100
+                _bar_clrs  = [
+                    "rgba(34,197,94,0.85)" if v >= _wacc_pct else "rgba(239,68,68,0.85)"
+                    for v in _roic_vals
+                ]
+                _ymax = max(_roic_vals) + 6
                 _fig_rw = go.Figure()
+                # Subtle green shading above WACC (value-creation zone)
+                _fig_rw.add_hrect(
+                    y0=_wacc_pct, y1=_ymax,
+                    fillcolor="rgba(34,197,94,0.05)", line_width=0,
+                )
                 _fig_rw.add_trace(go.Bar(
                     x=_years_lbl, y=_roic_vals,
-                    marker_color=_bar_clrs,
+                    marker=dict(
+                        color=_bar_clrs,
+                        line=dict(color="rgba(255,255,255,0.08)", width=1),
+                    ),
                     name="ROIC",
                     text=[f"{v:.1f}%" for v in _roic_vals],
-                    textposition="outside",
+                    textposition="inside",
+                    textfont=dict(color="white", size=13),
                     hovertemplate="%{x}: ROIC <b>%{y:.2f}%</b><extra></extra>",
+                    width=0.5,
                 ))
-                _fig_rw.add_trace(go.Scatter(
-                    x=_years_lbl, y=_wacc_line,
-                    mode="lines", name=f"WACC {_wacc_val*100:.1f}%",
+                # WACC dashed line with right-side label
+                _fig_rw.add_hline(
+                    y=_wacc_pct,
                     line=dict(color="#f59e0b", dash="dash", width=2),
-                    hovertemplate=f"WACC {_wacc_val*100:.1f}%<extra></extra>",
-                ))
+                    annotation_text=f"WACC {_wacc_pct:.1f}%",
+                    annotation_position="top right",
+                    annotation_font=dict(color="#f59e0b", size=12),
+                )
+                # Avg ROIC dotted line with left-side label
+                _fig_rw.add_hline(
+                    y=_avg_roic,
+                    line=dict(color="#60a5fa", dash="dot", width=1.5),
+                    annotation_text=f"TB {_avg_roic:.1f}%",
+                    annotation_position="top left",
+                    annotation_font=dict(color="#60a5fa", size=11),
+                )
                 _fig_rw.update_layout(
-                    height=240, margin=dict(l=0, r=20, t=10, b=0),
-                    dragmode=False, showlegend=True,
-                    legend=dict(orientation="h", y=1.12, x=0),
-                    yaxis=dict(ticksuffix="%", title=""),
-                    xaxis=dict(title=""),
-                    bargap=0.35,
+                    height=260,
+                    margin=dict(l=10, r=90, t=16, b=10),
+                    dragmode=False, showlegend=False,
+                    plot_bgcolor="rgba(15,23,42,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    yaxis=dict(
+                        ticksuffix="%", title="",
+                        gridcolor="rgba(148,163,184,0.1)",
+                        zeroline=False,
+                        range=[0, _ymax],
+                    ),
+                    xaxis=dict(title="", tickfont=dict(size=13)),
+                    bargap=0.45,
+                    font=dict(color="#cbd5e1"),
                 )
                 st.plotly_chart(_fig_rw, width="stretch")
-                st.caption(f"Xanh = ROIC vượt WACC (tạo giá trị) · Đỏ = ROIC dưới WACC (phá hủy giá trị) · "
-                           f"Đường vàng = WACC hiện tại {_wacc_val*100:.1f}%")
 
 
     # ── Valuation Football Field ───────────────────────────────
