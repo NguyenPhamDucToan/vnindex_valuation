@@ -107,7 +107,7 @@ from models.schema import Financial, Price, Company, Valuation, PinnedTicker, Ma
 from valuation.inputs import compute_ttm, compute_fcff_ttm, prepare_dcf_inputs, build_quarter_history
 from valuation.dcf import dcf_valuation
 from valuation.graham import graham_number, bvps_from_financials
-from valuation.wacc import cost_of_equity, DEFAULT_BETA, DEFAULT_COD
+from valuation.wacc import cost_of_equity, DEFAULT_BETA, DEFAULT_COD, wacc as _wacc_calc, compute_beta
 from valuation.multiples import (
     pb_implied, ev_ebitda_implied, epv_implied,
     ps_implied, residual_income_implied, pocf_implied,
@@ -4334,7 +4334,7 @@ if view == "Phân tích Cổ phiếu":
 
         # ── ROIC vs WACC — multi-period average ─────────────────
         # ROIC: 5-year average (smooths cyclicality / one-off items)
-        # WACC: current (reflects today's cost of capital — averaging is meaningless)
+        # WACC: computed live from price-history beta (not stored DEFAULT_BETA)
         @st.cache_data(ttl=3600, show_spinner=False)
         def _load_annual_fin(t: str) -> list[dict]:
             with get_session() as _s:
@@ -4347,6 +4347,10 @@ if view == "Phân tích Cổ phiếu":
                          "debt": r.debt, "equity": r.equity, "cash": r.cash}
                         for r in _rows[:5]]
 
+        @st.cache_data(ttl=86400, show_spinner=False)
+        def _load_beta(t: str) -> float:
+            return compute_beta(t)
+
         _ann_fin = _load_annual_fin(ticker)
         _roic_by_year: list[tuple[str, float]] = []
         for _row in reversed(_ann_fin):
@@ -4357,8 +4361,11 @@ if view == "Phân tích Cổ phiếu":
         _avg_roic = (sum(v for _, v in _roic_by_year) / len(_roic_by_year)
                      if _roic_by_year else None)
 
-        _dcf_r    = get_dcf(ticker)
-        _wacc_val = _dcf_r.get("wacc") if _dcf_r else None
+        # Live WACC: computed beta from price history + TTM capital structure
+        _ticker_beta = _load_beta(ticker)
+        _ttm_debt    = ttm.get("debt") or 0.0
+        _ttm_equity  = ttm.get("equity") or 1.0
+        _wacc_val    = _wacc_calc(_ticker_beta, DEFAULT_COD, _ttm_debt, _ttm_equity)
 
         if _avg_roic is not None and _wacc_val is not None:
             _rw_diff   = _avg_roic / 100 - _wacc_val
@@ -4406,7 +4413,8 @@ if view == "Phân tích Cổ phiếu":
                 '<div class="dp-row" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
                 + _rw_card(f"ROIC TB {_n_years} năm", f"{_avg_roic:.1f}%", _roic_c,
                            f"Trung bình {' · '.join(y for y, _ in _roic_by_year)}")
-                + _rw_card("WACC hiện tại", f"{_wacc_val*100:.1f}%", _wacc_c, "Chi phí vốn bình quân")
+                + _rw_card("WACC hiện tại", f"{_wacc_val*100:.1f}%", _wacc_c,
+                           f"β={_ticker_beta:.2f} · CoD={DEFAULT_COD*100:.0f}%")
                 + _rw_card("Spread (ROIC−WACC)", f"{_rw_gap_pp:+.1f} đ.%", _rw_color, "Dương = tạo giá trị")
                 + '</div>',
                 unsafe_allow_html=True,

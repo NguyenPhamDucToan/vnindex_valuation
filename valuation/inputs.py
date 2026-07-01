@@ -17,7 +17,7 @@ from sqlalchemy import select
 from config import TAX_RATE
 from models.database import get_session
 from models.schema import Financial
-from valuation.wacc import DEFAULT_BETA, DEFAULT_COD
+from valuation.wacc import DEFAULT_COD
 
 # Flow items: summed across the 4 quarters for TTM
 _FLOW = [
@@ -157,8 +157,9 @@ def prepare_dcf_inputs(ticker: str) -> dict | None:
     shares_millions = ttm.get("shares_outstanding") or 0.0
 
     # Growth rate: prefer annual CAGR, cap at WACC-3% to ensure meaningful spread
-    from valuation.wacc import wacc as calc_wacc, DEFAULT_BETA, DEFAULT_COD
-    wacc_est = calc_wacc(DEFAULT_BETA, DEFAULT_COD, debt_bn, equity_bn)
+    from valuation.wacc import wacc as calc_wacc, DEFAULT_COD, compute_beta
+    beta = compute_beta(ticker)
+    wacc_est = calc_wacc(beta, DEFAULT_COD, debt_bn, equity_bn)
     max_growth = max(0.02, wacc_est - 0.03)   # always keep 3% spread vs WACC
 
     hist_growth = annual_fcff_growth(ticker)
@@ -175,7 +176,7 @@ def prepare_dcf_inputs(ticker: str) -> dict | None:
         "net_debt_bn":     round(net_debt_bn, 2),
         "shares_millions": round(shares_millions, 2),
         "fcff_growth_rate": round(fcff_growth_rate, 4),
-        "beta":            DEFAULT_BETA,
+        "beta":            round(beta, 3),
         "cost_of_debt":    DEFAULT_COD,
         "debt_bn":         round(debt_bn, 2),
         "equity_bn":       round(equity_bn, 2),
