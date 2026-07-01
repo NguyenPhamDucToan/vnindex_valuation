@@ -4332,32 +4332,57 @@ if view == "Phân tích Cổ phiếu":
             st.markdown(f'<div style="font-size:16px;font-weight:600;color:#e2e8f0;">{_dp["comment"]}</div>',
                         unsafe_allow_html=True)
 
-        # ── ROIC vs WACC — economic value creation check ────────
-        _roic_val = roic(ttm.get("ebit"), TAX_RATE, ttm.get("debt"), ttm.get("equity"), ttm.get("cash"))
+        # ── ROIC vs WACC — multi-period average ─────────────────
+        # ROIC: 5-year average (smooths cyclicality / one-off items)
+        # WACC: current (reflects today's cost of capital — averaging is meaningless)
+        @st.cache_data(ttl=3600, show_spinner=False)
+        def _load_annual_fin(t: str) -> list[dict]:
+            with get_session() as _s:
+                _rows = _s.execute(
+                    select(Financial)
+                    .where(Financial.ticker == t, Financial.period_type == "Y")
+                    .order_by(Financial.period.desc())
+                ).scalars().all()
+            return [{"year": str(r.period)[:4], "ebit": r.ebit,
+                     "debt": r.debt, "equity": r.equity, "cash": r.cash}
+                    for r in _rows[:5]]
+
+        _ann_fin = _load_annual_fin(ticker)
+        _roic_by_year: list[tuple[str, float]] = []
+        for _row in reversed(_ann_fin):
+            _r = roic(_row["ebit"], TAX_RATE, _row["debt"], _row["equity"], _row["cash"])
+            if _r is not None:
+                _roic_by_year.append((_row["year"], round(_r * 100, 2)))
+
+        _avg_roic = (sum(v for _, v in _roic_by_year) / len(_roic_by_year)
+                     if _roic_by_year else None)
+
         _dcf_r    = get_dcf(ticker)
         _wacc_val = _dcf_r.get("wacc") if _dcf_r else None
-        if _roic_val is not None and _wacc_val is not None:
-            _rw_diff   = _roic_val - _wacc_val
-            _rw_gap_pp = _rw_diff * 100  # percentage-point gap, for the verdict text
-            _roic_c    = _color(_rw_diff, 0.005, -0.005)          # colored by spread vs WACC
-            _wacc_c    = _color(_wacc_val, 0.12, 0.15, higher_better=False)  # absolute: cheap vs expensive capital
+
+        if _avg_roic is not None and _wacc_val is not None:
+            _rw_diff   = _avg_roic / 100 - _wacc_val
+            _rw_gap_pp = _rw_diff * 100
+            _roic_c    = _color(_rw_diff, 0.005, -0.005)
+            _wacc_c    = _color(_wacc_val, 0.12, 0.15, higher_better=False)
+            _n_years   = len(_roic_by_year)
 
             if _rw_diff > 0.005:
                 _rw_verdict = (
-                    f"✅ <b>ROIC cao hơn WACC {_rw_gap_pp:+.1f} điểm %</b> — công ty đang tạo ra giá trị thực: "
-                    f"mỗi đồng vốn đầu tư sinh lời {_roic_val*100:.1f}%, vượt chi phí vốn {_wacc_val*100:.1f}% "
-                    "phải trả cho cổ đông & chủ nợ. Cổ phiếu xứng đáng được định giá cao hơn giá trị sổ sách."
+                    f"✅ <b>ROIC trung bình {_n_years} năm cao hơn WACC {_rw_gap_pp:+.1f} điểm %</b> — "
+                    f"công ty liên tục tạo ra giá trị thực: sinh lời {_avg_roic:.1f}%/năm trên vốn đầu tư, "
+                    f"vượt chi phí vốn {_wacc_val*100:.1f}%. Cổ phiếu xứng đáng định giá cao hơn giá trị sổ sách."
                 )
             elif _rw_diff < -0.005:
                 _rw_verdict = (
-                    f"⚠️ <b>ROIC thấp hơn WACC {_rw_gap_pp:+.1f} điểm %</b> — công ty đang phá hủy giá trị: "
-                    f"lợi nhuận trên vốn đầu tư ({_roic_val*100:.1f}%) không đủ bù chi phí vốn đã huy động "
-                    f"({_wacc_val*100:.1f}%). Dù lãi kế toán dương, đây vẫn là tín hiệu kém bền vững."
+                    f"⚠️ <b>ROIC trung bình {_n_years} năm thấp hơn WACC {_rw_gap_pp:+.1f} điểm %</b> — "
+                    f"công ty phá hủy giá trị một cách có hệ thống: trung bình chỉ sinh lời "
+                    f"{_avg_roic:.1f}%/năm, không đủ bù chi phí vốn {_wacc_val*100:.1f}%."
                 )
             else:
                 _rw_verdict = (
-                    f"➖ <b>ROIC ≈ WACC</b> (cách nhau {_rw_gap_pp:+.1f} điểm %) — công ty đang ở mức "
-                    "hòa vốn kinh tế: vừa đủ bù chi phí vốn, chưa thực sự tạo thêm giá trị cho cổ đông."
+                    f"➖ <b>ROIC ≈ WACC</b> (cách nhau {_rw_gap_pp:+.1f} điểm % trung bình {_n_years} năm) — "
+                    "hòa vốn kinh tế: vừa đủ bù chi phí vốn, chưa thực sự tạo thêm giá trị bền vững."
                 )
             _rw_color = "#22c55e" if _rw_diff > 0.005 else "#ef4444" if _rw_diff < -0.005 else "#eab308"
 
@@ -4379,16 +4404,52 @@ if view == "Phân tích Cổ phiếu":
             )
             st.markdown(
                 '<div class="dp-row" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">'
-                + _rw_card("ROIC", f"{_roic_val*100:.1f}%", _roic_c, "NOPAT / Vốn đầu tư")
-                + _rw_card("WACC", f"{_wacc_val*100:.1f}%", _wacc_c, "Chi phí vốn bình quân")
+                + _rw_card(f"ROIC TB {_n_years} năm", f"{_avg_roic:.1f}%", _roic_c,
+                           f"Trung bình {' · '.join(y for y, _ in _roic_by_year)}")
+                + _rw_card("WACC hiện tại", f"{_wacc_val*100:.1f}%", _wacc_c, "Chi phí vốn bình quân")
+                + _rw_card("Spread (ROIC−WACC)", f"{_rw_gap_pp:+.1f} đ.%", _rw_color, "Dương = tạo giá trị")
                 + '</div>',
                 unsafe_allow_html=True,
             )
             st.markdown(
                 f'<div style="font-size:15px;color:#cbd5e1;line-height:1.7;'
-                f'border-left:3px solid {_rw_color};padding:4px 0 4px 12px;margin-bottom:14px;">{_rw_verdict}</div>',
+                f'border-left:3px solid {_rw_color};padding:4px 0 4px 12px;margin-bottom:10px;">'
+                f'{_rw_verdict}</div>',
                 unsafe_allow_html=True,
             )
+
+            # Trend chart: ROIC each year vs WACC reference line
+            if len(_roic_by_year) >= 2:
+                _years_lbl = [y for y, _ in _roic_by_year]
+                _roic_vals = [v for _, v in _roic_by_year]
+                _wacc_line = [_wacc_val * 100] * len(_years_lbl)
+                _bar_clrs  = ["#22c55e" if v >= _wacc_val * 100 else "#ef4444" for v in _roic_vals]
+                _fig_rw = go.Figure()
+                _fig_rw.add_trace(go.Bar(
+                    x=_years_lbl, y=_roic_vals,
+                    marker_color=_bar_clrs,
+                    name="ROIC",
+                    text=[f"{v:.1f}%" for v in _roic_vals],
+                    textposition="outside",
+                    hovertemplate="%{x}: ROIC <b>%{y:.2f}%</b><extra></extra>",
+                ))
+                _fig_rw.add_trace(go.Scatter(
+                    x=_years_lbl, y=_wacc_line,
+                    mode="lines", name=f"WACC {_wacc_val*100:.1f}%",
+                    line=dict(color="#f59e0b", dash="dash", width=2),
+                    hovertemplate=f"WACC {_wacc_val*100:.1f}%<extra></extra>",
+                ))
+                _fig_rw.update_layout(
+                    height=240, margin=dict(l=0, r=20, t=10, b=0),
+                    dragmode=False, showlegend=True,
+                    legend=dict(orientation="h", y=1.12, x=0),
+                    yaxis=dict(ticksuffix="%", title=""),
+                    xaxis=dict(title=""),
+                    bargap=0.35,
+                )
+                st.plotly_chart(_fig_rw, width="stretch")
+                st.caption(f"Xanh = ROIC vượt WACC (tạo giá trị) · Đỏ = ROIC dưới WACC (phá hủy giá trị) · "
+                           f"Đường vàng = WACC hiện tại {_wacc_val*100:.1f}%")
 
 
     # ── Valuation Football Field ───────────────────────────────
