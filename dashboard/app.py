@@ -1973,7 +1973,7 @@ if view == "Phân tích Cổ phiếu":
         "Khác (nhỏ lẻ)":     "#475569",
     }
 
-    with st.expander("🏛 Cổ đông lớn & Ban lãnh đạo", expanded=True):
+    with st.expander("🏛 Cổ đông lớn & Ban lãnh đạo", expanded=False):
         try:
             with st.spinner("Đang tải dữ liệu cổ đông..."):
                 _sh_df, _off_df = _load_shareholders(ticker)
