@@ -4323,98 +4323,112 @@ if view == "Phân tích Cổ phiếu":
                 unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════════
-    # Báo cáo thường niên — qualitative content from annual reports
+    # Cổ đông lớn & Ban lãnh đạo
     # ══════════════════════════════════════════════════════════════
     st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:24px 0 16px;">', unsafe_allow_html=True)
-    st.markdown("### Báo cáo thường niên")
+    st.markdown("### Cổ đông lớn & Ban lãnh đạo")
 
-    @st.cache_data(ttl=3600)
-    def _ar_get_years(t: str) -> list[int]:
-        from collectors.annual_report_collector import get_available_years
-        return get_available_years(t)
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def _load_shareholders(t: str):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from vnstock import Vnstock
+            stk = Vnstock().stock(symbol=t, source="VCI")
+            sh  = stk.company.shareholders()
+            off = stk.company.officers()
+        return sh, off
 
-    _ar_years = _ar_get_years(ticker)
+    try:
+        with st.spinner("Đang tải dữ liệu cổ đông..."):
+            _sh_df, _off_df = _load_shareholders(ticker)
 
-    if not _ar_years:
-        st.info("Không tìm thấy dữ liệu báo cáo thường niên cho mã này trong dataset.")
-    else:
-        _ar_c1, _ar_c2, _ar_c3 = st.columns([2, 2, 8])
-        _ar_year = _ar_c1.selectbox(
-            "Năm báo cáo", _ar_years, key=f"ar_year_{ticker}", label_visibility="collapsed"
-        )
+        # ── Ownership type classification ───────────────────────
+        def _owner_type(name: str) -> str:
+            n = (name or "").upper()
+            if any(k in n for k in ["NHÀ NƯỚC", "SCIC", "TỔNG CÔNG TY ĐẦU TƯ VÀ KINH DOANH VỐN",
+                                     "UBND", "BỘ TÀI CHÍNH"]):
+                return "Nhà nước"
+            if any(k in n for k in ["ETF", "FUND", "TRUST", "LIMITED", "PTE", "LTD",
+                                     "INTERNATIONAL", "GLOBAL", "VANGUARD", "FIDELITY",
+                                     "MATTHEWS", "NORGES", "DEUTSCHE", "BARCLAYS",
+                                     "MERCER", "BROWN", "PZENA", "FUBON", "CITIGROUP"]):
+                return "Nước ngoài"
+            if any(k in n for k in ["QUỸ", "CÔNG TY TNHH", "CÔNG TY CỔ PHẦN", "NGÂN HÀNG"]):
+                return "Tổ chức trong nước"
+            return "Cá nhân"
 
-        from collectors.annual_report_collector import (
-            is_pdf_cached, fetch_annual_report_pdf, extract_report_sections, SECTIONS,
-        )
+        _sh_df = _sh_df.copy()
+        _sh_df["_type"] = _sh_df["share_holder"].apply(_owner_type)
+        _sh_df["_pct"]  = (_sh_df["share_own_percent"] * 100).round(2)
 
-        _ar_cached = is_pdf_cached(ticker, _ar_year)
-        _ar_btn_label = "📄 Tải lại" if _ar_cached else "📄 Tải báo cáo"
-        _ar_btn = _ar_c2.button(_ar_btn_label, key=f"ar_fetch_{ticker}_{_ar_year}")
+        # Top 15 by ownership
+        _top15 = _sh_df.nlargest(15, "_pct")
 
-        if _ar_btn:
-            with st.spinner(f"Đang tải báo cáo {ticker} {_ar_year} từ Zenodo..."):
-                _ar_pdf = fetch_annual_report_pdf(ticker, _ar_year)
-            if _ar_pdf:
-                mb = _ar_pdf.stat().st_size / 1e6
-                st.success(f"Đã tải: {_ar_pdf.name} ({mb:.1f} MB)")
-                st.rerun()
-            else:
-                st.error("Không thể tải báo cáo. Kiểm tra kết nối internet hoặc mã không có trong dataset.")
+        _type_colors = {
+            "Nhà nước":          "#60a5fa",
+            "Nước ngoài":        "#34d399",
+            "Tổ chức trong nước":"#fb923c",
+            "Cá nhân":           "#c084fc",
+        }
 
-        if _ar_cached:
-            _ar_sections = extract_report_sections(ticker, _ar_year)
+        _col_sh, _col_pie = st.columns([3, 2], gap="large")
 
-            def _ar_render_text(raw: str) -> None:
-                """Render cleaned PDF text as readable HTML paragraphs."""
-                import html as _html
-                paragraphs = [p.strip() for p in raw.split("\n\n") if p.strip()]
-                # Truncate marker gets its own styled line
-                html_parts = []
-                for p in paragraphs:
-                    if p.startswith("[..."):
-                        html_parts.append(
-                            f'<p style="color:#64748b;font-style:italic;font-size:13px;">{_html.escape(p)}</p>'
-                        )
-                    elif p.startswith("•") or p.startswith("-"):
-                        # Bullet list
-                        items = [l.strip().lstrip("•- ") for l in p.splitlines() if l.strip()]
-                        bullets = "".join(f"<li>{_html.escape(i)}</li>" for i in items)
-                        html_parts.append(f'<ul style="margin:4px 0 4px 18px;padding:0;">{bullets}</ul>')
-                    else:
-                        html_parts.append(
-                            f'<p style="margin:0 0 10px 0;">{_html.escape(p)}</p>'
-                        )
-                st.markdown(
-                    '<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;'
-                    'padding:18px 22px;font-size:14px;line-height:1.85;color:#cbd5e1;'
-                    'max-height:420px;overflow-y:auto;">'
-                    + "".join(html_parts)
-                    + "</div>",
-                    unsafe_allow_html=True,
-                )
+        with _col_sh:
+            st.caption("Top 15 cổ đông lớn nhất")
+            _bar_colors = [_type_colors.get(t, "#94a3b8") for t in _top15["_type"]]
+            _fig_sh = go.Figure(go.Bar(
+                x=_top15["_pct"],
+                y=_top15["share_holder"],
+                orientation="h",
+                marker_color=_bar_colors,
+                text=[f"{p:.2f}%" for p in _top15["_pct"]],
+                textposition="outside",
+                hovertemplate="%{y}<br><b>%{x:.3f}%</b><extra></extra>",
+            ))
+            _fig_sh.update_layout(
+                height=420, margin=dict(l=0, r=60, t=4, b=0),
+                dragmode=False, showlegend=False,
+                xaxis_title="Tỷ lệ sở hữu (%)",
+                yaxis=dict(autorange="reversed", tickfont=dict(size=11)),
+            )
+            st.plotly_chart(_fig_sh, width="stretch")
 
-            if _ar_sections.get("_scanned") == "1":
-                st.warning(
-                    "Báo cáo này là file scan (ảnh chụp). "
-                    "Không thể trích xuất văn bản tự động — vui lòng mở file gốc."
-                )
-            elif _ar_sections:
-                _ar_found = [k for k in SECTIONS if k in _ar_sections]
-                _ar_display = _ar_found if _ar_found else (["raw_intro"] if "raw_intro" in _ar_sections else [])
-                _ar_labels  = {k: SECTIONS[k]["label"] for k in SECTIONS}
-                _ar_labels["raw_intro"] = "Nội dung trang đầu"
-                for _ar_key in _ar_display:
-                    with st.expander(
-                        f"📑 {_ar_labels.get(_ar_key, _ar_key)}",
-                        expanded=(_ar_key in ("gioi_thieu", "raw_intro")),
-                    ):
-                        _ar_render_text(_ar_sections[_ar_key])
-                if not _ar_display:
-                    st.info("Không tìm thấy phần nào được nhận diện trong báo cáo này.")
-            else:
-                st.info("Đang trích xuất nội dung báo cáo...")
-        else:
-            st.caption(f"Báo cáo {_ar_year} chưa được tải. Nhấn 'Tải báo cáo' để xem nội dung định tính.")
+        with _col_pie:
+            st.caption("Cơ cấu sở hữu theo nhóm")
+            _grp = _sh_df.groupby("_type")["_pct"].sum().reset_index()
+            _other = max(0.0, 100.0 - _grp["_pct"].sum())
+            if _other > 0.1:
+                import pandas as _pd2
+                _grp = _pd2.concat([_grp, _pd2.DataFrame([{"_type": "Khác (nhỏ lẻ)", "_pct": _other}])],
+                                    ignore_index=True)
+            _pie_colors = [_type_colors.get(t, "#475569") for t in _grp["_type"]]
+            _fig_pie = go.Figure(go.Pie(
+                labels=_grp["_type"],
+                values=_grp["_pct"],
+                marker_colors=_pie_colors,
+                hole=0.45,
+                textinfo="label+percent",
+                textfont_size=12,
+                hovertemplate="%{label}: <b>%{value:.2f}%</b><extra></extra>",
+            ))
+            _fig_pie.update_layout(
+                height=420, margin=dict(l=0, r=0, t=4, b=0),
+                dragmode=False, showlegend=False,
+            )
+            st.plotly_chart(_fig_pie, width="stretch")
+
+        # ── Officers / Ban lãnh đạo ─────────────────────────────
+        if not _off_df.empty:
+            st.caption("Ban lãnh đạo")
+            _off_show = _off_df[["officer_name", "officer_position", "officer_own_percent"]].copy()
+            _off_show.columns = ["Họ tên", "Chức vụ", "Tỷ lệ SH (%)"]
+            _off_show["Tỷ lệ SH (%)"] = (_off_show["Tỷ lệ SH (%)"] * 100).round(4)
+            _off_show = _off_show[_off_show["Tỷ lệ SH (%)"] > 0].reset_index(drop=True)
+            st.dataframe(_off_show, hide_index=True, width="stretch")
+
+    except Exception as _sh_err:
+        st.info(f"Không thể tải dữ liệu cổ đông: {_sh_err}")
 
 # ═══════════════════════════════════════════════════════════════
 # VIEW 2 — VALUATION SCREEN
