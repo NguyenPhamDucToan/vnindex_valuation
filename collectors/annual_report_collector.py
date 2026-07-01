@@ -175,20 +175,18 @@ def fetch_annual_report_pdf(ticker: str, year: int) -> Optional[Path]:
 
     try:
         with RemoteZip(zip_url) as zf:
-            # namelist() triggers only the Central Directory fetch (~1 MB), not the full ZIP
+            # Files are stored as full_data/<ticker>/<file>.pdf inside the ZIP
+            full_member = f"full_data/{zip_member}"
             available = zf.namelist()
-            if zip_member not in available:
-                logger.warning(f"{zip_member} not found in {zip_name}")
+            if full_member not in available:
+                logger.warning(f"{full_member} not found in {zip_name}")
                 return None
-            zf.extract(zip_member, path=str(CACHE_DIR))
+            data = zf.read(full_member)
 
-        if cache_path.exists():
-            mb = cache_path.stat().st_size / 1e6
-            logger.info(f"PDF cached: {cache_path} ({mb:.1f} MB)")
-            return cache_path
-
-        logger.warning(f"Extraction done but file missing at {cache_path}")
-        return None
+        cache_path.write_bytes(data)
+        mb = len(data) / 1e6
+        logger.info(f"PDF cached: {cache_path} ({mb:.1f} MB)")
+        return cache_path
 
     except Exception:
         logger.exception(f"Failed to fetch {zip_member} from {zip_name}")
