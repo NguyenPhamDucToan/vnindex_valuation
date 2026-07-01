@@ -4364,6 +4364,35 @@ if view == "Phân tích Cổ phiếu":
         if _ar_cached:
             _ar_sections = extract_report_sections(ticker, _ar_year)
 
+            def _ar_render_text(raw: str) -> None:
+                """Render cleaned PDF text as readable HTML paragraphs."""
+                import html as _html
+                paragraphs = [p.strip() for p in raw.split("\n\n") if p.strip()]
+                # Truncate marker gets its own styled line
+                html_parts = []
+                for p in paragraphs:
+                    if p.startswith("[..."):
+                        html_parts.append(
+                            f'<p style="color:#64748b;font-style:italic;font-size:13px;">{_html.escape(p)}</p>'
+                        )
+                    elif p.startswith("•") or p.startswith("-"):
+                        # Bullet list
+                        items = [l.strip().lstrip("•- ") for l in p.splitlines() if l.strip()]
+                        bullets = "".join(f"<li>{_html.escape(i)}</li>" for i in items)
+                        html_parts.append(f'<ul style="margin:4px 0 4px 18px;padding:0;">{bullets}</ul>')
+                    else:
+                        html_parts.append(
+                            f'<p style="margin:0 0 10px 0;">{_html.escape(p)}</p>'
+                        )
+                st.markdown(
+                    '<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;'
+                    'padding:18px 22px;font-size:14px;line-height:1.85;color:#cbd5e1;'
+                    'max-height:420px;overflow-y:auto;">'
+                    + "".join(html_parts)
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+
             if _ar_sections.get("_scanned") == "1":
                 st.warning(
                     "Báo cáo này là file scan (ảnh chụp). "
@@ -4371,18 +4400,17 @@ if view == "Phân tích Cổ phiếu":
                 )
             elif _ar_sections:
                 _ar_found = [k for k in SECTIONS if k in _ar_sections]
-                if not _ar_found and "raw_intro" in _ar_sections:
-                    with st.expander("📑 Nội dung trang đầu", expanded=True):
-                        st.text(_ar_sections["raw_intro"])
-                else:
-                    for _ar_key in _ar_found:
-                        with st.expander(
-                            f"📑 {SECTIONS[_ar_key]['label']}",
-                            expanded=(_ar_key == "gioi_thieu"),
-                        ):
-                            st.text(_ar_sections[_ar_key])
-                    if not _ar_found:
-                        st.info("Không tìm thấy phần nào được nhận diện trong báo cáo này.")
+                _ar_display = _ar_found if _ar_found else (["raw_intro"] if "raw_intro" in _ar_sections else [])
+                _ar_labels  = {k: SECTIONS[k]["label"] for k in SECTIONS}
+                _ar_labels["raw_intro"] = "Nội dung trang đầu"
+                for _ar_key in _ar_display:
+                    with st.expander(
+                        f"📑 {_ar_labels.get(_ar_key, _ar_key)}",
+                        expanded=(_ar_key in ("gioi_thieu", "raw_intro")),
+                    ):
+                        _ar_render_text(_ar_sections[_ar_key])
+                if not _ar_display:
+                    st.info("Không tìm thấy phần nào được nhận diện trong báo cáo này.")
             else:
                 st.info("Đang trích xuất nội dung báo cáo...")
         else:

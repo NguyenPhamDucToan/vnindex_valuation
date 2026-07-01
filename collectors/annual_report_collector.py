@@ -86,7 +86,7 @@ SECTIONS: dict[str, dict] = {
     },
 }
 
-_MAX_SECTION_CHARS = 3000  # cap per section to keep UI readable
+_MAX_SECTION_CHARS = 4000  # cap per section to keep UI readable
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -260,6 +260,52 @@ def extract_report_sections(ticker: str, year: int) -> dict[str, str]:
 
 
 def _clean_text(text: str) -> str:
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    return text.strip()
+    """Clean raw pdfplumber output into readable paragraphs."""
+    lines = text.splitlines()
+    cleaned: list[str] = []
+    for line in lines:
+        line = line.strip()
+        # Drop lone page numbers, short noise lines, and separator lines
+        if re.fullmatch(r"\d{1,4}", line):
+            continue
+        if re.fullmatch(r"[_\-=\.]{3,}", line):
+            continue
+        if len(line) < 3:
+            continue
+        cleaned.append(line)
+
+    # Re-join broken lines: if a line doesn't end with sentence-ending
+    # punctuation, merge it with the next line (PDF column wrapping artifact)
+    _SENT_END = re.compile(r"[.!?:;)\]»]$")
+    _BULLET = re.compile(r"^[•\-–—\d]+[\.\)]?\s")
+    merged: list[str] = []
+    buf = ""
+    for line in cleaned:
+        if not buf:
+            buf = line
+        elif _BULLET.match(line) or _BULLET.match(buf):
+            # Bullet items → keep separate
+            merged.append(buf)
+            buf = line
+        elif _SENT_END.search(buf):
+            # Previous line ended a sentence → new paragraph
+            merged.append(buf)
+            buf = line
+        else:
+            # Continuation → join with space
+            buf = buf + " " + line
+    if buf:
+        merged.append(buf)
+
+    # Group into paragraphs: two+ consecutive sentence-ending lines → split
+    paragraphs: list[str] = []
+    para: list[str] = []
+    for line in merged:
+        para.append(line)
+        if _SENT_END.search(line) and len(para) >= 1:
+            paragraphs.append(" ".join(para))
+            para = []
+    if para:
+        paragraphs.append(" ".join(para))
+
+    return "\n\n".join(p for p in paragraphs if p.strip())
