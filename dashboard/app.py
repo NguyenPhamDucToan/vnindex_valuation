@@ -5650,12 +5650,20 @@ elif view == "Tổng quan Thị trường":
     if _mo_sel == "📊 Thị trường":
         st.title("Tổng quan Thị trường")
 
-        # ── Intraday index ticker bar (auto-refreshes every 30s during trading hours)
-        _render_index_ticker_bar()
-
+        # ── Pre-fetch all API-heavy calls in parallel so total wait = slowest single call
         with st.spinner("Đang tải dữ liệu thị trường..."):
+            from concurrent.futures import ThreadPoolExecutor as _TPE
+            with _TPE(max_workers=4) as _pre:
+                _pre.submit(load_index_intraday)           # 5 vnstock calls (intraday)
+                _pre.submit(load_vnindex_prices, 252)      # 1 vnstock call  (1-year chart)
+                _pre.submit(load_foreign_flow, "VNINDEX", 15)  # VNDirect API
+                _pre.submit(load_market_snapshot)          # DB (fast but put in parallel anyway)
+            # All results are now in Streamlit's cache — subsequent calls below are instant
             snap_df = load_market_snapshot()
             vnidx   = load_vnindex_prices(days=252)
+
+        # ── Intraday index ticker bar (reads from cache warmed above)
+        _render_index_ticker_bar()
 
         if snap_df.empty:
             st.warning("Không có dữ liệu giá.")
