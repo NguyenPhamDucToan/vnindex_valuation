@@ -4406,7 +4406,7 @@ if view == "Phân tích Cổ phiếu":
 
             st.markdown(
                 '<div style="font-weight:600;font-size:25px;margin:18px 0 10px;">'
-                'ROIC vs WACC — Công ty có đang tạo ra giá trị?</div>',
+                'ROIC vs WACC</div>',
                 unsafe_allow_html=True,
             )
             st.markdown(
