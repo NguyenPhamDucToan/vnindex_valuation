@@ -2559,24 +2559,46 @@ if view == "Phân tích Cổ phiếu":
 
         valid_prices = [v[k] for k, *_ in _valid_methods if v.get(k) and v[k] > 0]
         if valid_prices and current_price:
-            avg_val = sum(valid_prices) / len(valid_prices)
-            u = (avg_val - current_price) / current_price * 100
-            clr = "#4ade80" if u >= 0 else "#f87171"
-            arrow = "▲" if u >= 0 else "▼"
+            import statistics as _stats
+            _sorted = sorted(valid_prices)
+            # Trimmed mean: drop 1 highest + 1 lowest when ≥ 4 methods available
+            if len(_sorted) >= 4:
+                _trimmed = _sorted[1:-1]
+                _trim_label = f"TRIMMED MEAN ({len(_sorted)}→{len(_trimmed)} PP, bỏ cao/thấp nhất)"
+            else:
+                _trimmed = _sorted
+                _trim_label = f"TRUNG BÌNH {len(_sorted)} PHƯƠNG PHÁP"
+            avg_val  = sum(_trimmed) / len(_trimmed)
+            med_val  = _stats.median(_sorted)
+            u_avg = (avg_val - current_price) / current_price * 100
+            u_med = (med_val - current_price) / current_price * 100
+            clr_avg = "#4ade80" if u_avg >= 0 else "#f87171"
+            clr_med = "#4ade80" if u_med >= 0 else "#f87171"
+            arr_avg = "▲" if u_avg >= 0 else "▼"
+            arr_med = "▲" if u_med >= 0 else "▼"
             st.markdown(
                 f'<div style="margin-top:10px;background:linear-gradient(135deg,#1e3a5f,#1e293b);'
-                f'border:1px solid #3b82f6;border-radius:8px;padding:14px 16px;'
-                f'display:flex;justify-content:space-between;align-items:center;">'
+                f'border:1px solid #3b82f6;border-radius:8px;padding:14px 16px;">'
+                # Row 1: trimmed mean (primary)
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
                 f'<div>'
-                f'<div style="font-size:11.5px;color:#93c5fd;font-weight:700;letter-spacing:.5px;">'
-                f'TRUNG BÌNH {len(valid_prices)} PHƯƠNG PHÁP</div>'
+                f'<div style="font-size:11px;color:#93c5fd;font-weight:700;letter-spacing:.4px;">'
+                f'{_trim_label}</div>'
                 f'<div style="font-size:27px;font-weight:800;color:#f9fafb;margin-top:2px;">'
-                f'{avg_val:,.0f} <span style="font-size:15px;font-weight:600;color:#9ca3af;">₫</span></div>'
+                f'{avg_val:,.0f} <span style="font-size:14px;font-weight:600;color:#9ca3af;">₫</span></div>'
                 f'</div>'
                 f'<div style="text-align:right;">'
-                f'<div style="font-size:17px;font-weight:800;color:{clr};">{arrow} {u:+.1f}%</div>'
+                f'<div style="font-size:17px;font-weight:800;color:{clr_avg};">{arr_avg} {u_avg:+.1f}%</div>'
                 f'<div style="font-size:11px;color:#9ca3af;">so với giá thị trường</div>'
-                f'</div></div>',
+                f'</div></div>'
+                # Row 2: median (reference)
+                f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                f'margin-top:10px;padding-top:10px;border-top:1px solid #334155;">'
+                f'<div style="font-size:12px;color:#94a3b8;">Trung vị (Median)</div>'
+                f'<div style="font-size:13px;font-weight:700;color:{clr_med};">'
+                f'{med_val:,.0f} ₫ &nbsp; {arr_med} {u_med:+.1f}%</div>'
+                f'</div>'
+                f'</div>',
                 unsafe_allow_html=True)
 
         # ── Technical analysis — daily ───────────────────────────
