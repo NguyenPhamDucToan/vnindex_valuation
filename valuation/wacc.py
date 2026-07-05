@@ -123,5 +123,5 @@ def compute_beta(ticker: str, days: int = 252) -> float:
         beta = float(cov_mat[0, 1] / var_m)
         return float(np.clip(beta, 0.2, 3.0))
 
-    except Exception:
+    except (Exception, SystemExit):
         return DEFAULT_BETA

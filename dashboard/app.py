@@ -305,21 +305,24 @@ def load_prices(ticker: str) -> pd.DataFrame:
 
     df_db = _read_db()
 
-    # Auto-fetch if DB is sparse (< 200 rows in the last 2 years) or stale (latest
-    # row more than 4 calendar days old, e.g. the daily refresh hasn't run).
-    cutoff = _date.today() - timedelta(days=730)
-    recent = len(df_db[pd.to_datetime(df_db["date"]).dt.date >= cutoff]) if not df_db.empty else 0
-    stale = (df_db.empty or
-             pd.to_datetime(df_db["date"]).max().date() < _date.today() - timedelta(days=4))
-    if recent < 200 or stale:
-        try:
-            start = incremental_start_date(ticker)
-            df_fresh = fetch_prices(ticker, start, _date.today())
-            if not df_fresh.empty:
-                upsert_prices(ticker, df_fresh)
-                df_db = _read_db()
-        except Exception:
-            pass
+    # Auto-fetch only on local SQLite dev mode (when DATABASE_URL env var is not set).
+    # On cloud (Postgres/Supabase), GitHub Actions handles daily refreshes —
+    # vnstock API calls from cloud servers can hang without a timeout and block the page.
+    _cloud_db = bool(os.getenv("DATABASE_URL"))
+    if not _cloud_db:
+        cutoff = _date.today() - timedelta(days=730)
+        recent = len(df_db[pd.to_datetime(df_db["date"]).dt.date >= cutoff]) if not df_db.empty else 0
+        stale = (df_db.empty or
+                 pd.to_datetime(df_db["date"]).max().date() < _date.today() - timedelta(days=4))
+        if recent < 200 or stale:
+            try:
+                start = incremental_start_date(ticker)
+                df_fresh = fetch_prices(ticker, start, _date.today())
+                if not df_fresh.empty:
+                    upsert_prices(ticker, df_fresh)
+                    df_db = _read_db()
+            except (Exception, SystemExit):
+                pass
 
     return df_db
 
