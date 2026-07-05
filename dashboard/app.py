@@ -1030,7 +1030,7 @@ def load_market_snapshot() -> "pd.DataFrame":
     return pd.DataFrame(rows)
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=14400)
 def load_vnindex_prices(days: int = 504) -> "pd.DataFrame":
     """Fetch VNINDEX daily close prices for benchmark comparison."""
     import warnings
@@ -1489,20 +1489,28 @@ def _fetch_one_index_intraday(sym: str, today, week_ago) -> tuple[str, dict | No
         return sym, None
 
 
-@st.cache_data(ttl=120)
-def load_index_intraday() -> dict:
-    """Today's 1-minute OHLCV for the main indices, via vnstock VCI source.
+def _intraday_cache_slot() -> str:
+    """Return a slot key that changes every 2 min during market hours, every 30 min otherwise.
 
-    Returns {symbol: {"intraday": df, "current", "open", "prev_close",
-    "chg", "chg_pct", "volume"}}. Symbols with no data are omitted.
-    Fetched in parallel (both per-symbol and across symbols) since vnstock's
-    free tier caps at 20 requests/min — this alone uses 10 per fetch, so the
-    ttl/run_every cadence (see _render_index_ticker_bar) is intentionally
-    coarse to leave headroom for other vnstock calls (ticker switches, etc).
+    Passing this as a parameter to the cached impl function gives us an
+    effective dynamic TTL without needing Streamlit to support callable TTL.
+    HOSE trading hours: Mon–Fri 09:00–15:15 ICT (UTC+7).
     """
+    import datetime as _dt
+    now = _dt.datetime.utcnow() + _dt.timedelta(hours=7)
+    is_open = (
+        now.weekday() < 5
+        and _dt.time(8, 55) <= now.time() <= _dt.time(15, 20)
+    )
+    if is_open:
+        return f"open_{now.strftime('%Y%m%d_%H')}_{now.minute // 2}"
+    return f"closed_{now.strftime('%Y%m%d_%H')}_{now.minute // 30}"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_index_intraday_impl(cache_slot: str) -> dict:  # noqa: ARG001
     import datetime
     from concurrent.futures import ThreadPoolExecutor
-
     today    = datetime.date.today()
     week_ago = today - datetime.timedelta(days=10)
     out = {}
@@ -1510,8 +1518,16 @@ def load_index_intraday() -> dict:
         for sym, data in ex.map(lambda s: _fetch_one_index_intraday(s, today, week_ago), _INDEX_SYMBOLS):
             if data is not None:
                 out[sym] = data
-    # Preserve the canonical display order
     return {sym: out[sym] for sym in _INDEX_SYMBOLS if sym in out}
+
+
+def load_index_intraday() -> dict:
+    """Today's 1-minute OHLCV for the main indices.
+
+    Effective refresh rate: 2 min during HOSE hours, 30 min outside.
+    Uses a cache-slot pattern so TTL is dynamic without Streamlit callable TTL.
+    """
+    return _load_index_intraday_impl(_intraday_cache_slot())
 
 
 _IDX_LABELS = {
