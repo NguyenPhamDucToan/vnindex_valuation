@@ -1197,6 +1197,45 @@ def load_analyst_recommendation(ticker: str) -> dict:
         return {}
 
 
+@st.cache_data(ttl=1800)
+def load_company_news(ticker: str) -> "pd.DataFrame":
+    """Fetch latest news items for a ticker via vnstock Company.news()."""
+    import warnings
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from vnstock import Company
+            df = Company(symbol=ticker, source="VCI").news()
+        if df is None or df.empty:
+            return pd.DataFrame()
+        keep = ["news_title", "news_source", "news_source_link", "public_date"]
+        df = df[[c for c in keep if c in df.columns]].copy()
+        df["public_date"] = pd.to_datetime(df["public_date"], errors="coerce")
+        return df.sort_values("public_date", ascending=False).head(20).reset_index(drop=True)
+    except (Exception, SystemExit):
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
+def load_company_events(ticker: str) -> "pd.DataFrame":
+    """Fetch corporate events (dividends, rights, insider deals) via vnstock Company.events()."""
+    import warnings
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from vnstock import Company
+            df = Company(symbol=ticker, source="VCI").events()
+        if df is None or df.empty:
+            return pd.DataFrame()
+        keep = ["event_name_vi", "event_code", "event_title_vi", "display_date1",
+                "record_date", "exright_date", "payout_date", "value_per_share", "category"]
+        df = df[[c for c in keep if c in df.columns]].copy()
+        df["display_date1"] = pd.to_datetime(df["display_date1"], errors="coerce")
+        return df.sort_values("display_date1", ascending=False).head(30).reset_index(drop=True)
+    except (Exception, SystemExit):
+        return pd.DataFrame()
+
+
 @st.cache_data(ttl=3600)
 def load_commodity_prices(symbols: tuple, period: str = "1y") -> "pd.DataFrame":
     """Fetch Yahoo Finance commodity prices, return normalized (base=100) DataFrame."""
@@ -1809,6 +1848,7 @@ def _render_company_header(ticker, prices_df, co_name, co_exch, co_sect, sh, eq,
 VIEWS = [
     "Phân tích Cổ phiếu",
     "Sàng lọc Cổ phiếu",
+    "So sánh Cổ phiếu",
     "Phân tích Ngành",
     "Tổng quan Thị trường",
 ]
@@ -1824,6 +1864,49 @@ def _on_view_change():
     st.session_state["hm_popup_sector"] = None
 
 view = st.sidebar.radio("View", VIEWS, key="view_selector", on_change=_on_view_change)
+
+# ── Startup signal alerts for pinned (watchlist) tickers ─────────────────────
+if not st.session_state.get("_signal_alerts_shown"):
+    st.session_state["_signal_alerts_shown"] = True
+    try:
+        _pinned_for_alert = get_pinned_tickers()
+        if _pinned_for_alert:
+            from valuation.signals import classify_signal as _cls_sig
+            with get_session() as _as:
+                _vrows = _as.execute(
+                    select(
+                        Valuation.ticker,
+                        Valuation.avg_intrinsic_value,
+                        Valuation.quality_score if hasattr(Valuation, "quality_score") else Valuation.roe,
+                    ).where(
+                        Valuation.ticker.in_(_pinned_for_alert),
+                        Valuation.calc_date == select(func.max(Valuation.calc_date))
+                            .where(Valuation.ticker == Valuation.ticker).correlate(Valuation).scalar_subquery(),
+                    )
+                ).all()
+                _price_rows = {
+                    r[0]: r[1]
+                    for r in _as.execute(
+                        select(Price.ticker, Price.close)
+                        .where(
+                            Price.ticker.in_(_pinned_for_alert),
+                            Price.date == select(func.max(Price.date))
+                                .where(Price.ticker == Price.ticker).correlate(Price).scalar_subquery(),
+                        )
+                    ).all()
+                }
+            for _row in _vrows:
+                _tkr, _avg_iv = _row[0], _row[1]
+                _close = _price_rows.get(_tkr)
+                if _avg_iv and _close and _close > 0:
+                    _up = (_avg_iv - _close * 1000) / (_close * 1000)
+                    _sig = _cls_sig(_up, 50.0)  # quality=50 as neutral proxy for alerts
+                    if _sig == "Strong Buy":
+                        st.toast(f"🚀 **{_tkr}**: Strong Buy — upside {_up:+.1%}", icon="🚀")
+                    elif _sig == "Strong Sell":
+                        st.toast(f"🚨 **{_tkr}**: Strong Sell — downside {_up:+.1%}", icon="🚨")
+    except Exception:
+        pass
 
 # ── Global ticker quick-view popup (works from any tab) ──────────────────────
 if st.session_state.get("hm_popup_ticker"):
@@ -4596,6 +4679,70 @@ if view == "Phân tích Cổ phiếu":
                 f"Xanh = cao hơn giá thị trường (tín hiệu định giá thấp)</div>",
                 unsafe_allow_html=True)
 
+    # ── Tin tức & Sự kiện ─────────────────────────────────────────
+    st.markdown("---")
+    _ne_tab_news, _ne_tab_events = st.tabs(["📰 Tin tức", "📅 Sự kiện công ty"])
+
+    with _ne_tab_news:
+        _news_df = load_company_news(ticker)
+        if _news_df.empty:
+            st.info("Không có tin tức gần đây.")
+        else:
+            for _, _row in _news_df.iterrows():
+                _date_str = _row["public_date"].strftime("%d/%m/%Y") if pd.notna(_row.get("public_date")) else ""
+                _title = _row.get("news_title") or ""
+                _link  = _row.get("news_source_link") or ""
+                _src   = _row.get("news_source") or ""
+                if _link:
+                    st.markdown(
+                        f"<div style='padding:6px 0;border-bottom:1px solid #374151;'>"
+                        f"<a href='{_link}' target='_blank' style='color:#60a5fa;text-decoration:none;font-size:14px;'>{_title}</a>"
+                        f"<span style='color:#6b7280;font-size:12px;margin-left:8px;'>{_src} · {_date_str}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<div style='padding:6px 0;border-bottom:1px solid #374151;'>"
+                        f"<span style='font-size:14px;'>{_title}</span>"
+                        f"<span style='color:#6b7280;font-size:12px;margin-left:8px;'>{_src} · {_date_str}</span></div>",
+                        unsafe_allow_html=True,
+                    )
+
+    with _ne_tab_events:
+        _evts_df = load_company_events(ticker)
+        if _evts_df.empty:
+            st.info("Không có sự kiện nào.")
+        else:
+            _CAT_LABELS = {
+                "DIVIDEND": "🏦 Cổ tức",
+                "MAJOR_SHAREHOLDER_TRADING": "📊 Giao dịch cổ đông lớn",
+                "STOCK_ISSUANCE": "📢 Phát hành cổ phiếu",
+                "BONUS_SHARE": "🎁 Thưởng cổ phiếu",
+                "STOCK_LISTING": "📋 Niêm yết",
+                "SHAREHOLDER_MEETING": "🏢 Họp đại hội cổ đông",
+            }
+            for _, _ev in _evts_df.iterrows():
+                _cat  = _ev.get("category") or ""
+                _cat_label = _CAT_LABELS.get(_cat, _cat)
+                _title_vi  = _ev.get("event_title_vi") or _ev.get("event_name_vi") or ""
+                _date = _ev.get("display_date1")
+                _date_str = _date.strftime("%d/%m/%Y") if pd.notna(_date) else "—"
+                _extra = ""
+                _vpsh = _ev.get("value_per_share")
+                if pd.notna(_vpsh) and _vpsh and float(_vpsh) > 0:
+                    _extra = f" · <b>{int(_vpsh):,} VND/CP</b>"
+                _pay = _ev.get("payout_date")
+                if pd.notna(_pay):
+                    _pay_str = pd.to_datetime(_pay).strftime("%d/%m/%Y") if _pay else ""
+                    _extra += f" · Ngày thanh toán: {_pay_str}"
+                st.markdown(
+                    f"<div style='padding:6px 0;border-bottom:1px solid #374151;'>"
+                    f"<span style='font-size:12px;color:#9ca3af;'>{_cat_label} · {_date_str}</span><br>"
+                    f"<span style='font-size:14px;'>{_title_vi}</span>"
+                    f"<span style='font-size:12px;color:#f59e0b;'>{_extra}</span></div>",
+                    unsafe_allow_html=True,
+                )
+
 
 # ═══════════════════════════════════════════════════════════════
 # VIEW 2 — VALUATION SCREEN
@@ -5034,6 +5181,48 @@ elif view == "Sàng lọc Cổ phiếu":
                 "🔴 Đỏ (bên trái vạch 0) = đang đắt hơn giá trị ước tính, có thể giảm giá."
                 f"{_offrange_note}")
 
+            # ── Backtest: historical signal → 1-year forward return ──
+            import os as _os_bt
+            _bt_path = _os_bt.path.join(_os_bt.path.dirname(_os_bt.path.dirname(__file__)), "backtest_summary.csv")
+            if _os_bt.path.exists(_bt_path):
+                st.divider()
+                st.subheader("Hiệu quả tín hiệu lịch sử (Backtest 2020–2025)")
+                _bt = pd.read_csv(_bt_path)
+                _SIG_ORDER_BT = ["Strong Buy", "Buy", "Watch", "Neutral", "Reduce", "Sell", "Strong Sell"]
+                _bt["signal"] = pd.Categorical(_bt["signal"], categories=_SIG_ORDER_BT, ordered=True)
+                _bt = _bt.sort_values("signal").reset_index(drop=True)
+
+                _bt_cols = st.columns(len(_bt))
+                _bt_bgs = {
+                    "Strong Buy": ("#14532d", "#86efac"),
+                    "Buy":        ("#166534", "#bbf7d0"),
+                    "Watch":      ("#713f12", "#fde68a"),
+                    "Neutral":    ("#1e293b", "#94a3b8"),
+                    "Reduce":     ("#7c2d12", "#fdba74"),
+                    "Sell":       ("#7f1d1d", "#fca5a5"),
+                    "Strong Sell":("#450a0a", "#f87171"),
+                }
+                for _col, (_, _r) in zip(_bt_cols, _bt.iterrows()):
+                    _bg, _fg = _bt_bgs.get(_r["signal"], ("#1e293b", "#94a3b8"))
+                    _wr = float(_r.get("win_rate", 0))
+                    _ret = float(_r.get("mean_return", 0))
+                    _cnt = int(_r.get("count", 0))
+                    _col.markdown(
+                        f"<div style='background:{_bg};border-radius:8px;padding:10px 8px;text-align:center;'>"
+                        f"<div style='color:{_fg};font-size:12px;font-weight:700;'>{_r['signal']}</div>"
+                        f"<div style='color:{_fg};font-size:20px;font-weight:800;margin:4px 0;'>"
+                        f"{'%+.1f' % _ret}%</div>"
+                        f"<div style='color:{_fg};opacity:0.8;font-size:11px;'>Win rate {_wr:.0f}%</div>"
+                        f"<div style='color:{_fg};opacity:0.6;font-size:10px;'>{_cnt} snapshots</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                st.caption(
+                    "Lợi nhuận trung bình 1 năm sau khi tín hiệu phát ra (5051 snapshots, 395 mã, 2020–2025). "
+                    "Win rate = % snapshot có lợi nhuận dương sau 1 năm. "
+                    "Strong Buy outperform Strong Sell hơn 33% điểm."
+                )
+
 
     else:
         st.title("Lọc & Theo dõi")
@@ -5254,7 +5443,153 @@ elif view == "Sàng lọc Cổ phiếu":
 
 
 # ═══════════════════════════════════════════════════════════════
-# VIEW 3 — SECTOR ANALYSIS
+# VIEW 3 — STOCK COMPARISON
+# ═══════════════════════════════════════════════════════════════
+elif view == "So sánh Cổ phiếu":
+    st.title("So sánh Cổ phiếu")
+
+    # ── Ticker selector ────────────────────────────────────────────
+    _cmp_all = load_available_tickers()
+    _cmp_default = ["VNM", "MSN", "MWG"] if all(t in _cmp_all for t in ["VNM", "MSN", "MWG"]) else _cmp_all[:3]
+    _cmp_tickers = st.multiselect(
+        "Chọn 2–4 mã cổ phiếu để so sánh",
+        options=sorted(_cmp_all),
+        default=st.session_state.get("cmp_tickers", _cmp_default),
+        max_selections=4,
+        key="cmp_tickers",
+        placeholder="Tìm mã...",
+    )
+
+    if len(_cmp_tickers) < 2:
+        st.info("Chọn ít nhất 2 mã để so sánh.")
+    else:
+        _cmp_period = st.radio(
+            "Khoảng thời gian", ["1M", "3M", "6M", "1Y", "2Y"],
+            index=3, horizontal=True, key="cmp_period",
+        )
+        _cmp_n = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "2Y": 504}[_cmp_period]
+
+        # ── Normalized price chart ────────────────────────────────
+        st.subheader("Hiệu suất giá (chuẩn hóa về 100)")
+        _CMP_COLORS = ["#60a5fa", "#f59e0b", "#22c55e", "#a855f7"]
+        _cmp_fig = go.Figure()
+        _cmp_returns = {}
+        for _ci, _ct in enumerate(_cmp_tickers):
+            _cpdf = load_prices(_ct)
+            if _cpdf.empty:
+                continue
+            _cpdf = _cpdf.tail(_cmp_n).copy()
+            if _cpdf.empty:
+                continue
+            _base = float(_cpdf["close"].iloc[0])
+            _cpdf["norm"] = _cpdf["close"] / _base * 100
+            _cpdf["dlabel"] = pd.to_datetime(_cpdf["date"]).dt.strftime("%Y-%m-%d")
+            _ret = float(_cpdf["close"].iloc[-1]) / _base - 1
+            _cmp_returns[_ct] = _ret
+            _cmp_fig.add_trace(go.Scatter(
+                x=_cpdf["dlabel"], y=_cpdf["norm"], name=_ct,
+                mode="lines", line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2),
+                hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:.1f}} ({_ret:+.1%})<extra></extra>",
+            ))
+        _cmp_fig.add_hline(y=100, line_dash="dot", line_color="gray", opacity=0.5)
+        _cmp_fig.update_layout(
+            height=380, margin=dict(l=0, r=0, t=20, b=0), dragmode=False,
+            hovermode="x unified",
+            xaxis=dict(type="category", nticks=8, showgrid=False),
+            yaxis_title="Giá chuẩn hóa (100 = đầu kỳ)",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        )
+        st.plotly_chart(_cmp_fig, width="stretch")
+
+        # ── Return summary cards ─────────────────────────────────
+        if _cmp_returns:
+            _ret_cols = st.columns(len(_cmp_returns))
+            for _ci, (_ct, _ret) in enumerate(_cmp_returns.items()):
+                _cc = "#22c55e" if _ret >= 0 else "#ef4444"
+                _ret_cols[_ci].markdown(
+                    f"<div style='text-align:center;padding:8px;background:#1f2937;border-radius:8px;'>"
+                    f"<div style='font-size:13px;color:#9ca3af;'>{_ct}</div>"
+                    f"<div style='font-size:22px;font-weight:800;color:{_cc};'>{_ret:+.1%}</div>"
+                    f"<div style='font-size:11px;color:#6b7280;'>{_cmp_period}</div></div>",
+                    unsafe_allow_html=True,
+                )
+
+        # ── Metrics comparison table ─────────────────────────────
+        st.subheader("So sánh chỉ số tài chính")
+        with st.spinner("Đang tải..."):
+            _cmp_screen = load_valuation_screen_data()
+        _cmp_metrics_rows = []
+        _METRIC_COLS = ["P/E", "P/B", "ROE", "Net Margin", "Avg Upside", "Tín hiệu", "Quality", "Ngành"]
+        for _ct in _cmp_tickers:
+            _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
+            if _row.empty:
+                _cmp_metrics_rows.append({"Chỉ số": _ct, **{c: "—" for c in _METRIC_COLS}})
+                continue
+            _r = _row.iloc[0]
+            _sig_clean = str(_r.get("Tín hiệu", "")).lstrip("⁠")
+            _cmp_metrics_rows.append({
+                "Mã": _ct,
+                "Ngành": _r.get("Ngành", "—"),
+                "P/E": _r.get("P/E", "—"),
+                "P/B": _r.get("P/B", "—"),
+                "ROE": _r.get("ROE", "—"),
+                "Net Margin": _r.get("Net Margin", "—"),
+                "Avg Upside": _r.get("Avg Upside", "—"),
+                "Tín hiệu": _sig_clean,
+                "Quality": int(round(_r["_qs_raw"])) if pd.notna(_r.get("_qs_raw")) else "—",
+            })
+
+        if _cmp_metrics_rows:
+            _cmp_df = pd.DataFrame(_cmp_metrics_rows).set_index("Mã")
+            _SIG_COLORS_CMP = {
+                "Strong Buy":  "background-color:#14532d; color:#86efac; font-weight:700",
+                "Buy":         "background-color:#166534; color:#bbf7d0; font-weight:600",
+                "Watch":       "background-color:#713f12; color:#fde68a",
+                "Neutral":     "background-color:#1e293b; color:#94a3b8",
+                "Reduce":      "background-color:#7c2d12; color:#fdba74",
+                "Sell":        "background-color:#7f1d1d; color:#fca5a5",
+                "Strong Sell": "background-color:#450a0a; color:#f87171; font-weight:700",
+            }
+            def _cmp_sig_color(v):
+                return _SIG_COLORS_CMP.get(v, "")
+            def _cmp_q_color(v):
+                try:
+                    q = int(v)
+                    if q >= 70:   return "background-color:#166534; color:#86efac"
+                    elif q >= 50: return "background-color:#713f12; color:#fde047"
+                    elif q >= 30: return "background-color:#7c2d12; color:#fdba74"
+                    else:         return "background-color:#7f1d1d; color:#fca5a5"
+                except Exception:
+                    return ""
+            _cmp_styled = (
+                _cmp_df.style
+                .map(_cmp_sig_color, subset=["Tín hiệu"])
+                .map(_cmp_q_color, subset=["Quality"])
+            )
+            st.dataframe(_cmp_styled, width="stretch")
+
+        # ── Volume comparison chart ─────────────────────────────
+        st.subheader("Khối lượng giao dịch trung bình 20 ngày")
+        _vol_data = {}
+        for _ct in _cmp_tickers:
+            _vpdf = load_prices(_ct)
+            if not _vpdf.empty:
+                _vol_data[_ct] = float(_vpdf.tail(20)["volume"].mean()) / 1e6
+        if _vol_data:
+            _vol_fig = go.Figure(go.Bar(
+                x=list(_vol_data.keys()), y=list(_vol_data.values()),
+                marker_color=_CMP_COLORS[:len(_vol_data)],
+                hovertemplate="%{x}: %{y:.2f}M cổ phiếu<extra></extra>",
+            ))
+            _vol_fig.update_layout(
+                height=260, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+                yaxis_title="Triệu cổ phiếu", showlegend=False,
+            )
+            st.plotly_chart(_vol_fig, width="stretch")
+
+
+# ═══════════════════════════════════════════════════════════════
+# VIEW 4 — SECTOR ANALYSIS
 # ═══════════════════════════════════════════════════════════════
 elif view == "Phân tích Ngành":
     st.title("Phân tích Ngành")
