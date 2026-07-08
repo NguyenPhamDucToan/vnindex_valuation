@@ -657,6 +657,10 @@ def load_valuation_screen_data() -> pd.DataFrame:
     Includes raw numeric columns for filtering (_roe_raw, _de_raw, etc.)
     and a composite quality_score (0-100).
     """
+    # Reuse shared cached price + sector maps (avoids duplicate 0.4s subqueries)
+    price_map = load_latest_prices()
+    sector_map = load_sector_map()
+
     with get_session() as s:
         subq = (
             select(Valuation.ticker, sqlfunc.max(Valuation.calc_date).label("max_date"))
@@ -669,22 +673,6 @@ def load_valuation_screen_data() -> pd.DataFrame:
                          (Valuation.calc_date == subq.c.max_date))
             .order_by(Valuation.ticker)
         ).scalars().all()
-
-        price_subq = (
-            select(Price.ticker, sqlfunc.max(Price.date).label("max_date"))
-            .group_by(Price.ticker)
-            .subquery()
-        )
-        price_rows = s.execute(
-            select(Price.ticker, Price.close, Price.date)
-            .join(price_subq, (Price.ticker == price_subq.c.ticker) &
-                               (Price.date == price_subq.c.max_date))
-        ).all()
-        price_map = {r[0]: r[1] * 1000 for r in price_rows if r[1]}
-
-        # Sector lookup
-        company_rows = s.execute(select(Company.ticker, Company.sector)).all()
-        sector_map = {r[0]: (r[1] or "Unknown") for r in company_rows}
 
         records = []
         for v in val_rows:
@@ -737,6 +725,10 @@ def load_valuation_screen_data() -> pd.DataFrame:
 @st.cache_data(ttl=1800)
 def load_sector_ticker_data() -> pd.DataFrame:
     """Return ticker-level valuation data with sector — for heatmap and top-N per sector."""
+    # Shared cached maps — avoids duplicate price/sector subqueries
+    price_map  = load_latest_prices()
+    sector_map = load_sector_map()
+
     with get_session() as s:
         subq = (
             select(Valuation.ticker, sqlfunc.max(Valuation.calc_date).label("max_date"))
@@ -747,21 +739,10 @@ def load_sector_ticker_data() -> pd.DataFrame:
             .join(subq, (Valuation.ticker == subq.c.ticker) &
                          (Valuation.calc_date == subq.c.max_date))
         ).scalars().all()
-        price_subq = (
-            select(Price.ticker, sqlfunc.max(Price.date).label("max_date"))
-            .group_by(Price.ticker).subquery()
-        )
-        price_rows = s.execute(
-            select(Price.ticker, Price.close)
-            .join(price_subq, (Price.ticker == price_subq.c.ticker) &
-                               (Price.date == price_subq.c.max_date))
-        ).all()
-        price_map = {r[0]: r[1] * 1000 for r in price_rows if r[1]}
         comp_rows = s.execute(
-            select(Company.ticker, Company.sector, Company.name)
+            select(Company.ticker, Company.name)
         ).all()
-        sector_map = {r[0]: (r[1] or "Unknown") for r in comp_rows}
-        name_map   = {r[0]: (r[2] or r[0])       for r in comp_rows}
+        name_map = {r[0]: (r[1] or r[0]) for r in comp_rows}
 
         # Get latest shares_outstanding per ticker for market cap
         fin_subq = (
@@ -814,6 +795,10 @@ def load_sector_ticker_data() -> pd.DataFrame:
 @st.cache_data(ttl=1800)
 def load_sector_data() -> pd.DataFrame:
     """Return sector-level summary: median metrics per sector from valuations table."""
+    # Shared cached maps — avoids duplicate price/sector subqueries
+    price_map  = load_latest_prices()
+    sector_map = load_sector_map()
+
     with get_session() as s:
         subq = (
             select(Valuation.ticker, sqlfunc.max(Valuation.calc_date).label("max_date"))
@@ -825,21 +810,6 @@ def load_sector_data() -> pd.DataFrame:
             .join(subq, (Valuation.ticker == subq.c.ticker) &
                          (Valuation.calc_date == subq.c.max_date))
         ).scalars().all()
-
-        price_subq = (
-            select(Price.ticker, sqlfunc.max(Price.date).label("max_date"))
-            .group_by(Price.ticker)
-            .subquery()
-        )
-        price_rows = s.execute(
-            select(Price.ticker, Price.close)
-            .join(price_subq, (Price.ticker == price_subq.c.ticker) &
-                               (Price.date == price_subq.c.max_date))
-        ).all()
-        price_map = {r[0]: r[1] * 1000 for r in price_rows if r[1]}
-
-        company_rows = s.execute(select(Company.ticker, Company.sector)).all()
-        sector_map = {r[0]: (r[1] or "Unknown") for r in company_rows}
 
         rows = []
         for v in val_rows:
@@ -899,6 +869,8 @@ def load_sector_data() -> pd.DataFrame:
 @st.cache_data(ttl=1800)
 def load_watchlist_data(min_upside: float = 0.20) -> pd.DataFrame:
     """Return watchlist rows: DCF upside > min_upside AND positive FCFF."""
+    price_map = load_latest_prices()
+
     with get_session() as s:
         subq = (
             select(Valuation.ticker, sqlfunc.max(Valuation.calc_date).label("max_date"))
@@ -912,18 +884,6 @@ def load_watchlist_data(min_upside: float = 0.20) -> pd.DataFrame:
             .where(Valuation.fcff > 0)
             .order_by(Valuation.ticker)
         ).scalars().all()
-
-        price_subq = (
-            select(Price.ticker, sqlfunc.max(Price.date).label("max_date"))
-            .group_by(Price.ticker)
-            .subquery()
-        )
-        price_rows = s.execute(
-            select(Price.ticker, Price.close)
-            .join(price_subq, (Price.ticker == price_subq.c.ticker) &
-                               (Price.date == price_subq.c.max_date))
-        ).all()
-        price_map = {r[0]: r[1] * 1000 for r in price_rows if r[1]}
 
         records = []
         for v in val_rows:
@@ -1116,6 +1076,14 @@ def load_latest_prices() -> dict[str, float]:
 
 
 @st.cache_data(ttl=3600)
+def load_sector_map() -> dict[str, str]:
+    """Return {ticker: sector} for all companies (cached, shared across view functions)."""
+    with get_session() as s:
+        rows = s.execute(select(Company.ticker, Company.sector)).all()
+    return {r[0]: (r[1] or "Unknown") for r in rows}
+
+
+@st.cache_data(ttl=3600)
 def load_detailed_financials(ticker: str):
     """Fetch raw VCI income statement + balance sheet for detailed sub-item charts.
 
@@ -1238,24 +1206,44 @@ def load_company_events(ticker: str) -> "pd.DataFrame":
 
 @st.cache_data(ttl=3600)
 def load_commodity_prices(symbols: tuple, period: str = "1y") -> "pd.DataFrame":
-    """Fetch Yahoo Finance commodity prices, return normalized (base=100) DataFrame."""
+    """Fetch Yahoo Finance commodity prices in parallel, return normalized (base=100) DataFrame."""
     import yfinance as yf
-    frames = {}
-    for sym, label, _ in symbols:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _fetch_one(item):
+        sym, label, _ = item
         try:
             df = yf.download(sym, period=period, progress=False, auto_adjust=True)
             if df is not None and not df.empty:
                 close = df["Close"].squeeze()
                 base = close.iloc[0]
                 if base and base != 0:
-                    frames[label] = (close / base * 100).round(2)
+                    return label, (close / base * 100).round(2)
         except Exception:
             pass
+        return label, None
+
+    frames = {}
+    with ThreadPoolExecutor(max_workers=min(len(symbols), 6)) as ex:
+        for label, series in ex.map(_fetch_one, symbols):
+            if series is not None:
+                frames[label] = series
     if not frames:
         return pd.DataFrame()
     result = pd.DataFrame(frames)
     result.index = pd.to_datetime(result.index)
     return result.sort_index()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_shareholders(ticker: str):
+    """Fetch shareholders and officers via vnstock Company API."""
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from vnstock import Company
+        co = Company(symbol=ticker, source="VCI")
+        return co.shareholders(), co.officers()
 
 
 @st.cache_data(ttl=600)
@@ -2010,14 +1998,20 @@ if view == "Phân tích Cổ phiếu":
         _default_idx = 0
     ticker = st.sidebar.selectbox("Mã", _available, index=_default_idx, key="ticker_selector")
 
-    # Only eagerly fetch what the header actually needs (cheap DB queries).
-    # The 3 slower external-API calls (load_detailed_financials,
-    # load_foreign_flow, load_annual_cf) are intentionally NOT pre-fetched
-    # here anymore — left at their original inline positions further down so
-    # Streamlit can paint the header/price/DuPont/valuation sections (which
-    # don't depend on them) immediately, instead of blocking the whole page
-    # behind a ~2s upfront batch. Total time-to-fully-loaded is about the
-    # same either way; this trades it for a much faster first paint.
+    # ── Parallel prefetch: all slow vnstock API calls fire simultaneously ──
+    # Each function is @st.cache_data; the threads warm the cache so that every
+    # inline call further down is an instant cache hit. Total cold-cache wait
+    # = slowest single call (~3s) instead of sequential sum (~12s).
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+    with _TPE(max_workers=7) as _pre:
+        _pre.submit(load_shareholders, ticker)
+        _pre.submit(load_foreign_flow, ticker, 20)
+        _pre.submit(load_detailed_financials, ticker)
+        _pre.submit(load_annual_cf, ticker)
+        _pre.submit(load_company_news, ticker)
+        _pre.submit(load_company_events, ticker)
+        _pre.submit(load_prices, ticker)          # also warms load_prices cache
+
     prices_df   = load_prices(ticker)
     fin_q       = load_financials_q(ticker)
     ttm         = compute_ttm(ticker)
@@ -2063,15 +2057,6 @@ if view == "Phân tích Cổ phiếu":
     st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:0 0 8px 0;">', unsafe_allow_html=True)
 
     # ── Cổ đông lớn & Ban lãnh đạo ────────────────────────────────
-    @st.cache_data(ttl=3600, show_spinner=False)
-    def _load_shareholders(t: str):
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from vnstock import Company
-            co = Company(symbol=t, source="VCI")
-            return co.shareholders(), co.officers()
-
     def _owner_type(name: str) -> str:
         n = (name or "").upper()
         if any(k in n for k in ["NHÀ NƯỚC", "SCIC", "TỔNG CÔNG TY ĐẦU TƯ VÀ KINH DOANH VỐN",
@@ -2097,7 +2082,7 @@ if view == "Phân tích Cổ phiếu":
     with st.expander("🏛 Cổ đông lớn & Ban lãnh đạo", expanded=False):
         try:
             with st.spinner("Đang tải dữ liệu cổ đông..."):
-                _sh_df, _off_df = _load_shareholders(ticker)
+                _sh_df, _off_df = load_shareholders(ticker)
 
             _sh_df = _sh_df.copy()
             _sh_df["_type"] = _sh_df["share_holder"].apply(_owner_type)
@@ -4761,11 +4746,16 @@ elif view == "Sàng lọc Cổ phiếu":
         key="ss_tab_sel", label_visibility="collapsed",
     ) or "📋 Lọc cổ phiếu"
 
-    # This pulls valuation+price+sector data for 600+ tickers, so the whole
-    # page (filters, table, charts) waits on it — there's no partial content
-    # to show progressively, but a clear spinner beats a blank screen on the
-    # one-time cold-cache cost (DB connection warm-up, ~a few seconds once).
+    # Prefetch price + sector shared maps in parallel so all 4 view functions share them.
+    # load_valuation_screen_data, load_sector_ticker_data, load_sector_data, load_watchlist_data
+    # all call load_latest_prices() + load_sector_map() internally; firing them first
+    # means the heavy price subquery runs only once and all four functions cache-hit it.
     with st.spinner("Đang tải dữ liệu lọc cổ phiếu..."):
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        with _TPE(max_workers=3) as _pre:
+            _pre.submit(load_latest_prices)
+            _pre.submit(load_sector_map)
+            _pre.submit(load_valuation_screen_data)
         try:
             screen_df = load_valuation_screen_data()
         except Exception as _db_err:
@@ -5595,6 +5585,11 @@ elif view == "Phân tích Ngành":
     st.title("Phân tích Ngành")
 
     try:
+        # Fire both in parallel — they share the cached price + sector maps
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        with _TPE(max_workers=2) as _pre:
+            _pre.submit(load_sector_data)
+            _pre.submit(load_sector_ticker_data)
         sector_df  = load_sector_data()
         ticker_df  = load_sector_ticker_data()
     except Exception as _db_err:
