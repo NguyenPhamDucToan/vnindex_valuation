@@ -88,11 +88,9 @@ def compute_beta(ticker: str, days: int = 252) -> float:
         # ── VNINDEX prices from vnstock ───────────────────────────
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock import Vnstock
-            vni_raw = (
-                Vnstock()
-                .stock(symbol="VNINDEX", source="VCI")
-                .quote.history(symbol="VNINDEX", start=start, end=end, interval="1D")
+            from vnstock import Quote
+            vni_raw = Quote(symbol="VNINDEX", source="VCI").history(
+                start=start, end=end, interval="1D"
             )
 
         if vni_raw is None or len(vni_raw) < 60:

@@ -1039,12 +1039,11 @@ def load_vnindex_prices(days: int = 504) -> "pd.DataFrame":
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock import Vnstock
-            stock = Vnstock().stock(symbol="VNINDEX", source="VCI")
+            from vnstock import Quote
             from datetime import date, timedelta
             end = date.today().strftime("%Y-%m-%d")
             start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
-            df = vnstock_call(lambda: stock.quote.history(start=start, end=end, interval="1D"))
+            df = vnstock_call(lambda: Quote(symbol="VNINDEX", source="VCI").history(start=start, end=end, interval="1D"))
             if df is None or df.empty:
                 return pd.DataFrame()
             df = df.rename(columns={"time": "date"})
@@ -1181,9 +1180,8 @@ def load_analyst_recommendation(ticker: str) -> dict:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock import Vnstock
-            stock = Vnstock().stock(symbol=ticker, source="VCI")
-            ov = stock.company.overview()
+            from vnstock import Company
+            ov = Company(symbol=ticker, source="VCI").overview()
             if ov is None or ov.empty:
                 return {}
             row = ov.iloc[0]
@@ -1987,9 +1985,9 @@ if view == "Phân tích Cổ phiếu":
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock import Vnstock
-            stk = Vnstock().stock(symbol=t, source="VCI")
-            return stk.company.shareholders(), stk.company.officers()
+            from vnstock import Company
+            co = Company(symbol=t, source="VCI")
+            return co.shareholders(), co.officers()
 
     def _owner_type(name: str) -> str:
         n = (name or "").upper()

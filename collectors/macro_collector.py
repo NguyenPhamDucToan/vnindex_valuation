@@ -780,11 +780,10 @@ def collect_exchange_rate(days: int = 1825) -> int:
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from vnstock import Vnstock
-        fx = Vnstock().fx(symbol="USDVND", source="MSN")
+        from vnstock import Market
         end = _date.today().strftime("%Y-%m-%d")
         start = (_date.today() - _timedelta(days=days)).strftime("%Y-%m-%d")
-        df = fx.quote.history(start=start, end=end, interval="1D")
+        df = Market().forex(symbol="USDVND").ohlcv(start=start, end=end, resolution="1D")
 
     if df is None or df.empty:
         logger.warning("No USD/VND exchange rate data returned from vnstock")

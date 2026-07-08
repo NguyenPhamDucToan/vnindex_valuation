@@ -66,11 +66,9 @@ def _make_price_board_df(overrides=None):
 
 def test_fetch_live_quote_success():
     df = _make_price_board_df()
-    mock_stock = MagicMock()
-    mock_stock.trading.price_board.return_value = df
 
-    with patch("vnstock.Vnstock") as mock_vnstock:
-        mock_vnstock.return_value.stock.return_value = mock_stock
+    with patch("vnstock.Trading") as mock_trading:
+        mock_trading.return_value.price_board.return_value = df
         result = fetch_live_quote("VNM")
 
     assert result is not None
@@ -85,41 +83,33 @@ def test_fetch_live_quote_success():
 
 def test_fetch_live_quote_zero_price_returns_none():
     df = _make_price_board_df({("match", "match_price"): 0.0})
-    mock_stock = MagicMock()
-    mock_stock.trading.price_board.return_value = df
 
-    with patch("vnstock.Vnstock") as mock_vnstock:
-        mock_vnstock.return_value.stock.return_value = mock_stock
+    with patch("vnstock.Trading") as mock_trading:
+        mock_trading.return_value.price_board.return_value = df
         result = fetch_live_quote("VNM")
 
     assert result is None
 
 
 def test_fetch_live_quote_empty_df_returns_none():
-    mock_stock = MagicMock()
-    mock_stock.trading.price_board.return_value = pd.DataFrame()
-
-    with patch("vnstock.Vnstock") as mock_vnstock:
-        mock_vnstock.return_value.stock.return_value = mock_stock
+    with patch("vnstock.Trading") as mock_trading:
+        mock_trading.return_value.price_board.return_value = pd.DataFrame()
         result = fetch_live_quote("VNM")
 
     assert result is None
 
 
 def test_fetch_live_quote_none_df_returns_none():
-    mock_stock = MagicMock()
-    mock_stock.trading.price_board.return_value = None
-
-    with patch("vnstock.Vnstock") as mock_vnstock:
-        mock_vnstock.return_value.stock.return_value = mock_stock
+    with patch("vnstock.Trading") as mock_trading:
+        mock_trading.return_value.price_board.return_value = None
         result = fetch_live_quote("VNM")
 
     assert result is None
 
 
 def test_fetch_live_quote_exception_returns_none():
-    with patch("vnstock.Vnstock") as mock_vnstock:
-        mock_vnstock.return_value.stock.side_effect = RuntimeError("API down")
+    with patch("vnstock.Trading") as mock_trading:
+        mock_trading.side_effect = RuntimeError("API down")
         result = fetch_live_quote("VNM")
 
     assert result is None
@@ -132,11 +122,9 @@ def test_fetch_live_quote_missing_optional_fields_fall_back_to_price():
         ("match", "lowest"): None,
         ("match", "reference_price"): None,
     })
-    mock_stock = MagicMock()
-    mock_stock.trading.price_board.return_value = df
 
-    with patch("vnstock.Vnstock") as mock_vnstock:
-        mock_vnstock.return_value.stock.return_value = mock_stock
+    with patch("vnstock.Trading") as mock_trading:
+        mock_trading.return_value.price_board.return_value = df
         result = fetch_live_quote("VNM")
 
     assert result["open"] == result["price"]

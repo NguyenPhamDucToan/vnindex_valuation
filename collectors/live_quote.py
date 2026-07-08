@@ -67,9 +67,8 @@ def fetch_live_quote(ticker: str) -> dict | None:
     Values are in thousands VND (same convention as Price.close).
     """
     try:
-        from vnstock import Vnstock
-        stock = Vnstock().stock(symbol=ticker, source=VNSTOCK_SOURCE)
-        df = stock.trading.price_board(symbols_list=[ticker])
+        from vnstock import Trading
+        df = Trading(symbol=ticker, source=VNSTOCK_SOURCE).price_board(symbols_list=[ticker])
         if df is None or df.empty:
             return None
         row = df.iloc[0]

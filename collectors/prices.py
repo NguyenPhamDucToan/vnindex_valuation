@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import pandas as pd
 from loguru import logger
 from sqlalchemy import select, func
-from vnstock import Vnstock
+from vnstock import Quote
 
 from config import VNSTOCK_SOURCE
 from models.database import get_session
@@ -21,8 +21,7 @@ def fetch_prices(ticker: str, start_date: date, end_date: date) -> pd.DataFrame:
     Columns: date, open, high, low, close, volume, adjusted_close
     All prices in VND (not billions).
     """
-    stock = Vnstock().stock(symbol=ticker, source=VNSTOCK_SOURCE)
-    df = stock.quote.history(
+    df = Quote(symbol=ticker, source=VNSTOCK_SOURCE).history(
         start=start_date.strftime("%Y-%m-%d"),
         end=end_date.strftime("%Y-%m-%d"),
         interval="1D",

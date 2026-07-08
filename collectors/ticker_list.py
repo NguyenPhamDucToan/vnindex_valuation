@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 from loguru import logger
-from vnstock import Vnstock
+from vnstock import Listing
 
 from config import EXCHANGE, VNSTOCK_SOURCE
 from models.database import get_session
@@ -16,14 +16,14 @@ def fetch_ticker_list() -> pd.DataFrame:
     Columns: symbol, organ_name, exchange, sector (industry_name from ICB)
     """
     logger.info("Fetching ticker list from vnstock...")
-    stock = Vnstock().stock(symbol="VNM", source=VNSTOCK_SOURCE)
+    listing = Listing(source=VNSTOCK_SOURCE)
 
-    df = stock.listing.symbols_by_exchange()
+    df = listing.symbols_by_exchange()
     df = df[df["exchange"] == EXCHANGE].copy()
     logger.info(f"Found {len(df)} tickers on {EXCHANGE}")
 
     try:
-        ind = stock.listing.symbols_by_industries()[["symbol", "industry_name"]].copy()
+        ind = listing.symbols_by_industries()[["symbol", "industry_name"]].copy()
         df = df.merge(ind, on="symbol", how="left")
         logger.info(f"Merged industry data: {df['industry_name'].notna().sum()} tickers have sector")
     except Exception as e:
