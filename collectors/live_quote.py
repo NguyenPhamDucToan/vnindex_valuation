@@ -85,5 +85,5 @@ def fetch_live_quote(ticker: str) -> dict | None:
             "volume": float(row[("match", "accumulated_volume")] or 0),
             "as_of":  datetime.now(_ICT).strftime("%H:%M:%S"),
         }
-    except Exception:
+    except (Exception, SystemExit):
         return None
