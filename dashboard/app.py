@@ -275,7 +275,7 @@ def vnstock_call(fn, attempts: int = 3, delay: float = 1.5):
         vnstock_throttle()
         try:
             return fn()
-        except Exception as e:
+        except (Exception, SystemExit) as e:
             last_exc = e
             if i < attempts - 1:
                 msg = str(e).lower()
@@ -1140,7 +1140,7 @@ def load_detailed_financials(ticker: str):
                                    lang="en", show_log=False, limit=50)
                 inc, bal = f_inc.result(), f_bal.result()
         return inc, bal
-    except Exception:
+    except (Exception, SystemExit):
         return pd.DataFrame(), pd.DataFrame()
 
 
@@ -1166,7 +1166,7 @@ def load_annual_cf(ticker: str):
                                    lang="en", show_log=False, limit=20)
                 cf, inc = f_cf.result(), f_inc.result()
         return cf, inc
-    except Exception:
+    except (Exception, SystemExit):
         return pd.DataFrame(), pd.DataFrame()
 
 
@@ -1195,7 +1195,7 @@ def load_analyst_recommendation(ticker: str) -> dict:
                 "rating_as_of": str(row.get("rating_as_of") or ""),
                 "current_price": float(row.get("current_price") or 0),
             }
-    except Exception:
+    except (Exception, SystemExit):
         return {}
 
 
@@ -1910,7 +1910,15 @@ if st.session_state.get("hm_popup_ticker"):
 # ═══════════════════════════════════════════════════════════════
 if view == "Phân tích Cổ phiếu":
 
-    _available = load_available_tickers()
+    try:
+        _available = load_available_tickers()
+    except Exception as _db_err:
+        st.error(
+            "⚠️ **Không thể kết nối database.**  \n"
+            "Nếu đang dùng Streamlit Cloud, hãy thêm `DATABASE_URL` vào **Settings → Secrets**.  \n"
+            f"Chi tiết lỗi: `{_db_err}`"
+        )
+        st.stop()
     # Allow navigation from heatmap click
     _nav_ticker = st.session_state.pop("ticker_input", None)
     if _nav_ticker and _nav_ticker in _available:
@@ -1937,6 +1945,20 @@ if view == "Phân tích Cổ phiếu":
     if prices_df.empty:
         st.warning("Không có dữ liệu giá trong DB. Chạy: python collectors/prices.py")
         st.stop()
+
+    # Stale data warning — shown only when DB is SQLite fallback (no DATABASE_URL)
+    # and prices are more than 7 days old (GitHub Actions keeps Postgres current).
+    if not os.getenv("DATABASE_URL"):
+        from datetime import date as _chk_date
+        _price_latest = pd.to_datetime(prices_df["date"]).max().date()
+        _days_stale = (_chk_date.today() - _price_latest).days
+        if _days_stale > 7:
+            st.warning(
+                f"⚠️ Dữ liệu giá tính đến **{_price_latest.strftime('%d/%m/%Y')}** "
+                f"({_days_stale} ngày trước). "
+                "Thêm `DATABASE_URL` vào Streamlit Cloud Secrets để nhận dữ liệu cập nhật hàng ngày.",
+                icon="📅",
+            )
 
     current_price = float(prices_df["close"].iloc[-1]) * 1000
 
@@ -4599,7 +4621,11 @@ elif view == "Sàng lọc Cổ phiếu":
     # to show progressively, but a clear spinner beats a blank screen on the
     # one-time cold-cache cost (DB connection warm-up, ~a few seconds once).
     with st.spinner("Đang tải dữ liệu lọc cổ phiếu..."):
-        screen_df = load_valuation_screen_data()
+        try:
+            screen_df = load_valuation_screen_data()
+        except Exception as _db_err:
+            st.error(f"⚠️ Không thể tải dữ liệu: `{_db_err}`\n\nKiểm tra DATABASE_URL trong Secrets.")
+            st.stop()
 
     # ── Shared sidebar filters (used by both Lọc cổ phiếu & Watchlist tabs) ──
     if not screen_df.empty:
@@ -5235,8 +5261,12 @@ elif view == "Sàng lọc Cổ phiếu":
 elif view == "Phân tích Ngành":
     st.title("Phân tích Ngành")
 
-    sector_df  = load_sector_data()
-    ticker_df  = load_sector_ticker_data()
+    try:
+        sector_df  = load_sector_data()
+        ticker_df  = load_sector_ticker_data()
+    except Exception as _db_err:
+        st.error(f"⚠️ Không thể tải dữ liệu ngành: `{_db_err}`\n\nKiểm tra DATABASE_URL trong Secrets.")
+        st.stop()
 
     if sector_df.empty:
         st.warning("Chưa có dữ liệu định giá. Chạy: `python -m collectors.compute_valuations`")
