@@ -1449,29 +1449,42 @@ def load_market_valuation_history() -> "pd.DataFrame":
     price_df = pd.DataFrame(price_rows, columns=["ticker", "date", "close"])
     price_df["date"]  = pd.to_datetime(price_df["date"])
     price_df["close"] = price_df["close"] * 1000
-    price_df = price_df.sort_values(["ticker", "date"])
 
-    # Vectorized merge: pd.merge_asof with by="ticker" replaces the per-ticker loop
-    fin_in_window = fin_df[fin_df["qend"] >= _cutoff].sort_values(["ticker", "qend"])
-    if fin_in_window.empty:
+    # Pre-group price data into a dict for O(1) per-ticker lookup.
+    # Avoids O(n*k) boolean-indexing in a loop (n=price rows, k=tickers).
+    # price_rows is already ORDER BY ticker, date so each group is pre-sorted.
+    _px_dict: dict = {
+        tkr: grp[["date", "close"]].reset_index(drop=True)
+        for tkr, grp in price_df.groupby("ticker", sort=False)
+    }
+
+    fin_window = fin_df[fin_df["qend"] >= _cutoff]
+    if fin_window.empty:
         return pd.DataFrame()
-    merged = pd.merge_asof(
-        fin_in_window, price_df[["ticker", "date", "close"]],
-        left_on="qend", right_on="date",
-        by="ticker", direction="backward",
-    )
-    merged["pe"] = np.where(
-        merged["ttm_eps"].notna() & (merged["ttm_eps"] > 0),
-        merged["close"] / merged["ttm_eps"], np.nan)
-    merged["pb"] = np.where(
-        merged["bvps"].notna() & (merged["bvps"] > 0),
-        merged["close"] / merged["bvps"], np.nan)
 
-    # Drop unreasonable outliers before taking the median
-    merged.loc[(merged["pe"] <= 0) | (merged["pe"] > 100), "pe"] = np.nan
-    merged.loc[(merged["pb"] <= 0) | (merged["pb"] > 20),  "pb"] = np.nan
+    out = []
+    for tkr, fin_g in fin_window.groupby("ticker", sort=False):
+        px = _px_dict.get(tkr)
+        if px is None or px.empty:
+            continue
+        m = pd.merge_asof(
+            fin_g.sort_values("qend"), px,
+            left_on="qend", right_on="date", direction="backward",
+        )
+        m["pe"] = np.where(
+            m["ttm_eps"].notna() & (m["ttm_eps"] > 0), m["close"] / m["ttm_eps"], np.nan)
+        m["pb"] = np.where(
+            m["bvps"].notna() & (m["bvps"] > 0), m["close"] / m["bvps"], np.nan)
+        out.append(m[["period", "qend", "pe", "pb"]])
 
-    agg = (merged.groupby(["period", "qend"])
+    if not out:
+        return pd.DataFrame()
+
+    all_df = pd.concat(out, ignore_index=True)
+    all_df.loc[(all_df["pe"] <= 0) | (all_df["pe"] > 100), "pe"] = np.nan
+    all_df.loc[(all_df["pb"] <= 0) | (all_df["pb"] > 20),  "pb"] = np.nan
+
+    agg = (all_df.groupby(["period", "qend"])
                   .agg(median_pe=("pe", "median"), median_pb=("pb", "median"),
                        n_pe=("pe", "count"), n_pb=("pb", "count"))
                   .reset_index()
