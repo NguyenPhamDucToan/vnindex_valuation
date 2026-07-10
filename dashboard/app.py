@@ -1557,14 +1557,22 @@ def _intraday_cache_slot() -> str:
 @st.cache_data(ttl=300, show_spinner=False)
 def _load_index_intraday_impl(cache_slot: str) -> dict:  # noqa: ARG001
     import datetime
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, wait as _wait
     today    = datetime.date.today()
     week_ago = today - datetime.timedelta(days=10)
     out = {}
-    with ThreadPoolExecutor(max_workers=len(_INDEX_SYMBOLS)) as ex:
-        for sym, data in ex.map(lambda s: _fetch_one_index_intraday(s, today, week_ago), _INDEX_SYMBOLS):
+    _pool = ThreadPoolExecutor(max_workers=len(_INDEX_SYMBOLS))
+    _fmap = {_pool.submit(_fetch_one_index_intraday, s, today, week_ago): s for s in _INDEX_SYMBOLS}
+    _pool.shutdown(wait=False)
+    # Hard timeout: if API hangs (rate-limit sleep), bail after 12s with whatever completed
+    _done, _ = _wait(list(_fmap.keys()), timeout=12)
+    for _f in _done:
+        try:
+            sym, data = _f.result()
             if data is not None:
                 out[sym] = data
+        except Exception:
+            pass
     return {sym: out[sym] for sym in _INDEX_SYMBOLS if sym in out}
 
 
@@ -6237,14 +6245,18 @@ elif view == "Tổng quan Thị trường":
 
         # ── Pre-fetch all API-heavy calls in parallel so total wait = slowest single call
         with st.spinner("Đang tải dữ liệu thị trường..."):
-            from concurrent.futures import ThreadPoolExecutor as _TPE
-            with _TPE(max_workers=5) as _pre:
-                _pre.submit(load_index_intraday)               # 5 vnstock calls (intraday)
-                _pre.submit(load_vnindex_prices, 252)          # 1 vnstock call  (1-year chart)
-                _pre.submit(load_foreign_flow, "VNINDEX", 15)  # VNDirect API
-                _pre.submit(load_market_snapshot)              # DB snapshot
-                _pre.submit(load_market_valuation_history)     # heavy DB+compute — must be in parallel
-            # All results are now in Streamlit's cache — subsequent calls below are instant
+            from concurrent.futures import ThreadPoolExecutor as _TPE, wait as _cfwait
+            _pre = _TPE(max_workers=5)
+            _futs = [
+                _pre.submit(load_index_intraday),               # 5 vnstock calls (intraday, has 12s hard timeout)
+                _pre.submit(load_vnindex_prices, 252),          # 1 vnstock call  (1-year chart)
+                _pre.submit(load_foreign_flow, "VNINDEX", 15),  # VNDirect API (timeout=12 inside)
+                _pre.submit(load_market_snapshot),              # DB snapshot (fast)
+                _pre.submit(load_market_valuation_history),     # heavy DB+compute
+            ]
+            _pre.shutdown(wait=False)   # don't block — threads continue warming cache in background
+            _cfwait(_futs, timeout=15)  # wait at most 15s; bail out regardless
+            # Anything still running continues in background and populates @st.cache_data
             snap_df = load_market_snapshot()
             vnidx   = load_vnindex_prices(days=252)
 
