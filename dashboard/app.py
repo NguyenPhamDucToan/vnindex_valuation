@@ -6592,26 +6592,27 @@ elif view == "Tổng quan Thị trường":
                 st.info(f"{title}: chưa có dữ liệu")
                 return
             colors = ["#22c55e" if v >= 0 else "#ef4444" for v in df["value"]]
-            # Annual-only series (all periods in December) are sparse and far apart on a
-            # date axis, which makes Plotly auto-size the bars to span huge ranges.
-            # Render those as categorical (one bar per year) instead.
-            is_annual = all(p.month == 12 for p in df["period"])
+            _ps = df["period"].apply(pd.to_datetime)
+            is_annual    = all(p.month == 12 for p in _ps)
+            is_quarterly = (not is_annual) and all(p.day == 1 and p.month in (3, 6, 9, 12) for p in _ps)
+            # Always use categorical labels to avoid Plotly datetime sub-second zoom
+            # on sparse series (quarterly/annual data has few points, wide gaps)
             if is_annual:
-                x = df["period"].apply(lambda p: str(p.year))
-                hover = "%{x}: %{y:+.2f}" + unit + "<extra></extra>"
+                x = _ps.apply(lambda p: str(p.year))
+            elif is_quarterly:
+                x = _ps.apply(lambda p: f"Q{p.month // 3}/{p.year}")
             else:
-                x = df["period"]
-                hover = "%{x|%m/%Y}: %{y:+.2f}" + unit + "<extra></extra>"
+                x = _ps.apply(lambda p: f"{p.month:02d}/{p.year}")
+            hover = "%{x}: %{y:+.2f}" + unit + "<extra></extra>"
             fig = go.Figure(go.Bar(x=x, y=df["value"], marker_color=colors, hovertemplate=hover))
             fig.add_hline(y=0, line_color="gray", opacity=0.5)
             fig.update_layout(
                 title=title, height=280, margin=dict(l=0, r=0, t=40, b=0),
                 dragmode=False, showlegend=False,
+                xaxis=dict(type="category", nticks=12),
                 yaxis_title=unit)
-            if is_annual:
-                fig.update_xaxes(type="category")
             st.plotly_chart(fig, width="stretch")
-            latest = df["period"].max()
+            latest = pd.to_datetime(df["period"].max())
             st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
 
         def _macro_line_chart(series: dict[str, "pd.DataFrame"], title: str, unit: str = "%"):
@@ -6625,22 +6626,45 @@ elif view == "Tổng quan Thị trường":
                 _common_start = max(df["period"].min() for df in series.values())
                 series = {label: df[df["period"] >= _common_start].copy() for label, df in series.items()}
                 series = {label: df for label, df in series.items() if not df.empty}
+
+            # Detect frequency from the first non-empty series and format as categorical strings.
+            # Using datetime x-axis causes sub-second Plotly zoom when only 1 data point exists
+            # (pandas stores dates as datetime64[ns]; Plotly creates a ±ns range around a lone point).
+            _sample_periods = list(series.values())[0]["period"]
+            _is_quarterly = all(
+                pd.to_datetime(p).day == 1 and pd.to_datetime(p).month in (3, 6, 9, 12)
+                for p in _sample_periods
+            ) if not _sample_periods.empty else False
+            _is_annual = (not _is_quarterly) and all(
+                pd.to_datetime(p).month == 12 for p in _sample_periods
+            ) if not _sample_periods.empty else False
+
+            def _fmt(p) -> str:
+                _p = pd.to_datetime(p)
+                if _is_quarterly:
+                    return f"Q{_p.month // 3}/{_p.year}"
+                if _is_annual:
+                    return str(_p.year)
+                return f"{_p.month:02d}/{_p.year}"
+
             _colors = ["#22c55e", "#f59e0b", "#60a5fa"]
             fig = go.Figure()
             for i, (label, df) in enumerate(series.items()):
+                _xlabels = [_fmt(p) for p in df["period"]]
                 fig.add_trace(go.Scatter(
-                    x=df["period"], y=df["value"], name=label, mode="lines+markers",
+                    x=_xlabels, y=df["value"], name=label, mode="lines+markers",
                     line=dict(color=_colors[i % len(_colors)], width=2),
-                    hovertemplate="%{x|%m/%Y} · " + label + ": %{y:+.2f}" + unit + "<extra></extra>"))
+                    hovertemplate="%{x} · " + label + ": %{y:+.2f}" + unit + "<extra></extra>"))
             fig.add_hline(y=0, line_color="gray", opacity=0.5)
             fig.update_layout(
                 title=title, height=340, margin=dict(l=0, r=0, t=40, b=40),
                 dragmode=False, showlegend=len(series) > 1,
                 legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0),
+                xaxis=dict(type="category", nticks=10),
                 yaxis_title=unit)
             st.plotly_chart(fig, width="stretch")
             latest = max(df["period"].max() for df in series.values())
-            st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
+            st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {pd.to_datetime(latest):%m/%Y}")
 
         def _macro_summary_row(indicator: str, label: str, unit: str = "%", freq: str = "monthly") -> dict:
             df = load_macro_indicator(indicator)
