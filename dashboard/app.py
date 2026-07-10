@@ -6619,6 +6619,12 @@ elif view == "Tổng quan Thị trường":
             if not series:
                 st.info(f"{title}: chưa có dữ liệu")
                 return
+            # When series have different start dates, align to the latest start so
+            # the chart isn't dominated by a single long series that crowds out the overlap
+            if len(series) > 1:
+                _common_start = max(df["period"].min() for df in series.values())
+                series = {label: df[df["period"] >= _common_start].copy() for label, df in series.items()}
+                series = {label: df for label, df in series.items() if not df.empty}
             _colors = ["#22c55e", "#f59e0b", "#60a5fa"]
             fig = go.Figure()
             for i, (label, df) in enumerate(series.items()):
