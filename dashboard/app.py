@@ -1212,7 +1212,8 @@ def load_company_events(ticker: str) -> "pd.DataFrame":
         if df is None or df.empty:
             return pd.DataFrame()
         keep = ["event_name_vi", "event_code", "event_title_vi", "display_date1",
-                "record_date", "exright_date", "payout_date", "value_per_share", "category"]
+                "start_date", "end_date", "record_date", "exright_date", "payout_date",
+                "value_per_share", "exercise_ratio", "action_type_vi", "category"]
         df = df[[c for c in keep if c in df.columns]].copy()
         df["display_date1"] = pd.to_datetime(df["display_date1"], errors="coerce")
         return df.sort_values("display_date1", ascending=False).head(30).reset_index(drop=True)
@@ -4764,60 +4765,187 @@ if view == "Phân tích Cổ phiếu":
             if _news_df.empty:
                 st.info("Không có tin tức gần đây.")
             else:
+                from datetime import date as _date_cls
+                _today = _date_cls.today()
+
+                def _rel_date(pub):
+                    try:
+                        d = pd.to_datetime(pub).date()
+                        diff = (_today - d).days
+                        if diff == 0: return "Hôm nay"
+                        if diff == 1: return "Hôm qua"
+                        if diff <= 7: return f"{diff} ngày trước"
+                        return d.strftime("%d/%m/%Y")
+                    except Exception:
+                        return ""
+
+                # Detect category from title keywords → (label, bg_color, text_color)
+                def _news_badge(title: str):
+                    t = title.upper()
+                    if any(k in t for k in ["CỔ TỨC", "DIVIDEND", "CHI TRẢ", "CHỐT DANH SÁCH"]):
+                        return "Cổ tức", "#065f46", "#6ee7b7"
+                    if any(k in t for k in ["ĐHCĐ", "ĐẠI HỘI", "HỌP", "NGHỊ QUYẾT", "BIÊN BẢN"]):
+                        return "ĐHCĐ", "#4c1d95", "#c4b5fd"
+                    if any(k in t for k in ["GIAO DỊCH", "ĐĂNG KÝ MUA", "ĐĂNG KÝ BÁN", "NỘI BỘ", "CỔ ĐÔNG LỚN"]):
+                        return "Giao dịch", "#1e3a5f", "#60a5fa"
+                    if any(k in t for k in ["BÁO CÁO", "BCTC", "TÀI CHÍNH", "KIỂM TOÁN", "KẾT QUẢ KD", "DOANH THU", "LỢI NHUẬN"]):
+                        return "BCTC", "#422006", "#fcd34d"
+                    if any(k in t for k in ["PHÁT HÀNH", "TĂNG VỐN", "CHÀO BÁN", "ESOP"]):
+                        return "Phát hành", "#4a1942", "#f0abfc"
+                    if any(k in t for k in ["THÔNG BÁO", "ĐIỀU LỆ", "ĐĂNG KÝ KINH DOANH", "THAY ĐỔI"]):
+                        return "Thông báo", "#1c2f3c", "#94a3b8"
+                    return None, None, None
+
+                # Recency → left border color
+                def _border_color(pub):
+                    try:
+                        diff = (_today - pd.to_datetime(pub).date()).days
+                        if diff == 0: return "#ef4444"   # red  — today
+                        if diff <= 3: return "#f97316"   # orange — 1–3 days
+                        if diff <= 7: return "#3b82f6"   # blue — this week
+                        return "#374151"                 # gray — older
+                    except Exception:
+                        return "#374151"
+
+                _news_html = ""
                 for _, _row in _news_df.iterrows():
-                    _date_str = _row["public_date"].strftime("%d/%m/%Y") if pd.notna(_row.get("public_date")) else ""
-                    _title = _row.get("news_title") or ""
-                    _link  = _row.get("news_source_link") or ""
-                    _src   = _row.get("news_source") or ""
-                    if _link:
-                        st.markdown(
-                            f"<div style='padding:6px 0;border-bottom:1px solid #374151;'>"
-                            f"<a href='{_link}' target='_blank' style='color:#60a5fa;text-decoration:none;font-size:14px;'>{_title}</a>"
-                            f"<span style='color:#6b7280;font-size:12px;margin-left:8px;'>{_src} · {_date_str}</span></div>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.markdown(
-                            f"<div style='padding:6px 0;border-bottom:1px solid #374151;'>"
-                            f"<span style='font-size:14px;'>{_title}</span>"
-                            f"<span style='color:#6b7280;font-size:12px;margin-left:8px;'>{_src} · {_date_str}</span></div>",
-                            unsafe_allow_html=True,
-                        )
+                    _title  = (_row.get("news_title") or "").replace("<", "&lt;").replace(">", "&gt;")
+                    _link   = _row.get("news_source_link") or ""
+                    _rel    = _rel_date(_row.get("public_date"))
+                    _abs    = pd.to_datetime(_row.get("public_date")).strftime("%d/%m/%Y") if pd.notna(_row.get("public_date")) else ""
+                    _border = _border_color(_row.get("public_date"))
+                    _blbl, _bbg, _bfg = _news_badge(_title)
+
+                    _badge_html = (
+                        f"<span style='background:{_bbg};color:{_bfg};font-size:10px;"
+                        f"font-weight:600;padding:1px 6px;border-radius:3px;margin-right:6px;"
+                        f"vertical-align:middle;letter-spacing:.3px;'>{_blbl}</span>"
+                        if _blbl else ""
+                    )
+                    _title_el = (
+                        f"<a href='{_link}' target='_blank' style='color:#e2e8f0;text-decoration:none;'>{_title}</a>"
+                        if _link else f"{_title}"
+                    )
+                    _date_tip = f" title='{_abs}'" if _abs and _rel != _abs else ""
+                    _news_html += (
+                        f"<div class='ni' style='border-left-color:{_border}' "
+                        f"onmouseover=\"this.style.background='#1a2235'\" "
+                        f"onmouseout=\"this.style.background='transparent'\">"
+                        f"<div style='font-size:14px;line-height:1.5;color:#e2e8f0;'>"
+                        f"{_badge_html}{_title_el}</div>"
+                        f"<div style='font-size:11px;color:#6b7280;margin-top:3px;'{_date_tip}>{_rel}</div>"
+                        f"</div>"
+                    )
+                st.markdown(
+                    "<style>.ni{padding:9px 12px 9px 14px;border-left:3px solid #374151;"
+                    "border-bottom:1px solid #1f2937;margin-bottom:2px;"
+                    "transition:background .1s;}</style>" + _news_html,
+                    unsafe_allow_html=True,
+                )
 
         with _ne_tab_events:
             _evts_df = load_company_events(ticker)
             if _evts_df.empty:
                 st.info("Không có sự kiện nào.")
             else:
-                _CAT_LABELS = {
-                    "DIVIDEND": "🏦 Cổ tức",
-                    "MAJOR_SHAREHOLDER_TRADING": "📊 Giao dịch cổ đông lớn",
-                    "STOCK_ISSUANCE": "📢 Phát hành cổ phiếu",
-                    "BONUS_SHARE": "🎁 Thưởng cổ phiếu",
-                    "STOCK_LISTING": "📋 Niêm yết",
-                    "SHAREHOLDER_MEETING": "🏢 Họp đại hội cổ đông",
+                # (label, badge_bg, badge_fg, left_border)
+                _CAT_CFG = {
+                    "DIVIDEND":                  ("Cổ tức",       "#78350f", "#fcd34d", "#f59e0b"),
+                    "MAJOR_SHAREHOLDER_TRADING": ("Giao dịch NB", "#0c2340", "#60a5fa", "#3b82f6"),
+                    "STOCK_ISSUANCE":            ("Phát hành",    "#3b0764", "#c4b5fd", "#a78bfa"),
+                    "BONUS_SHARE":               ("Thưởng CP",    "#431407", "#fdba74", "#fb923c"),
+                    "STOCK_LISTING":             ("Niêm yết",     "#064e3b", "#6ee7b7", "#10b981"),
+                    "SHAREHOLDER_MEETING":       ("Họp ĐHCĐ",     "#1e1b4b", "#a5b4fc", "#818cf8"),
                 }
+
+                def _ev_date(val):
+                    try:
+                        return pd.to_datetime(val).strftime("%d/%m/%Y") if pd.notna(val) else None
+                    except Exception:
+                        return None
+
+                _ev_css = (
+                    "<style>"
+                    ".ev{background:rgba(17,24,39,.55);border-radius:8px;border-left:4px solid #374151;"
+                    "padding:10px 14px;margin-bottom:8px;transition:background .15s;}"
+                    ".ev:hover{background:rgba(30,41,59,.75);}"
+                    ".ev-hdr{display:flex;align-items:center;gap:8px;margin-bottom:5px;}"
+                    ".ev-badge{font-size:10px;font-weight:700;letter-spacing:.6px;padding:2px 8px;"
+                    "border-radius:4px;text-transform:uppercase;white-space:nowrap;}"
+                    ".ev-date{font-size:11px;color:#6b7280;margin-left:auto;white-space:nowrap;}"
+                    ".ev-title{font-size:13.5px;font-weight:500;color:#e2e8f0;line-height:1.45;}"
+                    ".ev-detail{font-size:12px;color:#94a3b8;margin-top:6px;line-height:1.7;display:flex;"
+                    "flex-wrap:wrap;align-items:center;gap:6px;}"
+                    ".pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;"
+                    "border-radius:10px;line-height:1.4;}"
+                    ".sep{color:#374151;}"
+                    "</style>"
+                )
+
+                _ev_html = ""
                 for _, _ev in _evts_df.iterrows():
-                    _cat  = _ev.get("category") or ""
-                    _cat_label = _CAT_LABELS.get(_cat, _cat)
-                    _title_vi  = _ev.get("event_title_vi") or _ev.get("event_name_vi") or ""
-                    _date = _ev.get("display_date1")
-                    _date_str = _date.strftime("%d/%m/%Y") if pd.notna(_date) else "—"
-                    _extra = ""
-                    _vpsh = _ev.get("value_per_share")
-                    if pd.notna(_vpsh) and _vpsh and float(_vpsh) > 0:
-                        _extra = f" · <b>{int(_vpsh):,} VND/CP</b>"
-                    _pay = _ev.get("payout_date")
-                    if pd.notna(_pay):
-                        _pay_str = pd.to_datetime(_pay).strftime("%d/%m/%Y") if _pay else ""
-                        _extra += f" · Ngày thanh toán: {_pay_str}"
-                    st.markdown(
-                        f"<div style='padding:6px 0;border-bottom:1px solid #374151;'>"
-                        f"<span style='font-size:12px;color:#9ca3af;'>{_cat_label} · {_date_str}</span><br>"
-                        f"<span style='font-size:14px;'>{_title_vi}</span>"
-                        f"<span style='font-size:12px;color:#f59e0b;'>{_extra}</span></div>",
-                        unsafe_allow_html=True,
+                    _cat    = _ev.get("category") or ""
+                    _cfg    = _CAT_CFG.get(_cat, ("Sự kiện", "#1f2937", "#9ca3af", "#374151"))
+                    _label, _bbg, _bfg, _border = _cfg
+                    _title  = _ev.get("event_title_vi") or _ev.get("event_name_vi") or ""
+                    _d1_str = _ev_date(_ev.get("display_date1")) or "—"
+
+                    _detail_parts = []
+                    if _cat == "DIVIDEND":
+                        _vpsh = _ev.get("value_per_share")
+                        if pd.notna(_vpsh) and _vpsh and float(_vpsh) > 0:
+                            _detail_parts.append(
+                                f"<span class='pill' style='background:#78350f;color:#fcd34d'>"
+                                f"{int(_vpsh):,} VND/CP</span>"
+                            )
+                        _xd  = _ev_date(_ev.get("exright_date"))
+                        _rd  = _ev_date(_ev.get("record_date"))
+                        _pay = _ev_date(_ev.get("payout_date"))
+                        if _xd:
+                            _detail_parts.append(f"<span class='sep'>|</span> GDKHQ <b style='color:#e2e8f0'>{_xd}</b>")
+                        if _rd:
+                            _detail_parts.append(f"<span class='sep'>|</span> Chốt DS <b style='color:#e2e8f0'>{_rd}</b>")
+                        if _pay:
+                            _detail_parts.append(f"<span class='sep'>|</span> Thanh toán <b style='color:#fcd34d'>{_pay}</b>")
+                    elif _cat == "MAJOR_SHAREHOLDER_TRADING":
+                        _action = _ev.get("action_type_vi") or ""
+                        _sd = _ev_date(_ev.get("start_date"))
+                        _ed = _ev_date(_ev.get("end_date"))
+                        if _action:
+                            _is_buy  = "mua" in _action.lower()
+                            _pill_bg = "#052e16" if _is_buy else "#450a0a"
+                            _pill_fg = "#22c55e" if _is_buy else "#ef4444"
+                            _detail_parts.append(
+                                f"<span class='pill' style='background:{_pill_bg};color:{_pill_fg}'>{_action}</span>"
+                            )
+                        if _sd and _ed:
+                            _detail_parts.append(f"<span style='color:#cbd5e1'>{_sd} – {_ed}</span>")
+                        elif _sd:
+                            _detail_parts.append(f"<span style='color:#cbd5e1'>Từ {_sd}</span>")
+                    elif _cat in ("STOCK_ISSUANCE", "BONUS_SHARE"):
+                        _ratio = _ev.get("exercise_ratio")
+                        _issue = _ev_date(_ev.get("issue_date") or _ev.get("start_date"))
+                        if pd.notna(_ratio) and _ratio:
+                            _detail_parts.append(f"Tỷ lệ <b style='color:#c4b5fd'>{_ratio}</b>")
+                        if _issue:
+                            _detail_parts.append(f"<span class='sep'>|</span> Ngày <b style='color:#e2e8f0'>{_issue}</b>")
+
+                    _detail_html = (
+                        f"<div class='ev-detail'>{''.join(_detail_parts)}</div>"
+                        if _detail_parts else ""
                     )
+                    _ev_html += (
+                        f"<div class='ev' style='border-left-color:{_border}'>"
+                        f"<div class='ev-hdr'>"
+                        f"<span class='ev-badge' style='background:{_bbg};color:{_bfg}'>{_label}</span>"
+                        f"<span class='ev-date'>{_d1_str}</span>"
+                        f"</div>"
+                        f"<div class='ev-title'>{_title}</div>"
+                        f"{_detail_html}"
+                        f"</div>"
+                    )
+
+                st.markdown(_ev_css + _ev_html, unsafe_allow_html=True)
 
 
     _financials_frag(ticker)
