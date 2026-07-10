@@ -1411,6 +1411,9 @@ def load_market_valuation_history() -> "pd.DataFrame":
     """
     import datetime
     _qend = {1: (3, 31), 2: (6, 30), 3: (9, 30), 4: (12, 31)}
+    # Only keep 7 years of history — older quarters are irrelevant for current
+    # valuation context and fetching all history is expensive on large price tables.
+    _cutoff = pd.Timestamp(datetime.date.today() - datetime.timedelta(days=365 * 7))
 
     with get_session() as s:
         fin_rows = s.execute(
@@ -1421,6 +1424,7 @@ def load_market_valuation_history() -> "pd.DataFrame":
         ).all()
         price_rows = s.execute(
             select(Price.ticker, Price.date, Price.close)
+            .where(Price.date >= _cutoff.date())
             .order_by(Price.ticker, Price.date)
         ).all()
 
@@ -1445,30 +1449,29 @@ def load_market_valuation_history() -> "pd.DataFrame":
     price_df = pd.DataFrame(price_rows, columns=["ticker", "date", "close"])
     price_df["date"]  = pd.to_datetime(price_df["date"])
     price_df["close"] = price_df["close"] * 1000
+    price_df = price_df.sort_values(["ticker", "date"])
 
-    out = []
-    for tkr, fin_g in fin_df.groupby("ticker"):
-        px = price_df[price_df["ticker"] == tkr]
-        if px.empty:
-            continue
-        merged = pd.merge_asof(
-            fin_g.sort_values("qend"), px.sort_values("date")[["date", "close"]],
-            left_on="qend", right_on="date", direction="backward")
-        merged["pe"] = np.where(merged["ttm_eps"].notna() & (merged["ttm_eps"] > 0),
-                                 merged["close"] / merged["ttm_eps"], np.nan)
-        merged["pb"] = np.where(merged["bvps"].notna() & (merged["bvps"] > 0),
-                                 merged["close"] / merged["bvps"], np.nan)
-        out.append(merged[["period", "qend", "pe", "pb"]])
-
-    if not out:
+    # Vectorized merge: pd.merge_asof with by="ticker" replaces the per-ticker loop
+    fin_in_window = fin_df[fin_df["qend"] >= _cutoff].sort_values(["ticker", "qend"])
+    if fin_in_window.empty:
         return pd.DataFrame()
+    merged = pd.merge_asof(
+        fin_in_window, price_df[["ticker", "date", "close"]],
+        left_on="qend", right_on="date",
+        by="ticker", direction="backward",
+    )
+    merged["pe"] = np.where(
+        merged["ttm_eps"].notna() & (merged["ttm_eps"] > 0),
+        merged["close"] / merged["ttm_eps"], np.nan)
+    merged["pb"] = np.where(
+        merged["bvps"].notna() & (merged["bvps"] > 0),
+        merged["close"] / merged["bvps"], np.nan)
 
-    all_df = pd.concat(out, ignore_index=True)
     # Drop unreasonable outliers before taking the median
-    all_df.loc[(all_df["pe"] <= 0) | (all_df["pe"] > 100), "pe"] = np.nan
-    all_df.loc[(all_df["pb"] <= 0) | (all_df["pb"] > 20),  "pb"] = np.nan
+    merged.loc[(merged["pe"] <= 0) | (merged["pe"] > 100), "pe"] = np.nan
+    merged.loc[(merged["pb"] <= 0) | (merged["pb"] > 20),  "pb"] = np.nan
 
-    agg = (all_df.groupby(["period", "qend"])
+    agg = (merged.groupby(["period", "qend"])
                   .agg(median_pe=("pe", "median"), median_pb=("pb", "median"),
                        n_pe=("pe", "count"), n_pb=("pb", "count"))
                   .reset_index()
@@ -6235,11 +6238,12 @@ elif view == "Tổng quan Thị trường":
         # ── Pre-fetch all API-heavy calls in parallel so total wait = slowest single call
         with st.spinner("Đang tải dữ liệu thị trường..."):
             from concurrent.futures import ThreadPoolExecutor as _TPE
-            with _TPE(max_workers=4) as _pre:
-                _pre.submit(load_index_intraday)           # 5 vnstock calls (intraday)
-                _pre.submit(load_vnindex_prices, 252)      # 1 vnstock call  (1-year chart)
+            with _TPE(max_workers=5) as _pre:
+                _pre.submit(load_index_intraday)               # 5 vnstock calls (intraday)
+                _pre.submit(load_vnindex_prices, 252)          # 1 vnstock call  (1-year chart)
                 _pre.submit(load_foreign_flow, "VNINDEX", 15)  # VNDirect API
-                _pre.submit(load_market_snapshot)          # DB (fast but put in parallel anyway)
+                _pre.submit(load_market_snapshot)              # DB snapshot
+                _pre.submit(load_market_valuation_history)     # heavy DB+compute — must be in parallel
             # All results are now in Streamlit's cache — subsequent calls below are instant
             snap_df = load_market_snapshot()
             vnidx   = load_vnindex_prices(days=252)
