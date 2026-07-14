@@ -6938,11 +6938,12 @@ elif view == "Tổng quan Thị trường":
             _dep_df = load_macro_indicator("deposit_rate")
             if not _lend_df.empty or not _dep_df.empty:
                 st.markdown("##### Lãi suất VND bình quân (NHTM nhà nước & cổ phần)")
-                _rate_cols = st.columns(2)
-                if not _lend_df.empty:
-                    _rate_cols[0].metric("Lãi suất cho vay", f"{_lend_df.iloc[-1]['value']:.2f}%/năm")
-                if not _dep_df.empty:
-                    _rate_cols[1].metric("Lãi suất tiền gửi (6-12 tháng)", f"{_dep_df.iloc[-1]['value']:.2f}%/năm")
+                _rate_summary = [
+                    _macro_summary_row("lending_rate", "Lãi suất cho vay bình quân", unit="%/năm", freq="monthly", fmt=".2f"),
+                    _macro_summary_row("deposit_rate", "Lãi suất tiền gửi 6-12T bình quân", unit="%/năm", freq="monthly", fmt=".2f"),
+                ]
+                st.dataframe(pd.DataFrame(_rate_summary), hide_index=True, width="stretch")
+                st.caption("Nguồn: Ngân hàng Nhà nước (sbv.gov.vn) · Bản tin lãi suất hàng tháng · Dữ liệu từ 02/2026")
                 fig_rate = go.Figure()
                 if not _lend_df.empty:
                     fig_rate.add_trace(go.Scatter(
@@ -6959,6 +6960,3 @@ elif view == "Tổng quan Thị trường":
                                         legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0))
                 fig_rate.update_xaxes(tickformat="%m/%Y", dtick="M1")
                 st.plotly_chart(fig_rate, width="stretch")
-                _rate_latest = max(d["period"].max() for d in [_lend_df, _dep_df] if not d.empty)
-                st.caption(f"Nguồn: Ngân hàng Nhà nước (sbv.gov.vn), bản tin lãi suất hàng tháng · "
-                           f"Cập nhật đến {_rate_latest:%m/%Y}")

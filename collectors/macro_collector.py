@@ -837,17 +837,15 @@ def collect_exchange_rate(days: int = 1825) -> int:
     return len(rows)
 
 
-_SBV_HOME_URL = "https://www.sbv.gov.vn/"
 _SBV_BASE = "https://www.sbv.gov.vn"
-# Homepage pins a "policy-title-link" to the latest monthly rate bulletin —
-# no JS rendering needed, the link + title are present in the static HTML
-# (the article BODY isn't, but we don't need it — the actual figures are in
-# a linked PDF attachment, found the same way).
-_SBV_BULLETIN_LINK_RE = re.compile(
-    r'href="(/w/[^"]+)"[^>]*class="policy-title-link">\s*(Diễn biến lãi suất[^<]*)'
-)
-_SBV_MONTH_RE = re.compile(r"tháng\s+(\d{1,2})[./](\d{4})")
-_SBV_PDF_LINK_RE = re.compile(r'href="([^"]*\.pdf[^"]*)"')
+# SBV publishes monthly rate PDFs at a predictable path (Liferay document library).
+# No UUID needed from 02/2026 onward — the file is served by name alone.
+# Pattern: /documents/20117/0/Lai+suat+thang+MM.YYYY.pdf
+_SBV_DOC_BASE = f"{_SBV_BASE}/documents/20117/0"
+# The naming convention works from 02/2026; earlier months were uploaded with
+# UUID-locked URLs via an older CMS flow and are not recoverable without them.
+_SBV_SERIES_START = date(2026, 2, 1)
+
 _SBV_LENDING_RE = re.compile(
     r"Lãi\s+suất\s+cho\s+vay\s+bình\s+quân.{0,250}?ở\s+mức\s*([\d,]+)\s*-\s*([\d,]+)\s*%/năm", re.S
 )
@@ -861,94 +859,83 @@ def _sbv_vn_pct(s: str) -> float:
     return float(s.replace(",", "."))
 
 
-def discover_latest_sbv_rate_bulletin() -> tuple[str, date] | None:
-    """Return (article_url, period) for the most recent monthly rate bulletin."""
+def _sbv_pdf_url(period: date) -> str:
+    return f"{_SBV_DOC_BASE}/Lai+suat+thang+{period.month:02d}.{period.year}.pdf"
+
+
+def _parse_sbv_rate_pdf(pdf_url: str, period: date) -> list[dict]:
+    """Download a SBV rate PDF directly and extract lending / deposit rates."""
     try:
-        resp = requests.get(_SBV_HOME_URL, headers=_HEADERS, timeout=20)
-        resp.raise_for_status()
+        r = requests.get(pdf_url, headers=_HEADERS, timeout=30)
+        r.raise_for_status()
     except requests.RequestException as e:
-        logger.warning(f"Failed to fetch {_SBV_HOME_URL}: {e}")
-        return None
-    m = _SBV_BULLETIN_LINK_RE.search(resp.text)
-    if not m:
-        logger.warning("Could not find the latest SBV rate bulletin link on the homepage")
-        return None
-    href, title = m.group(1), m.group(2)
-    mm = _SBV_MONTH_RE.search(title)
-    if not mm:
-        logger.warning(f"Could not parse month/year from SBV bulletin title: {title!r}")
-        return None
-    month, year = int(mm.group(1)), int(mm.group(2))
-    return _SBV_BASE + href, date(year, month, 1)
-
-
-def parse_sbv_rate_article(url: str, period: date) -> list[dict]:
-    """Fetch the bulletin article page, follow its PDF attachment, extract
-    VND lending rate and the 6-12 month VND deposit rate (each as the
-    midpoint of the published range) for `period`.
-    """
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=20)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        logger.warning(f"Failed to fetch {url}: {e}")
+        logger.warning(f"Failed to fetch SBV PDF {pdf_url}: {e}")
         return []
-    pdf_m = _SBV_PDF_LINK_RE.search(resp.text)
-    if not pdf_m:
-        logger.warning(f"Could not find PDF attachment link on {url}")
-        return []
-    pdf_url = pdf_m.group(1)
-    if pdf_url.startswith("/"):
-        pdf_url = _SBV_BASE + pdf_url
-
-    try:
-        pdf_resp = requests.get(pdf_url, headers=_HEADERS, timeout=30)
-        pdf_resp.raise_for_status()
-    except requests.RequestException as e:
-        logger.warning(f"Failed to fetch PDF {pdf_url}: {e}")
-        return []
-
     import pdfplumber
-    with pdfplumber.open(io.BytesIO(pdf_resp.content)) as pdf:
+    with pdfplumber.open(io.BytesIO(r.content)) as pdf:
         text = "\n".join(p.extract_text() or "" for p in pdf.pages)
-
     rows = []
     m_lend = _SBV_LENDING_RE.search(text)
     if m_lend:
         mid = (_sbv_vn_pct(m_lend.group(1)) + _sbv_vn_pct(m_lend.group(2))) / 2
-        rows.append({
-            "indicator": "lending_rate", "period": period,
-            "value": round(mid, 2), "unit": "%/năm", "source_url": pdf_url,
-        })
+        rows.append({"indicator": "lending_rate", "period": period,
+                     "value": round(mid, 2), "unit": "%/năm", "source_url": pdf_url})
     m_dep = _SBV_DEPOSIT_6_12M_RE.search(text)
     if m_dep:
         mid = (_sbv_vn_pct(m_dep.group(1)) + _sbv_vn_pct(m_dep.group(2))) / 2
-        rows.append({
-            "indicator": "deposit_rate", "period": period,
-            "value": round(mid, 2), "unit": "%/năm", "source_url": pdf_url,
-        })
+        rows.append({"indicator": "deposit_rate", "period": period,
+                     "value": round(mid, 2), "unit": "%/năm", "source_url": pdf_url})
     if not rows:
-        logger.warning(f"Could not parse lending/deposit rates from PDF {pdf_url}")
+        logger.warning(f"Could not parse rates from {pdf_url}")
     return rows
 
 
 def collect_sbv_interest_rates() -> int:
-    """Fetch the latest monthly VND lending/deposit rate bulletin from SBV.
+    """Collect monthly VND lending/deposit rates from SBV PDF bulletins.
 
-    Replaces World Bank's wb_lending_rate/wb_deposit_rate (annual, lagging
-    to 2023) — this is monthly and current. Only fetches the single newest
-    bulletin (found via the homepage); older months would need a different
-    discovery path (no stable listing page found), so historical backfill
-    isn't covered here, only going-forward collection.
+    Iterates backward from current month to _SBV_SERIES_START (02/2026),
+    skipping periods already in DB. PDFs are accessed directly by filename
+    without UUID — this works from 02/2026 onward (newer Liferay upload flow).
     """
-    found = discover_latest_sbv_rate_bulletin()
-    if not found:
-        return 0
-    url, period = found
-    rows = parse_sbv_rate_article(url, period)
-    _upsert(rows)
-    logger.info(f"Upserted {len(rows)} SBV interest rate data points for {period:%m/%Y}")
-    return len(rows)
+    import calendar
+    from sqlalchemy import text as _text
+
+    with get_session() as s:
+        existing = {
+            row[0].strftime("%Y-%m")
+            for row in s.execute(
+                _text("SELECT DISTINCT period FROM macro_indicators WHERE indicator = 'lending_rate'")
+            ).all()
+        }
+
+    today = date.today()
+    rows_written = 0
+    cur = date(today.year, today.month, 1)
+
+    while cur >= _SBV_SERIES_START:
+        key = cur.strftime("%Y-%m")
+        if key not in existing:
+            pdf_url = _sbv_pdf_url(cur)
+            try:
+                head = requests.head(pdf_url, headers=_HEADERS, timeout=8, allow_redirects=True)
+            except requests.RequestException:
+                head = None
+            if head and head.status_code == 200:
+                rows = _parse_sbv_rate_pdf(pdf_url, cur)
+                if rows:
+                    _upsert(rows)
+                    rows_written += len(rows)
+                    logger.info(f"Upserted {len(rows)} SBV rate pts for {cur:%m/%Y}")
+            else:
+                logger.debug(f"SBV PDF not available for {cur:%m/%Y} (status={getattr(head,'status_code','err')})")
+
+        # Step back one month
+        if cur.month == 1:
+            cur = date(cur.year - 1, 12, 1)
+        else:
+            cur = date(cur.year, cur.month - 1, 1)
+
+    return rows_written
 
 
 if __name__ == "__main__":
