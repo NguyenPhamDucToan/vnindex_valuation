@@ -6919,20 +6919,6 @@ elif view == "Tổng quan Thị trường":
                 st.caption(f"Nguồn: vnstock (MSN, USD/VND) · Cập nhật đến {_fx_df['period'].iloc[-1]:%d/%m/%Y}")
             else:
                 st.info("Chưa có dữ liệu tỷ giá.")
-            st.divider()
-            st.markdown("##### Cung tiền (World Bank, theo năm)")
-            money_rows = [
-                _macro_summary_row("wb_broad_money_gdp", "Cung tiền rộng M2 (% GDP)", freq="annual", fmt=".1f"),
-                _macro_summary_row("wb_broad_money_growth", "Tăng trưởng M2 (YoY)", freq="annual"),
-            ]
-            st.dataframe(pd.DataFrame(money_rows), hide_index=True, width="stretch")
-            _macro_line_chart(
-                {
-                    "M2 (% GDP)": load_macro_indicator("wb_broad_money_gdp"),
-                },
-                "Cung tiền rộng M2 (% GDP, World Bank)",
-                unit="%",
-            )
 
         elif _vm_sel == "Tiêu dùng":
             cons_rows = [
@@ -6976,19 +6962,3 @@ elif view == "Tổng quan Thị trường":
                 _rate_latest = max(d["period"].max() for d in [_lend_df, _dep_df] if not d.empty)
                 st.caption(f"Nguồn: Ngân hàng Nhà nước (sbv.gov.vn), bản tin lãi suất hàng tháng · "
                            f"Cập nhật đến {_rate_latest:%m/%Y}")
-            st.divider()
-            st.markdown("##### Lịch sử lãi suất dài hạn (World Bank, theo năm)")
-            rate_rows = [
-                _macro_summary_row("wb_lending_rate", "Lãi suất cho vay bình quân", freq="annual"),
-                _macro_summary_row("wb_deposit_rate", "Lãi suất tiền gửi bình quân", freq="annual"),
-                _macro_summary_row("wb_real_interest_rate", "Lãi suất thực tế", freq="annual"),
-            ]
-            st.dataframe(pd.DataFrame(rate_rows), hide_index=True, width="stretch")
-            _macro_line_chart(
-                {
-                    "Cho vay": load_macro_indicator("wb_lending_rate"),
-                    "Tiền gửi": load_macro_indicator("wb_deposit_rate"),
-                    "Lãi suất thực": load_macro_indicator("wb_real_interest_rate"),
-                },
-                "Lãi suất bình quân (World Bank, theo năm)",
-            )
