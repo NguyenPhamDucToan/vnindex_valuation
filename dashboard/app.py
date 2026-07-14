@@ -285,6 +285,56 @@ def vnstock_call(fn, attempts: int = 3, delay: float = 1.5):
 
 
 # ─────────────────────────────────────────────
+# Background macro scheduler
+# ─────────────────────────────────────────────
+
+def _run_one_macro_collection() -> None:
+    """Run all macro collectors once, logging each result. Never raises."""
+    from loguru import logger as _log
+    jobs = [
+        ("exchange_rate",    lambda: __import__("collectors.macro_collector", fromlist=["collect_exchange_rate"]).collect_exchange_rate(days=7)),
+        ("cpi",              lambda: __import__("collectors.macro_collector", fromlist=["collect_cpi"]).collect_cpi(max_pages=3)),
+        ("gdp",              lambda: __import__("collectors.macro_collector", fromlist=["collect_gdp"]).collect_gdp(max_pages=2)),
+        ("trade",            lambda: __import__("collectors.macro_collector", fromlist=["collect_trade"]).collect_trade(max_pages=3)),
+        ("labor",            lambda: __import__("collectors.macro_collector", fromlist=["collect_labor"]).collect_labor(max_pages=3)),
+        ("sbv_rates",        lambda: __import__("collectors.macro_collector", fromlist=["collect_sbv_interest_rates"]).collect_sbv_interest_rates()),
+        ("worldbank",        lambda: __import__("collectors.worldbank_collector", fromlist=["collect_worldbank_macro"]).collect_worldbank_macro()),
+    ]
+    for name, fn in jobs:
+        try:
+            n = fn()
+            if n:
+                _log.info(f"[macro-scheduler] {name}: +{n} rows")
+        except Exception as exc:
+            _log.warning(f"[macro-scheduler] {name} failed: {exc}")
+
+
+@st.cache_resource(show_spinner=False)
+def _start_macro_scheduler() -> None:
+    """Start a daemon thread that refreshes macro data every 6 hours.
+    @st.cache_resource ensures this runs exactly once per server process,
+    regardless of how many users or page reloads occur.
+    """
+    import time as _time
+    from loguru import logger as _log
+
+    _INTERVAL_H = 6
+
+    def _loop():
+        _log.info("[macro-scheduler] started — first run in 60s, then every 6h")
+        _time.sleep(60)          # let the app finish loading first
+        while True:
+            _run_one_macro_collection()
+            _time.sleep(_INTERVAL_H * 3600)
+
+    t = _threading.Thread(target=_loop, name="macro-scheduler", daemon=True)
+    t.start()
+
+
+_start_macro_scheduler()
+
+
+# ─────────────────────────────────────────────
 # Data helpers (cached so they don't re-query on every rerun)
 # ─────────────────────────────────────────────
 
