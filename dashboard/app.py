@@ -6666,7 +6666,7 @@ elif view == "Tổng quan Thị trường":
             latest = max(df["period"].max() for df in series.values())
             st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {pd.to_datetime(latest):%m/%Y}")
 
-        def _macro_summary_row(indicator: str, label: str, unit: str = "%", freq: str = "monthly") -> dict:
+        def _macro_summary_row(indicator: str, label: str, unit: str = "%", freq: str = "monthly", fmt: str = "+.2f") -> dict:
             df = load_macro_indicator(indicator)
             if df.empty:
                 return {
@@ -6677,15 +6677,23 @@ elif view == "Tổng quan Thị trường":
             prev = df.iloc[-2] if len(df) > 1 else None
             if freq == "quarterly":
                 period_str = f"Quý {(last['period'].month - 1) // 3 + 1}/{last['period'].year}"
+            elif freq == "annual":
+                period_str = f"Năm {last['period'].year}"
             else:
                 period_str = f"Tháng {last['period'].month}/{last['period'].year}"
+            val_str = f"{last['value']:{fmt}}{unit}"
+            prev_str = f"{prev['value']:{fmt}}{unit}" if prev is not None else "—"
+            date_range = (
+                f"{df['period'].iloc[0].year} - {df['period'].iloc[-1].year}" if freq == "annual"
+                else f"{df['period'].iloc[0]:%m/%Y} - {df['period'].iloc[-1]:%m/%Y}"
+            )
             return {
                 "Chỉ số": label,
-                "Kỳ gần nhất": f"{last['value']:+.2f}{unit}",
-                "Kỳ trước": f"{prev['value']:+.2f}{unit}" if prev is not None else "—",
+                "Kỳ gần nhất": val_str,
+                "Kỳ trước": prev_str,
                 "Đơn vị": unit,
                 "Kỳ báo cáo": period_str,
-                "Khoảng dữ liệu": f"{df['period'].iloc[0]:%m/%Y} - {df['period'].iloc[-1]:%m/%Y}",
+                "Khoảng dữ liệu": date_range,
             }
 
         _VM_LABELS = ["Tổng quan kinh tế", "Tăng trưởng kinh tế", "Giá cả & Lạm phát", "Đầu tư & Tiết kiệm",
@@ -6750,11 +6758,13 @@ elif view == "Tổng quan Thị trường":
             )
             row3 = st.columns(3)
             with row3[0]:
-                _macro_line_chart({"Quy mô GDP": load_macro_indicator("gdp_nominal_usd")}, "Quy mô GDP (theo năm)", unit=" tỷ USD")
+                _macro_line_chart({"Quy mô GDP": load_macro_indicator("wb_gdp_usd")}, "Quy mô GDP (World Bank, theo năm)", unit=" tỷ USD")
             with row3[1]:
-                _macro_line_chart({"GDP bình quân đầu người": load_macro_indicator("gdp_per_capita_usd")}, "GDP bình quân đầu người (theo năm)", unit=" USD")
+                _macro_line_chart({"GDP bình quân đầu người": load_macro_indicator("wb_gdp_per_capita")}, "GDP bình quân đầu người (World Bank, theo năm)", unit=" USD")
             with row3[2]:
                 _macro_line_chart({"Tăng trưởng vốn đầu tư": load_macro_indicator("investment_growth")}, "Tăng trưởng vốn đầu tư toàn xã hội (so với cùng kỳ)")
+            _macro_line_chart({"Tăng trưởng GDP (World Bank)": load_macro_indicator("wb_gdp_growth")},
+                               "Tăng trưởng GDP dài hạn (World Bank, 1985–nay)")
 
         elif _vm_sel == "Giá cả & Lạm phát":
             summary_rows = [
@@ -6764,11 +6774,7 @@ elif view == "Tổng quan Thị trường":
                 _macro_summary_row("cpi_food", "Lạm phát lương thực (so với tháng trước)"),
                 _macro_summary_row("cpi_transport", "CPI nhóm giao thông (so với tháng trước)"),
                 _macro_summary_row("ppi_yoy", "Chỉ số giá sản xuất công nghiệp (so với cùng kỳ năm trước)", freq="quarterly"),
-                {
-                    "Chỉ số": "Chỉ số giá tiêu dùng so với kỳ gốc 2019",
-                    "Kỳ gần nhất": "—", "Kỳ trước": "—", "Đơn vị": "điểm",
-                    "Kỳ báo cáo": "—", "Khoảng dữ liệu": "Chưa có dữ liệu",
-                },
+                _macro_summary_row("wb_cpi_inflation", "Lạm phát bình quân năm (World Bank, YoY)", freq="annual"),
             ]
             st.dataframe(pd.DataFrame(summary_rows), hide_index=True, width="stretch")
 
@@ -6797,9 +6803,12 @@ elif view == "Tổng quan Thị trường":
                 _macro_summary_row("investment_growth", "Tăng trưởng vốn đầu tư toàn xã hội", freq="quarterly"),
                 _macro_summary_row("fdi", "Vốn FDI đăng ký (theo quý)", unit=" tỷ USD", freq="quarterly"),
                 _macro_summary_row("fdi_cumulative", "Vốn FDI đăng ký lũy kế từ đầu năm", unit=" tỷ USD", freq="quarterly"),
+                _macro_summary_row("wb_gross_savings", "Tiết kiệm gộp (% GDP, World Bank)", freq="annual"),
+                _macro_summary_row("wb_capital_formation", "Tổng vốn hình thành gộp (% GDP, World Bank)", freq="annual"),
+                _macro_summary_row("wb_current_account_gdp", "Cán cân vãng lai (% GDP, World Bank)", freq="annual"),
             ]
             st.dataframe(pd.DataFrame(inv_rows), hide_index=True, width="stretch")
-            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo quý")
+            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo quý | World Bank · Dữ liệu theo năm")
             row_inv = st.columns(2)
             with row_inv[0]:
                 _macro_line_chart({"Tăng trưởng vốn đầu tư": load_macro_indicator("investment_growth")},
@@ -6808,21 +6817,34 @@ elif view == "Tổng quan Thị trường":
                 _macro_line_chart({"FDI theo quý": load_macro_indicator("fdi"),
                                     "FDI lũy kế": load_macro_indicator("fdi_cumulative")},
                                    "Vốn đầu tư nước ngoài (FDI đăng ký)", unit=" tỷ USD")
+            _macro_line_chart(
+                {
+                    "Tiết kiệm gộp": load_macro_indicator("wb_gross_savings"),
+                    "Tổng vốn hình thành gộp": load_macro_indicator("wb_capital_formation"),
+                },
+                "Tiết kiệm & Đầu tư (% GDP, World Bank, theo năm)",
+            )
 
         elif _vm_sel == "Xuất nhập khẩu":
             trade_rows = [
                 _macro_summary_row("trade_balance", "Cán cân thương mại", unit=" tỷ USD", freq="monthly"),
                 _macro_summary_row("exports", "Xuất khẩu", unit=" tỷ USD", freq="monthly"),
                 _macro_summary_row("imports", "Nhập khẩu", unit=" tỷ USD", freq="monthly"),
+                _macro_summary_row("wb_current_account_gdp", "Cán cân vãng lai (% GDP, World Bank)", freq="annual"),
+                _macro_summary_row("wb_trade_pct_gdp", "Độ mở thương mại (xuất + nhập / GDP, World Bank)", freq="annual", fmt=".1f"),
             ]
             st.dataframe(pd.DataFrame(trade_rows), hide_index=True, width="stretch")
-            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo tháng")
+            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo tháng | World Bank · Dữ liệu theo năm")
             _exp_df, _imp_df = load_macro_indicator("exports"), load_macro_indicator("imports")
-            if not _exp_df.empty or not _imp_df.empty:
-                _macro_line_chart({"Xuất khẩu": _exp_df, "Nhập khẩu": _imp_df},
-                                   "Xuất khẩu & Nhập khẩu (theo tháng)", unit=" tỷ USD")
-            _macro_line_chart({"Cán cân thương mại": load_macro_indicator("trade_balance")},
-                               "Cán cân thương mại (theo tháng)", unit=" tỷ USD")
+            _macro_line_chart({"Xuất khẩu": _exp_df, "Nhập khẩu": _imp_df},
+                               "Xuất khẩu & Nhập khẩu (theo tháng)", unit=" tỷ USD")
+            row_trade = st.columns(2)
+            with row_trade[0]:
+                _macro_line_chart({"Cán cân thương mại": load_macro_indicator("trade_balance")},
+                                   "Cán cân thương mại (theo tháng)", unit=" tỷ USD")
+            with row_trade[1]:
+                _macro_line_chart({"Cán cân vãng lai (% GDP)": load_macro_indicator("wb_current_account_gdp")},
+                                   "Cán cân vãng lai (% GDP, World Bank)")
 
         elif _vm_sel == "Lao động & Việc làm":
             labor_rows = [
@@ -6830,9 +6852,12 @@ elif view == "Tổng quan Thị trường":
                 _macro_summary_row("underemployment_rate", "Tỷ lệ thiếu việc làm", freq="quarterly"),
                 _macro_summary_row("labor_force", "Lực lượng lao động", unit=" triệu người", freq="quarterly"),
                 _macro_summary_row("avg_income", "Thu nhập bình quân người lao động", unit=" triệu đồng/tháng", freq="quarterly"),
+                _macro_summary_row("wb_labor_participation", "Tỷ lệ tham gia LLLĐ (World Bank)", freq="annual"),
+                _macro_summary_row("wb_employment_ratio", "Tỷ lệ có việc làm / dân số (World Bank)", freq="annual"),
+                _macro_summary_row("wb_unemployment", "Tỷ lệ thất nghiệp dài hạn (World Bank)", freq="annual"),
             ]
             st.dataframe(pd.DataFrame(labor_rows), hide_index=True, width="stretch")
-            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo quý")
+            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo quý | World Bank · Dữ liệu theo năm")
 
             row_labor = st.columns(2)
             with row_labor[0]:
@@ -6842,6 +6867,13 @@ elif view == "Tổng quan Thị trường":
             with row_labor[1]:
                 _macro_line_chart({"Thu nhập bình quân": load_macro_indicator("avg_income")},
                                    "Thu nhập bình quân người lao động (theo quý)", unit=" triệu đồng/tháng")
+            _macro_line_chart(
+                {
+                    "Tỷ lệ tham gia LLLĐ": load_macro_indicator("wb_labor_participation"),
+                    "Tỷ lệ có việc làm / dân số": load_macro_indicator("wb_employment_ratio"),
+                },
+                "Thị trường lao động dài hạn (World Bank, theo năm)",
+            )
 
         elif _vm_sel == "Tiền tệ & Tỷ giá":
             _fx_df = load_macro_indicator("exchange_rate")
@@ -6861,15 +6893,33 @@ elif view == "Tổng quan Thị trường":
                 st.caption(f"Nguồn: vnstock (MSN, USD/VND) · Cập nhật đến {_fx_df['period'].iloc[-1]:%d/%m/%Y}")
             else:
                 st.info("Chưa có dữ liệu tỷ giá.")
+            st.divider()
+            st.markdown("##### Cung tiền (World Bank, theo năm)")
+            money_rows = [
+                _macro_summary_row("wb_broad_money_gdp", "Cung tiền rộng M2 (% GDP)", freq="annual", fmt=".1f"),
+                _macro_summary_row("wb_broad_money_growth", "Tăng trưởng M2 (YoY)", freq="annual"),
+            ]
+            st.dataframe(pd.DataFrame(money_rows), hide_index=True, width="stretch")
+            _macro_line_chart(
+                {
+                    "M2 (% GDP)": load_macro_indicator("wb_broad_money_gdp"),
+                },
+                "Cung tiền rộng M2 (% GDP, World Bank)",
+                unit="%",
+            )
 
         elif _vm_sel == "Tiêu dùng":
             cons_rows = [
                 _macro_summary_row("retail_sales_growth", "Tăng trưởng bán lẻ hàng hóa & dịch vụ", freq="monthly"),
+                _macro_summary_row("wb_consumption_growth", "Tăng trưởng tiêu dùng cuối cùng (World Bank)", freq="annual"),
+                _macro_summary_row("wb_consumption_gdp", "Tiêu dùng / GDP (World Bank)", freq="annual", fmt=".1f"),
             ]
             st.dataframe(pd.DataFrame(cons_rows), hide_index=True, width="stretch")
-            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo tháng")
+            st.caption("Nguồn: Tổng cục Thống kê (nso.gov.vn) · Dữ liệu theo tháng | World Bank · Dữ liệu theo năm")
             _macro_line_chart({"Tăng trưởng bán lẻ": load_macro_indicator("retail_sales_growth")},
                                "Tăng trưởng bán lẻ hàng hóa & dịch vụ tiêu dùng (so với cùng kỳ năm trước)")
+            _macro_line_chart({"Tăng trưởng tiêu dùng": load_macro_indicator("wb_consumption_growth")},
+                               "Tăng trưởng tiêu dùng cuối cùng (World Bank, theo năm)")
 
         elif _vm_sel == "Lãi suất":
             _lend_df = load_macro_indicator("lending_rate")
@@ -6884,12 +6934,12 @@ elif view == "Tổng quan Thị trường":
                 fig_rate = go.Figure()
                 if not _lend_df.empty:
                     fig_rate.add_trace(go.Scatter(
-                        x=_lend_df["period"], y=_lend_df["value"], name="Cho vay", mode="lines+markers",
+                        x=_lend_df["period"], y=_lend_df["value"], name="Cho vay (SBV)", mode="lines+markers",
                         line=dict(color="#ef4444", width=2),
                         hovertemplate="%{x|%m/%Y} · Cho vay: %{y:.2f}%/năm<extra></extra>"))
                 if not _dep_df.empty:
                     fig_rate.add_trace(go.Scatter(
-                        x=_dep_df["period"], y=_dep_df["value"], name="Tiền gửi (6-12T)", mode="lines+markers",
+                        x=_dep_df["period"], y=_dep_df["value"], name="Tiền gửi 6-12T (SBV)", mode="lines+markers",
                         line=dict(color="#22c55e", width=2),
                         hovertemplate="%{x|%m/%Y} · Tiền gửi: %{y:.2f}%/năm<extra></extra>"))
                 fig_rate.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=40),
@@ -6900,5 +6950,19 @@ elif view == "Tổng quan Thị trường":
                 _rate_latest = max(d["period"].max() for d in [_lend_df, _dep_df] if not d.empty)
                 st.caption(f"Nguồn: Ngân hàng Nhà nước (sbv.gov.vn), bản tin lãi suất hàng tháng · "
                            f"Cập nhật đến {_rate_latest:%m/%Y}")
-            else:
-                st.info("Chưa có dữ liệu lãi suất.")
+            st.divider()
+            st.markdown("##### Lịch sử lãi suất dài hạn (World Bank, theo năm)")
+            rate_rows = [
+                _macro_summary_row("wb_lending_rate", "Lãi suất cho vay bình quân", freq="annual"),
+                _macro_summary_row("wb_deposit_rate", "Lãi suất tiền gửi bình quân", freq="annual"),
+                _macro_summary_row("wb_real_interest_rate", "Lãi suất thực tế", freq="annual"),
+            ]
+            st.dataframe(pd.DataFrame(rate_rows), hide_index=True, width="stretch")
+            _macro_line_chart(
+                {
+                    "Cho vay": load_macro_indicator("wb_lending_rate"),
+                    "Tiền gửi": load_macro_indicator("wb_deposit_rate"),
+                    "Lãi suất thực": load_macro_indicator("wb_real_interest_rate"),
+                },
+                "Lãi suất bình quân (World Bank, theo năm)",
+            )
