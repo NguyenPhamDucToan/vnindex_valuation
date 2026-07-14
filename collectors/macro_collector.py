@@ -21,6 +21,13 @@ from models.schema import MacroIndicator
 
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+# SBV WAF requires a Referer from the SBV domain; use a dedicated header dict for SBV requests.
+_SBV_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Accept": "application/pdf,*/*;q=0.8",
+    "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.8",
+    "Referer": "https://www.sbv.gov.vn/webcenter/portal/vi/menu-viet-nam/tt-tiente/ls",
+}
 _CPI_LIST_URL = "https://www.nso.gov.vn/cpi-vi/"
 _GDP_LIST_URL = "https://www.nso.gov.vn/tai-khoan-quoc-gia/"
 _TRADE_LIST_URL = "https://www.nso.gov.vn/xuat-nhap-khau/"
@@ -866,10 +873,13 @@ def _sbv_pdf_url(period: date) -> str:
 def _parse_sbv_rate_pdf(pdf_url: str, period: date) -> list[dict]:
     """Download a SBV rate PDF directly and extract lending / deposit rates."""
     try:
-        r = requests.get(pdf_url, headers=_HEADERS, timeout=30)
+        r = requests.get(pdf_url, headers=_SBV_HEADERS, timeout=30)
         r.raise_for_status()
     except requests.RequestException as e:
         logger.warning(f"Failed to fetch SBV PDF {pdf_url}: {e}")
+        return []
+    if not r.content[:5].startswith(b"%PDF-"):
+        logger.debug(f"SBV PDF not available for {period:%m/%Y} (WAF block or 404)")
         return []
     import pdfplumber
     with pdfplumber.open(io.BytesIO(r.content)) as pdf:
@@ -916,18 +926,11 @@ def collect_sbv_interest_rates() -> int:
         key = cur.strftime("%Y-%m")
         if key not in existing:
             pdf_url = _sbv_pdf_url(cur)
-            try:
-                head = requests.head(pdf_url, headers=_HEADERS, timeout=8, allow_redirects=True)
-            except requests.RequestException:
-                head = None
-            if head and head.status_code == 200:
-                rows = _parse_sbv_rate_pdf(pdf_url, cur)
-                if rows:
-                    _upsert(rows)
-                    rows_written += len(rows)
-                    logger.info(f"Upserted {len(rows)} SBV rate pts for {cur:%m/%Y}")
-            else:
-                logger.debug(f"SBV PDF not available for {cur:%m/%Y} (status={getattr(head,'status_code','err')})")
+            rows = _parse_sbv_rate_pdf(pdf_url, cur)
+            if rows:
+                _upsert(rows)
+                rows_written += len(rows)
+                logger.info(f"Upserted {len(rows)} SBV rate pts for {cur:%m/%Y}")
 
         # Step back one month
         if cur.month == 1:
