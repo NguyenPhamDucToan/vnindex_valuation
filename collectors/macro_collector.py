@@ -941,6 +941,79 @@ def collect_sbv_interest_rates() -> int:
     return rows_written
 
 
+# ---------------------------------------------------------------------------
+# SBV homepage chart data (credit growth by sector, updated monthly in HTML)
+# ---------------------------------------------------------------------------
+_SBV_HOME_URL = "https://www.sbv.gov.vn"
+
+_SBV_CREDIT_SERIES: dict[str, str] = {
+    "credit_growth_total":        "tocDoTangGiamTongCong",
+    "credit_growth_agri":         "tocDoTangGiamNongNghiep",
+    "credit_growth_industry":     "tocDoTangGiamCongNghiep",
+    "credit_growth_construction": "tocDoTangGiamXayDung",
+    "credit_growth_commerce":     "tocDoTangGiamHoatDongThuongMai",
+    "credit_growth_transport":    "tocDoTangGiamVanTaiVaVienThong",
+}
+
+
+def _sbv_extract_js_array(html: str, varname: str) -> list[float]:
+    m = re.search(rf"const\s+{re.escape(varname)}\s*=\s*\[([^\]]+)\]", html, re.S)
+    if not m:
+        return []
+    return [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", m.group(1))]
+
+
+def _sbv_extract_monthly_labels(html: str) -> list[date]:
+    """Return dates for the monthly credit-growth chart (format 'M/YYYY' in JS)."""
+    m = re.search(
+        r'const\s+labels\s*=\s*\[((?:[^]]*?"[0-9]{1,2}/[0-9]{4}"[^]]*?)+)\]',
+        html, re.S,
+    )
+    if not m:
+        return []
+    return [
+        date(int(y), int(mo), 1)
+        for mo, y in re.findall(r'"(\d{1,2})/(\d{4})"', m.group(1))
+    ]
+
+
+def collect_sbv_homepage_stats() -> int:
+    """Collect monthly credit growth by sector from SBV homepage embedded chart data.
+
+    SBV embeds Chart.js data directly in the homepage HTML (no JS rendering needed).
+    Data is YTD credit growth (%) per sector, updated each month.
+    """
+    try:
+        resp = requests.get(_SBV_HOME_URL, headers=_HEADERS, timeout=20)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning(f"Failed to fetch SBV homepage: {e}")
+        return 0
+
+    html = resp.text
+    labels = _sbv_extract_monthly_labels(html)
+    if not labels:
+        logger.warning("Could not extract monthly labels from SBV homepage")
+        return 0
+
+    rows: list[dict] = []
+    for indicator, varname in _SBV_CREDIT_SERIES.items():
+        values = _sbv_extract_js_array(html, varname)
+        for period, val in zip(labels, values):
+            rows.append({
+                "indicator": indicator,
+                "period": period,
+                "value": round(val, 2),
+                "unit": "%YTD",
+                "source_url": _SBV_HOME_URL,
+            })
+
+    if rows:
+        _upsert(rows)
+        logger.info(f"Upserted {len(rows)} SBV homepage credit-growth rows ({len(labels)} months × {len(_SBV_CREDIT_SERIES)} series)")
+    return len(rows)
+
+
 if __name__ == "__main__":
     collect_cpi(max_pages=30)
     collect_gdp(max_pages=5)

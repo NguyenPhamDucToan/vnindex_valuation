@@ -298,6 +298,7 @@ def _run_one_macro_collection() -> None:
         ("trade",            lambda: __import__("collectors.macro_collector", fromlist=["collect_trade"]).collect_trade(max_pages=3)),
         ("labor",            lambda: __import__("collectors.macro_collector", fromlist=["collect_labor"]).collect_labor(max_pages=3)),
         ("sbv_rates",        lambda: __import__("collectors.macro_collector", fromlist=["collect_sbv_interest_rates"]).collect_sbv_interest_rates()),
+        ("sbv_credit",       lambda: __import__("collectors.macro_collector", fromlist=["collect_sbv_homepage_stats"]).collect_sbv_homepage_stats()),
         ("worldbank",        lambda: __import__("collectors.worldbank_collector", fromlist=["collect_worldbank_macro"]).collect_worldbank_macro()),
     ]
     for name, fn in jobs:
@@ -6970,6 +6971,57 @@ elif view == "Tổng quan Thị trường":
             else:
                 st.info("Chưa có dữ liệu tỷ giá.")
 
+            # ── Tăng trưởng tín dụng (SBV homepage) ──────────────────────
+            _cg_total = load_macro_indicator("credit_growth_total")
+            if not _cg_total.empty:
+                st.markdown("##### Tăng trưởng tín dụng toàn hệ thống (%YTD so đầu năm)")
+                _cg_summary = [
+                    _macro_summary_row("credit_growth_total",        "Tổng tín dụng",              unit="%YTD", freq="monthly", fmt=".2f"),
+                    _macro_summary_row("credit_growth_industry",     "Công nghiệp",                unit="%YTD", freq="monthly", fmt=".2f"),
+                    _macro_summary_row("credit_growth_construction", "Xây dựng",                   unit="%YTD", freq="monthly", fmt=".2f"),
+                    _macro_summary_row("credit_growth_commerce",     "Thương mại",                 unit="%YTD", freq="monthly", fmt=".2f"),
+                    _macro_summary_row("credit_growth_agri",         "Nông, lâm, thủy sản",        unit="%YTD", freq="monthly", fmt=".2f"),
+                    _macro_summary_row("credit_growth_transport",    "Vận tải & Viễn thông",       unit="%YTD", freq="monthly", fmt=".2f"),
+                ]
+                st.dataframe(pd.DataFrame(_cg_summary), hide_index=True, width="stretch")
+                st.caption("Nguồn: Ngân hàng Nhà nước (sbv.gov.vn) · Tăng trưởng lũy kế từ đầu năm")
+
+                _cg_sector_colors = {
+                    "Tổng tín dụng":         "#f59e0b",
+                    "Công nghiệp":            "#60a5fa",
+                    "Xây dựng":               "#a78bfa",
+                    "Thương mại":             "#34d399",
+                    "Nông, lâm, thủy sản":   "#86efac",
+                    "Vận tải & Viễn thông":  "#fb923c",
+                }
+                _cg_series = {
+                    "Tổng tín dụng":         load_macro_indicator("credit_growth_total"),
+                    "Công nghiệp":            load_macro_indicator("credit_growth_industry"),
+                    "Xây dựng":               load_macro_indicator("credit_growth_construction"),
+                    "Thương mại":             load_macro_indicator("credit_growth_commerce"),
+                    "Nông, lâm, thủy sản":   load_macro_indicator("credit_growth_agri"),
+                    "Vận tải & Viễn thông":  load_macro_indicator("credit_growth_transport"),
+                }
+                fig_cg = go.Figure()
+                for label, df_s in _cg_series.items():
+                    if df_s.empty:
+                        continue
+                    _xlabels = [f"{p.month:02d}/{p.year}" for p in df_s["period"]]
+                    _is_total = label == "Tổng tín dụng"
+                    fig_cg.add_trace(go.Scatter(
+                        x=_xlabels, y=df_s["value"], name=label, mode="lines+markers",
+                        line=dict(color=_cg_sector_colors[label], width=3 if _is_total else 1.5,
+                                  dash="solid" if _is_total else "dot"),
+                        marker=dict(size=6 if _is_total else 4),
+                        hovertemplate=f"{label}: %{{y:.2f}}%YTD<extra></extra>"))
+                fig_cg.update_layout(
+                    height=360, margin=dict(l=0, r=0, t=10, b=60),
+                    dragmode=False, hovermode="x unified",
+                    yaxis_title="%YTD",
+                    xaxis=dict(type="category"),
+                    legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0))
+                st.plotly_chart(fig_cg, width="stretch")
+
         elif _vm_sel == "Tiêu dùng":
             cons_rows = [
                 _macro_summary_row("retail_sales_growth", "Tăng trưởng bán lẻ hàng hóa & dịch vụ", freq="monthly"),
@@ -7011,3 +7063,20 @@ elif view == "Tổng quan Thị trường":
                                         legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0))
                 fig_rate.update_xaxes(tickformat="%m/%Y", dtick="M1")
                 st.plotly_chart(fig_rate, width="stretch")
+
+            # ── Tăng trưởng tín dụng (context cho lãi suất) ───────────────
+            _cg_df = load_macro_indicator("credit_growth_total")
+            if not _cg_df.empty:
+                st.markdown("##### Tăng trưởng tín dụng toàn hệ thống (%YTD)")
+                _cg_row = _macro_summary_row("credit_growth_total", "Tăng trưởng tín dụng tổng", unit="%YTD", freq="monthly", fmt=".2f")
+                st.dataframe(pd.DataFrame([_cg_row]), hide_index=True, width="stretch")
+                st.caption("Nguồn: Ngân hàng Nhà nước (sbv.gov.vn) · Tăng trưởng lũy kế từ đầu năm")
+                _cg_xlabels = [f"{p.month:02d}/{p.year}" for p in _cg_df["period"]]
+                fig_cg2 = go.Figure(go.Scatter(
+                    x=_cg_xlabels, y=_cg_df["value"], name="Tín dụng %YTD", mode="lines+markers",
+                    line=dict(color="#f59e0b", width=2),
+                    hovertemplate="Tín dụng: %{y:.2f}%YTD<extra></extra>"))
+                fig_cg2.update_layout(height=260, margin=dict(l=0, r=0, t=10, b=40),
+                                      dragmode=False, yaxis_title="%YTD",
+                                      xaxis=dict(type="category"))
+                st.plotly_chart(fig_cg2, width="stretch")
