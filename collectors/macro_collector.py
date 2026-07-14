@@ -154,18 +154,26 @@ _INVESTMENT_RE = re.compile(
 
 # Quarterly labor market press releases ("lao động, việc làm quý X/YYYY").
 _LABOR_UNEMPLOYMENT_RE = re.compile(
-    r"Tỷ lệ thất nghiệp trong độ tuổi lao động quý (I{1,3}|IV)/(\d{4}) là ([\d,]+)%"
+    r"Tỷ lệ thất nghiệp trong độ tuổi lao động quý (I{1,3}|IV)(?:/| năm )(\d{4}) là ([\d,]+)%"
 )
 # The quarter/year is sometimes omitted here (annual releases) — reuses the
 # unemployment sentence's period as a fallback when its own groups are empty.
 _LABOR_UNDEREMPLOYMENT_RE = re.compile(
-    r"Tỷ lệ thiếu việc làm trong độ tuổi lao động(?: quý (I{1,3}|IV)/(\d{4}))? là ([\d,]+)%"
+    r"Tỷ lệ thiếu việc làm trong độ tuổi lao động(?: quý (I{1,3}|IV)(?:/| năm )(\d{4}))? là ([\d,]+)%"
 )
 _LABOR_FORCE_RE = re.compile(
-    r"Lực lượng lao động từ 15 tuổi trở lên.{0,30}?quý (I{1,3}|IV)/(\d{4}) ước tính là ([\d,]+) triệu người"
+    r"Lực lượng lao động từ 15 tuổi trở lên.{0,30}?quý (I{1,3}|IV)(?:/| năm )(\d{4}) ước tính là ([\d,]+) triệu người"
 )
+# Primary: quarter and year explicit ("quý I/2024" or "quý I năm 2024")
 _LABOR_INCOME_RE = re.compile(
-    r"thu nhập bình quân của người lao động quý (I{1,3}|IV)/(\d{4}).{0,80}?đạt ([\d,]+) triệu đồng/tháng"
+    r"thu nhập bình quân(?:\s+tháng)? của(?:\s+người)? lao động quý (I{1,3}|IV)(?:/| năm )(\d{4})"
+    r"[^.]{0,120}?(?:đạt|là) ([\d,.]+) triệu đồng(?:/tháng)?",
+    re.IGNORECASE,
+)
+# Fallback for older articles where year is absent ("quý II là 6,6 triệu đồng")
+_LABOR_INCOME_NOYEAR_RE = re.compile(
+    r"thu nhập bình quân(?:\s+tháng)? của(?:\s+người)? lao động quý (I{1,3}|IV) (?:đạt|là) ([\d,.]+) triệu đồng(?:/tháng)?",
+    re.IGNORECASE,
 )
 
 
@@ -682,24 +690,39 @@ def collect_trade(max_pages: int = 8) -> int:
     return total
 
 
+_LABOR_CAT_ID = 72  # WordPress category "Lao động" on nso.gov.vn (464 posts)
+_LABOR_SLUG_RE = re.compile(r"thong-cao-bao-chi.{0,40}?(?:lao-dong|viec-lam)", re.IGNORECASE)
+
+
 def discover_labor_article_urls(max_pages: int = 5) -> list[str]:
-    """Return quarterly labor market press release URLs (newest first)."""
+    """Return quarterly labor market press release URLs (newest first).
+
+    Uses the WordPress REST API (category=72 = "Lao động") instead of
+    crawling the list page, which only shows the 2 most-recent articles.
+    """
     urls: list[str] = []
     for page in range(1, max_pages + 1):
-        list_url = _LABOR_LIST_URL if page == 1 else f"{_LABOR_LIST_URL}?paged={page}"
-        try:
-            resp = requests.get(list_url, headers=_HEADERS, timeout=20)
-            resp.raise_for_status()
-        except requests.RequestException as e:
-            logger.warning(f"Failed to fetch {list_url}: {e}")
-            break
-        found = re.findall(
-            r'href="(https://www\.nso\.gov\.vn/(?:du-lieu-va-so-lieu-thong-ke|tin-tuc-thong-ke)/[^"]*thong-cao-bao-chi[^"]*lao-dong[^"]*)"',
-            resp.text,
+        api_url = (
+            f"https://www.nso.gov.vn/wp-json/wp/v2/posts"
+            f"?categories={_LABOR_CAT_ID}&per_page=100&page={page}&_fields=link"
         )
-        if not found:
+        try:
+            resp = requests.get(api_url, headers=_HEADERS, timeout=20)
+        except requests.RequestException as e:
+            logger.warning(f"Failed to fetch {api_url}: {e}")
             break
-        urls.extend(found)
+        if resp.status_code == 400:
+            break  # WordPress returns 400 when page > total_pages
+        if resp.status_code != 200:
+            logger.warning(f"Unexpected status {resp.status_code} for {api_url}")
+            break
+        posts = resp.json()
+        if not posts:
+            break
+        for p in posts:
+            link = p.get("link", "")
+            if _LABOR_SLUG_RE.search(link):
+                urls.append(link)
     return list(dict.fromkeys(urls))
 
 
@@ -748,6 +771,16 @@ def parse_labor_article(url: str) -> list[dict]:
             "indicator": "avg_income", "period": date(year, _QUARTER_END_MONTH[quarter], 1),
             "value": value, "unit": "triệu đồng", "source_url": url,
         })
+    else:
+        m2 = _LABOR_INCOME_NOYEAR_RE.search(text)
+        url_year_m = re.search(r"/(\d{4})/\d{2}/", url)
+        if m2 and url_year_m:
+            quarter, value = m2.group(1), _vn_num(m2.group(2))
+            year = int(url_year_m.group(1))
+            rows.append({
+                "indicator": "avg_income", "period": date(year, _QUARTER_END_MONTH[quarter], 1),
+                "value": value, "unit": "triệu đồng", "source_url": url,
+            })
 
     if not rows:
         logger.warning(f"Could not parse labor data from {url}")
