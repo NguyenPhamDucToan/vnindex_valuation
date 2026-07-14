@@ -6999,14 +6999,15 @@ elif view == "Tổng quan Thị trường":
                     fig_rate.add_trace(go.Scatter(
                         x=_lend_df["period"], y=_lend_df["value"], name="Cho vay (SBV)", mode="lines+markers",
                         line=dict(color="#ef4444", width=2),
-                        hovertemplate="%{x|%m/%Y} · Cho vay: %{y:.2f}%/năm<extra></extra>"))
+                        hovertemplate="Cho vay: %{y:.2f}%/năm<extra></extra>"))
                 if not _dep_df.empty:
                     fig_rate.add_trace(go.Scatter(
                         x=_dep_df["period"], y=_dep_df["value"], name="Tiền gửi 6-12T (SBV)", mode="lines+markers",
                         line=dict(color="#22c55e", width=2),
-                        hovertemplate="%{x|%m/%Y} · Tiền gửi: %{y:.2f}%/năm<extra></extra>"))
+                        hovertemplate="Tiền gửi: %{y:.2f}%/năm<extra></extra>"))
                 fig_rate.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=40),
                                         dragmode=False, yaxis_title="%/năm",
+                                        hovermode="x unified",
                                         legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0))
                 fig_rate.update_xaxes(tickformat="%m/%Y", dtick="M1")
                 st.plotly_chart(fig_rate, width="stretch")
