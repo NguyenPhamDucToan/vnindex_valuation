@@ -5827,78 +5827,219 @@ elif view == "So sánh Cổ phiếu":
                     unsafe_allow_html=True,
                 )
 
-        # ── Metrics comparison table ─────────────────────────────
-        st.subheader("So sánh chỉ số tài chính")
+        # ── Load screen data once ────────────────────────────────
         with st.spinner("Đang tải..."):
             _cmp_screen = load_valuation_screen_data()
-        _cmp_metrics_rows = []
-        _METRIC_COLS = ["P/E", "P/B", "ROE", "Net Margin", "Avg Upside", "Tín hiệu", "Quality", "Ngành"]
+        _price_map_cmp = load_latest_prices()
+
+        def _px(v):
+            try: return float(str(v).replace("x","").replace("%","").replace(",","").replace("—",""))
+            except: return None
+
+        # ── Hồ sơ tổng thể (Radar) ──────────────────────────────
+        st.subheader("Hồ sơ tổng thể")
+        _RADAR_CATS = ["ROE", "Net\nMargin", "FCF\nMargin", "Quality", "Upside"]
+        _RADAR_KEYS = ["_roe_raw", "_nm_raw", "_fcfm_raw", "_qs_raw", "_avg_upside_raw"]
+        _RADAR_MAXS = [0.30, 0.25, 0.20, 100.0, 1.00]
+        _radar_fig = go.Figure()
+        for _ci, _ct in enumerate(_cmp_tickers):
+            _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
+            if _row.empty: continue
+            _r = _row.iloc[0]
+            _rvals = []
+            for _rk, _rm in zip(_RADAR_KEYS, _RADAR_MAXS):
+                _rv = _r.get(_rk)
+                if _rv is None or _rv <= -99:
+                    _rvals.append(0)
+                elif _rk == "_qs_raw":
+                    _rvals.append(max(0, min(100, _rv)))
+                else:
+                    _rvals.append(max(0, min(100, _rv / _rm * 100)))
+            _radar_fig.add_trace(go.Scatterpolar(
+                r=_rvals + [_rvals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
+                name=_ct, fill="toself", opacity=0.2,
+                line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2),
+                hovertemplate="%{theta}: %{r:.1f}/100<extra>" + _ct + "</extra>",
+            ))
+        _radar_fig.update_layout(
+            height=400, margin=dict(l=60, r=60, t=20, b=40), dragmode=False,
+            polar=dict(radialaxis=dict(visible=True, range=[0, 100], showticklabels=False)),
+            legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
+        )
+        st.plotly_chart(_radar_fig, width="stretch")
+
+        # ── Vốn hóa thị trường ──────────────────────────────────
+        _mcap_d = {}
+        for _ct in _cmp_tickers:
+            _ydf_mc = load_financials_y(_ct)
+            _pr = _price_map_cmp.get(_ct)
+            if not _ydf_mc.empty and _pr and "shares_outstanding" in _ydf_mc.columns:
+                _sh = _ydf_mc["shares_outstanding"].dropna()
+                if not _sh.empty:
+                    _mcap_d[_ct] = round(_pr * float(_sh.iloc[-1]) / 1000, 1)
+        if _mcap_d:
+            _mc_fig = go.Figure(go.Bar(
+                x=list(_mcap_d.keys()), y=list(_mcap_d.values()),
+                marker_color=_CMP_COLORS[:len(_mcap_d)],
+                hovertemplate="%{x}: %{y:,.1f} nghìn tỷ VND<extra></extra>",
+            ))
+            _mc_fig.update_layout(
+                title=dict(text="Vốn hóa thị trường (nghìn tỷ VND)", font=dict(size=13)),
+                height=240, margin=dict(l=0,r=0,t=36,b=0), dragmode=False,
+                showlegend=False, yaxis=dict(showgrid=True, gridcolor="#374151"),
+            )
+            st.plotly_chart(_mc_fig, width="stretch")
+
+        # ── Định giá & Sinh lời (2 cột) ─────────────────────────
+        st.subheader("So sánh chỉ số định giá & sinh lời")
+        _pe_d, _pb_d, _roe_d, _nm_d, _fcfm_d, _de_d, _cr_d, _gm_d, _em_d = ({} for _ in range(9))
+        for _ct in _cmp_tickers:
+            _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
+            if _row.empty: continue
+            _r = _row.iloc[0]
+            _pe_d[_ct]   = _px(_r.get("P/E"))
+            _pb_d[_ct]   = _px(_r.get("P/B"))
+            _roe_d[_ct]  = round(_r["_roe_raw"]  * 100, 1) if _r.get("_roe_raw",  -999) > -99 else None
+            _nm_d[_ct]   = round(_r["_nm_raw"]   * 100, 1) if _r.get("_nm_raw",   -999) > -99 else None
+            _fcfm_d[_ct] = round(_r["_fcfm_raw"] * 100, 1) if _r.get("_fcfm_raw", -999) > -99 else None
+            _de_d[_ct]   = round(_r["_de_raw"],  2) if _r.get("_de_raw",  999) < 900 else None
+            _cr_d[_ct]   = round(_r["_cr_raw"],  2) if _r.get("_cr_raw",    0) >   0 else None
+            _ydf_m = load_financials_y(_ct)
+            if not _ydf_m.empty and "revenue" in _ydf_m.columns:
+                _last_m = _ydf_m.dropna(subset=["revenue"]).tail(1)
+                if not _last_m.empty:
+                    _rev_m = float(_last_m["revenue"].iloc[0])
+                    if _rev_m > 0:
+                        _gp_m = float(_last_m["gross_profit"].fillna(0).iloc[0]) if "gross_profit" in _last_m else 0
+                        _eb_m = float(_last_m["ebit"].fillna(0).iloc[0])         if "ebit"         in _last_m else 0
+                        _gm_d[_ct] = round(_gp_m / _rev_m * 100, 1)
+                        _em_d[_ct] = round(_eb_m / _rev_m * 100, 1)
+
+        def _bar(title, data, fmt, key):
+            _tks = [k for k, v in data.items() if v is not None]
+            _vs  = [data[k] for k in _tks]
+            if not _tks: return None
+            _f = go.Figure(go.Bar(
+                x=_tks, y=_vs,
+                marker_color=_CMP_COLORS[:len(_tks)],
+                hovertemplate=f"%{{x}}: %{{y:{fmt}}}<extra></extra>",
+            ))
+            _f.update_layout(
+                title=dict(text=title, font=dict(size=13)),
+                height=230, margin=dict(l=0,r=0,t=36,b=0), dragmode=False,
+                showlegend=False, yaxis=dict(showgrid=True, gridcolor="#374151"),
+            )
+            return _f
+
+        _dc1, _dc2 = st.columns(2)
+        for _title, _data, _fmt, _key, _col in [
+            ("P/E (lần)",           _pe_d,   ".1f", "pe",   _dc1),
+            ("P/B (lần)",           _pb_d,   ".1f", "pb",   _dc2),
+            ("Gross Margin (%)",    _gm_d,   ".1f", "gm",   _dc1),
+            ("EBIT Margin (%)",     _em_d,   ".1f", "em",   _dc2),
+            ("Net Margin (%)",      _nm_d,   ".1f", "nm",   _dc1),
+            ("ROE (%)",             _roe_d,  ".1f", "roe",  _dc2),
+            ("FCF Margin (%)",      _fcfm_d, ".1f", "fcfm", _dc1),
+            ("D/E (lần)",           _de_d,   ".2f", "de",   _dc2),
+            ("Current Ratio (lần)", _cr_d,   ".2f", "cr",   _dc1),
+        ]:
+            _f = _bar(_title, _data, _fmt, _key)
+            if _f:
+                with _col:
+                    st.plotly_chart(_f, width="stretch", key=f"cmp_{_key}")
+
+        # ── Tăng trưởng doanh thu & lợi nhuận 5 năm ────────────
+        st.subheader("Tăng trưởng doanh thu & lợi nhuận (5 năm)")
+        _rev_fig = go.Figure()
+        _np_fig  = go.Figure()
+        _rev_yoy = {}
+        for _ci, _ct in enumerate(_cmp_tickers):
+            _ydf_t = load_financials_y(_ct)
+            if _ydf_t.empty: continue
+            _ydf_t = _ydf_t.dropna(subset=["revenue"]).tail(5).copy()
+            if _ydf_t.empty: continue
+            _ydf_t["year"] = pd.to_datetime(_ydf_t["period"]).dt.year.astype(str)
+            _cl = _CMP_COLORS[_ci % len(_CMP_COLORS)]
+            _rev_fig.add_trace(go.Scatter(
+                x=_ydf_t["year"], y=_ydf_t["revenue"].round(0), name=_ct,
+                mode="lines+markers", line=dict(color=_cl, width=2),
+                hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:,.0f}} tỷ<extra></extra>",
+            ))
+            _np_fig.add_trace(go.Scatter(
+                x=_ydf_t["year"], y=_ydf_t["net_income"].round(0), name=_ct,
+                mode="lines+markers", line=dict(color=_cl, width=2),
+                hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:,.0f}} tỷ<extra></extra>",
+            ))
+            if len(_ydf_t) >= 2:
+                _r1 = float(_ydf_t["revenue"].iloc[-1])
+                _r0 = float(_ydf_t["revenue"].iloc[-2])
+                if _r0 > 0: _rev_yoy[_ct] = round((_r1 / _r0 - 1) * 100, 1)
+
+        _tc1, _tc2 = st.columns(2)
+        for _tfig, _ttitle, _tcol in [
+            (_rev_fig, "Doanh thu (tỷ đồng)",     _tc1),
+            (_np_fig,  "Lợi nhuận ròng (tỷ đồng)", _tc2),
+        ]:
+            _tfig.update_layout(
+                title=dict(text=_ttitle, font=dict(size=13)),
+                height=300, margin=dict(l=0,r=0,t=36,b=0), dragmode=False,
+                hovermode="x unified",
+                xaxis=dict(type="category", showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor="#374151"),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+            )
+            with _tcol:
+                st.plotly_chart(_tfig, width="stretch")
+
+        if _rev_yoy:
+            _gy_colors = ["#22c55e" if v >= 0 else "#ef4444" for v in _rev_yoy.values()]
+            _gy_fig = go.Figure(go.Bar(
+                x=list(_rev_yoy.keys()), y=list(_rev_yoy.values()),
+                marker_color=_gy_colors,
+                hovertemplate="%{x}: %{y:+.1f}% YoY<extra></extra>",
+            ))
+            _gy_fig.add_hline(y=0, line_color="gray", line_dash="dot", opacity=0.5)
+            _gy_fig.update_layout(
+                title=dict(text="Tăng trưởng doanh thu YoY (%)", font=dict(size=13)),
+                height=220, margin=dict(l=0,r=0,t=36,b=0), dragmode=False,
+                showlegend=False, yaxis=dict(showgrid=True, gridcolor="#374151"),
+            )
+            st.plotly_chart(_gy_fig, width="stretch")
+
+        # ── Bảng so sánh chi tiết ────────────────────────────────
+        st.subheader("Bảng so sánh chi tiết")
+        _cmp_rows2 = []
         for _ct in _cmp_tickers:
             _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
             if _row.empty:
-                _cmp_metrics_rows.append({"Chỉ số": _ct, **{c: "—" for c in _METRIC_COLS}})
+                _cmp_rows2.append({"Mã": _ct})
                 continue
             _r = _row.iloc[0]
-            _sig_clean = str(_r.get("Tín hiệu", "")).lstrip("⁠")
-            _cmp_metrics_rows.append({
-                "Mã": _ct,
-                "Ngành": _r.get("Ngành", "—"),
-                "P/E": _r.get("P/E", "—"),
-                "P/B": _r.get("P/B", "—"),
-                "ROE": _r.get("ROE", "—"),
-                "Net Margin": _r.get("Net Margin", "—"),
+            _cmp_rows2.append({
+                "Mã":         _ct,
+                "Ngành":      _r.get("Ngành", "—"),
+                "Giá":        _r.get("Giá (VND)", "—"),
+                "P/E":        _r.get("P/E", "—"),
+                "P/B":        _r.get("P/B", "—"),
+                "ROE":        _r.get("ROE", "—"),
+                "LN ròng":    _r.get("Biên LN ròng", "—"),
+                "FCF Margin": _r.get("FCF Margin", "—"),
+                "D/E":        _r.get("D/E", "—"),
+                "CR":         _r.get("Current Ratio", "—"),
                 "Avg Upside": _r.get("Avg Upside", "—"),
-                "Tín hiệu": _sig_clean,
-                "Quality": int(round(_r["_qs_raw"])) if pd.notna(_r.get("_qs_raw")) else "—",
+                "Quality":    int(round(_r["_qs_raw"])) if pd.notna(_r.get("_qs_raw")) else "—",
             })
-
-        if _cmp_metrics_rows:
-            _cmp_df = pd.DataFrame(_cmp_metrics_rows).set_index("Mã")
-            _SIG_COLORS_CMP = {
-                "Strong Buy":  "background-color:#14532d; color:#86efac; font-weight:700",
-                "Buy":         "background-color:#166534; color:#bbf7d0; font-weight:600",
-                "Watch":       "background-color:#713f12; color:#fde68a",
-                "Neutral":     "background-color:#1e293b; color:#94a3b8",
-                "Reduce":      "background-color:#7c2d12; color:#fdba74",
-                "Sell":        "background-color:#7f1d1d; color:#fca5a5",
-                "Strong Sell": "background-color:#450a0a; color:#f87171; font-weight:700",
-            }
-            def _cmp_sig_color(v):
-                return _SIG_COLORS_CMP.get(v, "")
-            def _cmp_q_color(v):
+        if _cmp_rows2:
+            _cmp_df2 = pd.DataFrame(_cmp_rows2).set_index("Mã")
+            def _cmp_q2(v):
                 try:
                     q = int(v)
                     if q >= 70:   return "background-color:#166534; color:#86efac"
                     elif q >= 50: return "background-color:#713f12; color:#fde047"
                     elif q >= 30: return "background-color:#7c2d12; color:#fdba74"
                     else:         return "background-color:#7f1d1d; color:#fca5a5"
-                except Exception:
-                    return ""
-            _cmp_styled = (
-                _cmp_df.style
-                .map(_cmp_sig_color, subset=["Tín hiệu"])
-                .map(_cmp_q_color, subset=["Quality"])
-            )
-            st.dataframe(_cmp_styled, width="stretch")
-
-        # ── Volume comparison chart ─────────────────────────────
-        st.subheader("Khối lượng giao dịch trung bình 20 ngày")
-        _vol_data = {}
-        for _ct in _cmp_tickers:
-            _vpdf = load_prices(_ct)
-            if not _vpdf.empty:
-                _vol_data[_ct] = float(_vpdf.tail(20)["volume"].mean()) / 1e6
-        if _vol_data:
-            _vol_fig = go.Figure(go.Bar(
-                x=list(_vol_data.keys()), y=list(_vol_data.values()),
-                marker_color=_CMP_COLORS[:len(_vol_data)],
-                hovertemplate="%{x}: %{y:.2f}M cổ phiếu<extra></extra>",
-            ))
-            _vol_fig.update_layout(
-                height=260, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
-                yaxis_title="Triệu cổ phiếu", showlegend=False,
-            )
-            st.plotly_chart(_vol_fig, width="stretch")
+                except: return ""
+            st.dataframe(_cmp_df2.style.map(_cmp_q2, subset=["Quality"]), width="stretch")
 
 
 # ═══════════════════════════════════════════════════════════════
