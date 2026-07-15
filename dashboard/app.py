@@ -5902,58 +5902,99 @@ elif view == "So sánh Cổ phiếu":
                         _gm_d[_ct] = round(_gp_h / _rev_h * 100, 1)
                         _em_d[_ct] = round(_eb_h / _rev_h * 100, 1)
 
-        # (label, data_dict, higher_is_better, display_fmt)
-        _hm_defs = [
-            ("Vốn hóa (nghìn tỷ)",  _mcap_d,  True,  "{:.0f}"),
-            ("P/E (lần)",            _pe_d,    False, "{:.1f}"),
-            ("P/B (lần)",            _pb_d,    False, "{:.1f}"),
-            ("Gross Margin (%)",     _gm_d,    True,  "{:.1f}%"),
-            ("EBIT Margin (%)",      _em_d,    True,  "{:.1f}%"),
-            ("Net Margin (%)",       _nm_d,    True,  "{:.1f}%"),
-            ("FCF Margin (%)",       _fcfm_d,  True,  "{:.1f}%"),
-            ("ROE (%)",              _roe_d,   True,  "{:.1f}%"),
-            ("D/E (lần)",            _de_d,    False, "{:.2f}"),
-            ("Current Ratio (lần)",  _cr_d,    True,  "{:.2f}"),
-            ("Avg Upside (%)",       {ct: round(_cmp_screen[_cmp_screen["Mã"]==ct].iloc[0]["_avg_upside_raw"]*100,1)
-                                      if not _cmp_screen[_cmp_screen["Mã"]==ct].empty
-                                         and _cmp_screen[_cmp_screen["Mã"]==ct].iloc[0]["_avg_upside_raw"] > -999
-                                      else None for ct in _cmp_tickers}, True, "{:+.1f}%"),
-            ("Quality Score",        {ct: int(round(_cmp_screen[_cmp_screen["Mã"]==ct].iloc[0]["_qs_raw"]))
-                                      if not _cmp_screen[_cmp_screen["Mã"]==ct].empty else None
-                                      for ct in _cmp_tickers}, True, "{:.0f}"),
+        # Build upside/quality dicts
+        _upside_d = {}
+        _qs_d = {}
+        for _ct in _cmp_tickers:
+            _r2 = _cmp_screen[_cmp_screen["Mã"] == _ct]
+            if not _r2.empty:
+                _rv2 = _r2.iloc[0]
+                if _rv2.get("_avg_upside_raw", -9999) > -999:
+                    _upside_d[_ct] = round(_rv2["_avg_upside_raw"] * 100, 1)
+                if pd.notna(_rv2.get("_qs_raw")):
+                    _qs_d[_ct] = int(round(_rv2["_qs_raw"]))
+
+        # (category, label, data_dict, higher_is_better, fmt_fn)
+        _tbl_sections = [
+            ("Thị trường", [
+                ("Vốn hóa", _mcap_d, True,  lambda v: f"{v:,.0f} nghìn tỷ"),
+            ]),
+            ("Định giá", [
+                ("P/E",     _pe_d,   False, lambda v: f"{v:.1f}x"),
+                ("P/B",     _pb_d,   False, lambda v: f"{v:.1f}x"),
+            ]),
+            ("Biên lợi nhuận", [
+                ("Gross Margin", _gm_d,   True, lambda v: f"{v:.1f}%"),
+                ("EBIT Margin",  _em_d,   True, lambda v: f"{v:.1f}%"),
+                ("Net Margin",   _nm_d,   True, lambda v: f"{v:.1f}%"),
+                ("FCF Margin",   _fcfm_d, True, lambda v: f"{v:.1f}%"),
+                ("ROE",          _roe_d,  True, lambda v: f"{v:.1f}%"),
+            ]),
+            ("Sức khỏe tài chính", [
+                ("D/E",          _de_d,  False, lambda v: f"{v:.2f}x"),
+                ("Current Ratio",_cr_d,  True,  lambda v: f"{v:.2f}x"),
+            ]),
+            ("Triển vọng", [
+                ("Avg Upside",   _upside_d, True, lambda v: f"{v:+.1f}%"),
+                ("Quality Score",_qs_d,     True, lambda v: f"{v:.0f}/100"),
+            ]),
         ]
 
-        def _norm_rank(vals, higher_better):
+        def _rank_color(rank):
+            if rank is None:   return "rgba(55,65,81,0.25)", "#9ca3af"
+            if rank >= 0.75:   return "rgba(34,197,94,0.18)", "#86efac"
+            if rank >= 0.4:    return "rgba(55,65,81,0.25)", "#d1d5db"
+            return              "rgba(239,68,68,0.18)", "#fca5a5"
+
+        def _rank_vals(data, tickers, higher_better):
+            vals = [data.get(t) for t in tickers]
             valid = [v for v in vals if v is not None]
-            if len(valid) < 2: return [0.5 if v is not None else None for v in vals]
+            if len(valid) < 2: return [None] * len(vals)
             mn, mx = min(valid), max(valid)
             if mx == mn: return [0.5 if v is not None else None for v in vals]
-            n = [(v - mn)/(mx - mn) if v is not None else None for v in vals]
-            return n if higher_better else [1-x if x is not None else None for x in n]
+            ranks = [(v - mn)/(mx - mn) if v is not None else None for v in vals]
+            return ranks if higher_better else [1-r if r is not None else None for r in ranks]
 
-        _hm_z, _hm_text, _hm_y = [], [], []
-        for _lbl, _ddict, _hib, _fmt in _hm_defs:
-            _vals = [_ddict.get(_ct) for _ct in _cmp_tickers]
-            _norms = _norm_rank(_vals, _hib)
-            _hm_z.append([n if n is not None else -1 for n in _norms])
-            _hm_text.append([_fmt.format(v) if v is not None else "—" for v in _vals])
-            _hm_y.append(_lbl)
+        # Build HTML table
+        _n = len(_cmp_tickers)
+        _col_w = int(100 / (_n + 1))
+        _html = f"""
+<style>
+.cmp-tbl {{width:100%;border-collapse:collapse;font-size:13px;font-family:inherit}}
+.cmp-tbl th {{padding:10px 14px;text-align:center;font-weight:600;color:#e5e7eb;
+              border-bottom:2px solid #374151;background:#111827}}
+.cmp-tbl th.lbl {{text-align:left;color:#9ca3af;font-weight:400}}
+.cmp-tbl td {{padding:9px 14px;text-align:center;font-weight:600;font-size:13px;
+              border-bottom:1px solid rgba(55,65,81,0.5)}}
+.cmp-tbl td.lbl {{text-align:left;color:#9ca3af;font-weight:400;font-size:12px}}
+.cmp-tbl tr.cat td {{background:#1f2937;color:#6b7280;font-size:11px;
+                      font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
+                      padding:6px 14px;border-bottom:none}}
+.cmp-tbl tr:last-child td {{border-bottom:none}}
+</style>
+<table class="cmp-tbl">
+<thead><tr>
+  <th class="lbl" style="width:{_col_w+10}%">Chỉ số</th>
+  {''.join(f'<th style="width:{_col_w}%">{ct}</th>' for ct in _cmp_tickers)}
+</tr></thead>
+<tbody>"""
 
-        _hm_fig = go.Figure(go.Heatmap(
-            z=_hm_z, x=_cmp_tickers, y=_hm_y,
-            text=_hm_text, texttemplate="<b>%{text}</b>", textfont=dict(size=13),
-            colorscale=[[0,"#7f1d1d"],[0.25,"#991b1b"],[0.5,"#374151"],[0.75,"#166534"],[1,"#14532d"]],
-            showscale=False, zmin=0, zmax=1,
-            hoverongaps=False,
-            hovertemplate="%{y} — %{x}: %{text}<extra></extra>",
-        ))
-        _hm_fig.update_layout(
-            height=44 * len(_hm_defs) + 60,
-            margin=dict(l=160, r=10, t=40, b=10), dragmode=False,
-            xaxis=dict(side="top", tickfont=dict(size=13)),
-            yaxis=dict(tickfont=dict(size=12), autorange="reversed"),
-        )
-        st.plotly_chart(_hm_fig, width="stretch", key="cmp_heatmap")
+        for _cat, _rows in _tbl_sections:
+            _html += f'<tr class="cat"><td colspan="{_n+1}">{_cat}</td></tr>'
+            for _lbl, _ddict, _hib, _fmt in _rows:
+                _ranks = _rank_vals(_ddict, _cmp_tickers, _hib)
+                _html += "<tr>"
+                _html += f'<td class="lbl">{_lbl}</td>'
+                for _ti, _ct in enumerate(_cmp_tickers):
+                    _v = _ddict.get(_ct)
+                    _bg, _fg = _rank_color(_ranks[_ti])
+                    _disp = _fmt(_v) if _v is not None else "—"
+                    _html += f'<td style="background:{_bg};color:{_fg}">{_disp}</td>'
+                _html += "</tr>"
+
+        _html += "</tbody></table>"
+        st.markdown(_html, unsafe_allow_html=True)
+        st.write("")
 
         # ── Tăng trưởng doanh thu & lợi nhuận 5 năm ────────────
         st.subheader("Tăng trưởng doanh thu & lợi nhuận (5 năm)")
