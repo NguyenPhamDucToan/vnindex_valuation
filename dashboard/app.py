@@ -6002,10 +6002,11 @@ elif view == "So sánh Cổ phiếu":
         )
         st.plotly_chart(_cmp_chart, width="stretch", key="cmp_chart_main")
 
-        # ── Clustered Column Charts: Doanh thu & Lợi nhuận ────────
-        st.subheader("Doanh thu & Lợi nhuận ròng (5 năm)")
+        # ── Tăng trưởng doanh thu & lợi nhuận 5 năm ────────────
+        st.subheader("Tăng trưởng doanh thu & lợi nhuận (5 năm)")
         _rev_fig = go.Figure()
         _np_fig  = go.Figure()
+        _rev_yoy = {}
         for _ci, _ct in enumerate(_cmp_tickers):
             _ydf_t = load_financials_y(_ct)
             if _ydf_t.empty: continue
@@ -6013,34 +6014,68 @@ elif view == "So sánh Cổ phiếu":
             if _ydf_t.empty: continue
             _ydf_t["year"] = pd.to_datetime(_ydf_t["period"]).dt.year.astype(str)
             _cl = _CMP_COLORS[_ci % len(_CMP_COLORS)]
-            _rev_fig.add_trace(go.Bar(
+            _rev_fig.add_trace(go.Scatter(
                 x=_ydf_t["year"], y=_ydf_t["revenue"].round(0), name=_ct,
-                marker_color=_cl,
+                mode="lines+markers", line=dict(color=_cl, width=2),
                 hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:,.0f}} tỷ<extra></extra>",
             ))
-            _np_fig.add_trace(go.Bar(
+            _np_fig.add_trace(go.Scatter(
                 x=_ydf_t["year"], y=_ydf_t["net_income"].round(0), name=_ct,
-                marker_color=_cl,
+                mode="lines+markers", line=dict(color=_cl, width=2),
                 hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:,.0f}} tỷ<extra></extra>",
             ))
+            if len(_ydf_t) >= 2:
+                _r1 = float(_ydf_t["revenue"].iloc[-1])
+                _r0 = float(_ydf_t["revenue"].iloc[-2])
+                if _r0 > 0: _rev_yoy[_ct] = round((_r1 / _r0 - 1) * 100, 1)
 
-        _cbar_layout = dict(
-            barmode="group", dragmode=False, height=320,
-            margin=dict(l=10, r=10, t=40, b=10),
-            xaxis=dict(type="category", showgrid=False, tickfont=dict(size=12)),
-            yaxis=dict(showgrid=True, gridcolor="#2d3748", tickformat=",.0f"),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.22, xanchor="center", x=0.5, font=dict(size=12)),
-            bargap=0.25, bargroupgap=0.08,
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        )
         _tc1, _tc2 = st.columns(2)
         for _tfig, _ttitle, _tcol in [
-            (_rev_fig, "Doanh thu (tỷ đồng)",       _tc1),
-            (_np_fig,  "Lợi nhuận ròng (tỷ đồng)",  _tc2),
+            (_rev_fig, "Doanh thu (tỷ đồng)",     _tc1),
+            (_np_fig,  "Lợi nhuận ròng (tỷ đồng)", _tc2),
         ]:
-            _tfig.update_layout(title=dict(text=_ttitle, font=dict(size=13)), **_cbar_layout)
+            _tfig.update_layout(
+                title=dict(text=_ttitle, font=dict(size=13)),
+                height=300, margin=dict(l=0,r=0,t=36,b=0), dragmode=False,
+                hovermode="x unified",
+                xaxis=dict(type="category", showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor="#374151"),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+            )
             with _tcol:
                 st.plotly_chart(_tfig, width="stretch")
+
+        if _rev_yoy:
+            _gy_tickers = list(_rev_yoy.keys())
+            _gy_vals    = list(_rev_yoy.values())
+            _gy_colors  = ["#22c55e" if v >= 0 else "#ef4444" for v in _gy_vals]
+            _gy_texts   = [f"{v:+.1f}%" for v in _gy_vals]
+            _gy_fig = go.Figure(go.Bar(
+                x=_gy_tickers, y=_gy_vals,
+                marker_color=_gy_colors,
+                text=_gy_texts,
+                textposition="outside",
+                textfont=dict(size=14, color="white"),
+                width=0.35,
+                hovertemplate="%{x}: %{y:+.1f}% YoY<extra></extra>",
+            ))
+            _gy_fig.add_hline(y=0, line_color="#6b7280", line_dash="dot", line_width=1)
+            _ymax = max(abs(v) for v in _gy_vals) * 1.45 if _gy_vals else 20
+            _gy_fig.update_layout(
+                title=dict(text="Tăng trưởng doanh thu YoY (%)", font=dict(size=13)),
+                height=300, margin=dict(l=40,r=40,t=40,b=20), dragmode=False,
+                showlegend=False,
+                xaxis=dict(showgrid=False, tickfont=dict(size=13)),
+                yaxis=dict(
+                    showgrid=True, gridcolor="#374151",
+                    range=[-_ymax, _ymax],
+                    zeroline=False, ticksuffix="%",
+                ),
+                bargap=0.6,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(_gy_fig, width="stretch")
 
         # ── Bảng so sánh chi tiết ────────────────────────────────
         st.subheader("Bảng so sánh chi tiết")
