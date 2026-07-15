@@ -5932,11 +5932,12 @@ elif view == "So sánh Cổ phiếu":
         def _norm0100(data, tickers, higher_better):
             vals = [data.get(t) for t in tickers]
             valid = [v for v in vals if v is not None]
-            if len(valid) < 2: return [50 if v is not None else 0 for v in vals]
+            if len(valid) < 2: return [60 if v is not None else 15 for v in vals]
             mn, mx = min(valid), max(valid)
-            if mx == mn: return [50 if v is not None else 0 for v in vals]
-            n = [(v - mn)/(mx - mn)*100 if v is not None else 0 for v in vals]
-            return n if higher_better else [100-x for x in n]
+            if mx == mn: return [60 if v is not None else 15 for v in vals]
+            # Normalize to 15–100 so worst still shows a visible bar
+            n = [15 + (v - mn)/(mx - mn)*85 if v is not None else 15 for v in vals]
+            return n if higher_better else [115-x for x in n]
 
         # Build single grouped bar chart (x=metric, groups=tickers, y=normalized 0-100)
         _cmp_chart = go.Figure()
