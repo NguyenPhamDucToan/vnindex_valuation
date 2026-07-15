@@ -5890,7 +5890,7 @@ elif view == "So sánh Cổ phiếu":
             )
             st.plotly_chart(_mc_fig, width="stretch")
 
-        # ── Định giá & Sinh lời (2 cột) ─────────────────────────
+        # ── Định giá & Sinh lời (grouped bars) ──────────────────
         st.subheader("So sánh chỉ số định giá & sinh lời")
         _pe_d, _pb_d, _roe_d, _nm_d, _fcfm_d, _de_d, _cr_d, _gm_d, _em_d = ({} for _ in range(9))
         for _ct in _cmp_tickers:
@@ -5915,38 +5915,46 @@ elif view == "So sánh Cổ phiếu":
                         _gm_d[_ct] = round(_gp_m / _rev_m * 100, 1)
                         _em_d[_ct] = round(_eb_m / _rev_m * 100, 1)
 
-        def _bar(title, data, fmt, key):
-            _tks = [k for k, v in data.items() if v is not None]
-            _vs  = [data[k] for k in _tks]
-            if not _tks: return None
-            _f = go.Figure(go.Bar(
-                x=_tks, y=_vs,
-                marker_color=_CMP_COLORS[:len(_tks)],
-                hovertemplate=f"%{{x}}: %{{y:{fmt}}}<extra></extra>",
-            ))
-            _f.update_layout(
+        def _grouped_bar(title, metrics_dict, key):
+            """metrics_dict: {"Metric Name": {ticker: value, ...}, ...}"""
+            _metric_names = list(metrics_dict.keys())
+            _fig = go.Figure()
+            for _ci, _ct in enumerate(_cmp_tickers):
+                _vals = [metrics_dict[m].get(_ct) for m in _metric_names]
+                _fig.add_trace(go.Bar(
+                    name=_ct, x=_metric_names, y=_vals,
+                    marker_color=_CMP_COLORS[_ci % len(_CMP_COLORS)],
+                    hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:.2f}}<extra></extra>",
+                ))
+            _fig.update_layout(
                 title=dict(text=title, font=dict(size=13)),
-                height=230, margin=dict(l=0,r=0,t=36,b=0), dragmode=False,
-                showlegend=False, yaxis=dict(showgrid=True, gridcolor="#374151"),
+                barmode="group", height=280,
+                margin=dict(l=0, r=0, t=36, b=0), dragmode=False,
+                yaxis=dict(showgrid=True, gridcolor="#374151"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
             )
-            return _f
+            return _fig
 
-        _dc1, _dc2 = st.columns(2)
-        for _title, _data, _fmt, _key, _col in [
-            ("P/E (lần)",           _pe_d,   ".1f", "pe",   _dc1),
-            ("P/B (lần)",           _pb_d,   ".1f", "pb",   _dc2),
-            ("Gross Margin (%)",    _gm_d,   ".1f", "gm",   _dc1),
-            ("EBIT Margin (%)",     _em_d,   ".1f", "em",   _dc2),
-            ("Net Margin (%)",      _nm_d,   ".1f", "nm",   _dc1),
-            ("ROE (%)",             _roe_d,  ".1f", "roe",  _dc2),
-            ("FCF Margin (%)",      _fcfm_d, ".1f", "fcfm", _dc1),
-            ("D/E (lần)",           _de_d,   ".2f", "de",   _dc2),
-            ("Current Ratio (lần)", _cr_d,   ".2f", "cr",   _dc1),
-        ]:
-            _f = _bar(_title, _data, _fmt, _key)
-            if _f:
-                with _col:
-                    st.plotly_chart(_f, width="stretch", key=f"cmp_{_key}")
+        # Chart 1: Định giá (P/E, P/B)
+        st.plotly_chart(_grouped_bar(
+            "Định giá",
+            {"P/E (lần)": _pe_d, "P/B (lần)": _pb_d},
+            "valuation",
+        ), width="stretch", key="cmp_valuation")
+
+        # Chart 2: Biên lợi nhuận (Gross, EBIT, Net, FCF, ROE - all %)
+        st.plotly_chart(_grouped_bar(
+            "Biên lợi nhuận & sinh lời (%)",
+            {"Gross Margin": _gm_d, "EBIT Margin": _em_d, "Net Margin": _nm_d, "FCF Margin": _fcfm_d, "ROE": _roe_d},
+            "margins",
+        ), width="stretch", key="cmp_margins")
+
+        # Chart 3: Sức khỏe tài chính (D/E, CR)
+        st.plotly_chart(_grouped_bar(
+            "Sức khỏe tài chính",
+            {"D/E (lần)": _de_d, "Current Ratio (lần)": _cr_d},
+            "health",
+        ), width="stretch", key="cmp_health")
 
         # ── Tăng trưởng doanh thu & lợi nhuận 5 năm ────────────
         st.subheader("Tăng trưởng doanh thu & lợi nhuận (5 năm)")
