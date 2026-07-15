@@ -5980,13 +5980,13 @@ elif view == "So sánh Cổ phiếu":
 
                 _display = _fmt(_v)
                 if _rk == 0:
-                    _tc = _cl
+                    _tc = "#ffffff"
                     _fw = "700"
                 elif _rk == 1:
-                    _tc = "#e5e7eb"
+                    _tc = "#9ca3af"
                     _fw = "400"
                 else:
-                    _tc = "#6b7280"
+                    _tc = "#4b5563"
                     _fw = "400"
 
                 _cells += (
