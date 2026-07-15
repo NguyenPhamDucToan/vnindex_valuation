@@ -5763,7 +5763,7 @@ elif view == "So sánh Cổ phiếu":
 
     # ── Ticker selector ────────────────────────────────────────────
     _cmp_all = load_available_tickers()
-    _cmp_default = ["VNM", "MSN", "MWG"] if all(t in _cmp_all for t in ["VNM", "MSN", "MWG"]) else _cmp_all[:3]
+    _cmp_default = ["HPG", "NKG", "HSG"] if all(t in _cmp_all for t in ["HPG", "NKG", "HSG"]) else _cmp_all[:3]
     _cmp_tickers = st.multiselect(
         "Chọn 2–4 mã cổ phiếu để so sánh",
         options=sorted(_cmp_all),
