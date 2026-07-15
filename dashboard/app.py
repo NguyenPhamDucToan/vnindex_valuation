@@ -5985,24 +5985,23 @@ elif view == "So sánh Cổ phiếu":
                     _bw = 50
 
                 if _rk == 0:
-                    _bg   = f"rgba({_r},{_g},{_b},0.18)"
+                    _left_border = f"border-left:3px solid {_cl}"
                     _tc   = _cl
                     _fw   = "700"
-                    _bopa = "0.75"
+                    _bopa = "0.55"
                 elif _rk == 1:
-                    _bg   = f"rgba({_r},{_g},{_b},0.07)"
+                    _left_border = "border-left:1px solid #1f2937"
                     _tc   = "#e5e7eb"
                     _fw   = "500"
-                    _bopa = "0.35"
+                    _bopa = "0.25"
                 else:
-                    _bg   = "transparent"
-                    _tc   = "#9ca3af"
+                    _left_border = "border-left:1px solid #1f2937"
+                    _tc   = "#6b7280"
                     _fw   = "400"
-                    _bopa = "0.20"
+                    _bopa = "0.12"
 
                 _cells += (
-                    f"<td style='background:{_bg};text-align:center;padding:0;"
-                    f"border-left:1px solid #1f2937'>"
+                    f"<td style='text-align:center;padding:0;{_left_border}'>"
                     f"<div style='position:relative;padding:10px 16px;min-height:40px'>"
                     f"<div style='position:absolute;bottom:0;left:0;height:3px;"
                     f"width:{_bw:.0f}%;background:rgba({_r},{_g},{_b},{_bopa});"
