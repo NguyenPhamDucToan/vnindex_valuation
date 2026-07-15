@@ -5903,8 +5903,7 @@ elif view == "So sánh Cổ phiếu":
                         _em_d[_ct] = round(_eb_h / _rev_h * 100, 1)
 
         # Build upside/quality dicts
-        _upside_d = {}
-        _qs_d = {}
+        _upside_d, _qs_d = {}, {}
         for _ct in _cmp_tickers:
             _r2 = _cmp_screen[_cmp_screen["Mã"] == _ct]
             if not _r2.empty:
@@ -5914,87 +5913,88 @@ elif view == "So sánh Cổ phiếu":
                 if pd.notna(_rv2.get("_qs_raw")):
                     _qs_d[_ct] = int(round(_rv2["_qs_raw"]))
 
-        # (category, label, data_dict, higher_is_better, fmt_fn)
-        _tbl_sections = [
-            ("Thị trường", [
-                ("Vốn hóa", _mcap_d, True,  lambda v: f"{v:,.0f} nghìn tỷ"),
-            ]),
-            ("Định giá", [
-                ("P/E",     _pe_d,   False, lambda v: f"{v:.1f}x"),
-                ("P/B",     _pb_d,   False, lambda v: f"{v:.1f}x"),
-            ]),
-            ("Biên lợi nhuận", [
-                ("Gross Margin", _gm_d,   True, lambda v: f"{v:.1f}%"),
-                ("EBIT Margin",  _em_d,   True, lambda v: f"{v:.1f}%"),
-                ("Net Margin",   _nm_d,   True, lambda v: f"{v:.1f}%"),
-                ("FCF Margin",   _fcfm_d, True, lambda v: f"{v:.1f}%"),
-                ("ROE",          _roe_d,  True, lambda v: f"{v:.1f}%"),
-            ]),
-            ("Sức khỏe tài chính", [
-                ("D/E",          _de_d,  False, lambda v: f"{v:.2f}x"),
-                ("Current Ratio",_cr_d,  True,  lambda v: f"{v:.2f}x"),
-            ]),
-            ("Triển vọng", [
-                ("Avg Upside",   _upside_d, True, lambda v: f"{v:+.1f}%"),
-                ("Quality Score",_qs_d,     True, lambda v: f"{v:.0f}/100"),
-            ]),
+        # (group_label, metric_label, data_dict, higher_better, fmt_fn)
+        _cmp_metric_defs = [
+            ("Thị trường",        "Vốn hóa (nghìn tỷ)", _mcap_d,  True,  lambda v: f"{v:,.0f}"),
+            ("Định giá",          "P/E",                 _pe_d,    False, lambda v: f"{v:.1f}x"),
+            ("Định giá",          "P/B",                 _pb_d,    False, lambda v: f"{v:.1f}x"),
+            ("Sinh lời",          "Gross Margin",        _gm_d,    True,  lambda v: f"{v:.1f}%"),
+            ("Sinh lời",          "EBIT Margin",         _em_d,    True,  lambda v: f"{v:.1f}%"),
+            ("Sinh lời",          "Net Margin",          _nm_d,    True,  lambda v: f"{v:.1f}%"),
+            ("Sinh lời",          "FCF Margin",          _fcfm_d,  True,  lambda v: f"{v:.1f}%"),
+            ("Sinh lời",          "ROE",                 _roe_d,   True,  lambda v: f"{v:.1f}%"),
+            ("Sức khỏe",          "D/E",                 _de_d,    False, lambda v: f"{v:.2f}x"),
+            ("Sức khỏe",          "Current Ratio",       _cr_d,    True,  lambda v: f"{v:.2f}x"),
+            ("Triển vọng",        "Avg Upside",          _upside_d,True,  lambda v: f"{v:+.1f}%"),
+            ("Triển vọng",        "Quality",             _qs_d,    True,  lambda v: f"{v:.0f}"),
         ]
 
-        def _rank_color(rank):
-            if rank is None:   return "rgba(55,65,81,0.25)", "#9ca3af"
-            if rank >= 0.75:   return "rgba(34,197,94,0.18)", "#86efac"
-            if rank >= 0.4:    return "rgba(55,65,81,0.25)", "#d1d5db"
-            return              "rgba(239,68,68,0.18)", "#fca5a5"
-
-        def _rank_vals(data, tickers, higher_better):
+        def _norm0100(data, tickers, higher_better):
             vals = [data.get(t) for t in tickers]
             valid = [v for v in vals if v is not None]
-            if len(valid) < 2: return [None] * len(vals)
+            if len(valid) < 2: return [50 if v is not None else 0 for v in vals]
             mn, mx = min(valid), max(valid)
-            if mx == mn: return [0.5 if v is not None else None for v in vals]
-            ranks = [(v - mn)/(mx - mn) if v is not None else None for v in vals]
-            return ranks if higher_better else [1-r if r is not None else None for r in ranks]
+            if mx == mn: return [50 if v is not None else 0 for v in vals]
+            n = [(v - mn)/(mx - mn)*100 if v is not None else 0 for v in vals]
+            return n if higher_better else [100-x for x in n]
 
-        # Build HTML table
-        _n = len(_cmp_tickers)
-        _col_w = int(100 / (_n + 1))
-        _html = f"""
-<style>
-.cmp-tbl {{width:100%;border-collapse:collapse;font-size:13px;font-family:inherit}}
-.cmp-tbl th {{padding:10px 14px;text-align:center;font-weight:600;color:#e5e7eb;
-              border-bottom:2px solid #374151;background:#111827}}
-.cmp-tbl th.lbl {{text-align:left;color:#9ca3af;font-weight:400}}
-.cmp-tbl td {{padding:9px 14px;text-align:center;font-weight:600;font-size:13px;
-              border-bottom:1px solid rgba(55,65,81,0.5)}}
-.cmp-tbl td.lbl {{text-align:left;color:#9ca3af;font-weight:400;font-size:12px}}
-.cmp-tbl tr.cat td {{background:#1f2937;color:#6b7280;font-size:11px;
-                      font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
-                      padding:6px 14px;border-bottom:none}}
-.cmp-tbl tr:last-child td {{border-bottom:none}}
-</style>
-<table class="cmp-tbl">
-<thead><tr>
-  <th class="lbl" style="width:{_col_w+10}%">Chỉ số</th>
-  {''.join(f'<th style="width:{_col_w}%">{ct}</th>' for ct in _cmp_tickers)}
-</tr></thead>
-<tbody>"""
+        # Build single grouped bar chart (x=metric, groups=tickers, y=normalized 0-100)
+        _cmp_chart = go.Figure()
+        _metric_labels  = [m for _, m, _, _, _ in _cmp_metric_defs]
+        _group_labels   = [g for g, _, _, _, _ in _cmp_metric_defs]
 
-        for _cat, _rows in _tbl_sections:
-            _html += f'<tr class="cat"><td colspan="{_n+1}">{_cat}</td></tr>'
-            for _lbl, _ddict, _hib, _fmt in _rows:
-                _ranks = _rank_vals(_ddict, _cmp_tickers, _hib)
-                _html += "<tr>"
-                _html += f'<td class="lbl">{_lbl}</td>'
-                for _ti, _ct in enumerate(_cmp_tickers):
-                    _v = _ddict.get(_ct)
-                    _bg, _fg = _rank_color(_ranks[_ti])
-                    _disp = _fmt(_v) if _v is not None else "—"
-                    _html += f'<td style="background:{_bg};color:{_fg}">{_disp}</td>'
-                _html += "</tr>"
+        for _ci, _ct in enumerate(_cmp_tickers):
+            _bar_heights, _bar_texts, _custom = [], [], []
+            for _grp, _ml, _dd, _hib, _fmt in _cmp_metric_defs:
+                _norm = _norm0100(_dd, _cmp_tickers, _hib)
+                _bar_heights.append(_norm[_ci])
+                _v = _dd.get(_ct)
+                _bar_texts.append(_fmt(_v) if _v is not None else "—")
+                _custom.append(_grp)
+            _cmp_chart.add_trace(go.Bar(
+                name=_ct, x=_metric_labels, y=_bar_heights,
+                text=_bar_texts, textposition="outside", textfont=dict(size=10),
+                marker_color=_CMP_COLORS[_ci % len(_CMP_COLORS)],
+                hovertemplate="<b>%{x}</b><br>" + _ct + ": %{text}<extra></extra>",
+                customdata=_custom,
+            ))
 
-        _html += "</tbody></table>"
-        st.markdown(_html, unsafe_allow_html=True)
-        st.write("")
+        # Add group separators via vertical lines between categories
+        _prev_grp, _sep_x = None, []
+        for _xi, (_grp, _ml, _, _, _) in enumerate(_cmp_metric_defs):
+            if _prev_grp and _grp != _prev_grp:
+                _sep_x.append(_xi - 0.5)
+            _prev_grp = _grp
+
+        _shapes = [dict(type="line", x0=sx, x1=sx, y0=0, y1=105,
+                        line=dict(color="#4b5563", width=1, dash="dot"), xref="x", yref="y")
+                   for sx in _sep_x]
+
+        # Group annotations
+        _grp_annots = []
+        _grp_start = 0
+        for _gi in range(len(_cmp_metric_defs)):
+            _cur_grp = _cmp_metric_defs[_gi][0]
+            _is_last = _gi == len(_cmp_metric_defs) - 1
+            if _is_last or _cmp_metric_defs[_gi+1][0] != _cur_grp:
+                _mid = (_grp_start + _gi) / 2
+                _grp_annots.append(dict(
+                    x=_mid, y=108, text=f"<b>{_cur_grp}</b>",
+                    xref="x", yref="y", showarrow=False,
+                    font=dict(size=10, color="#6b7280"), align="center",
+                ))
+                _grp_start = _gi + 1
+
+        _cmp_chart.update_layout(
+            barmode="group", height=420,
+            margin=dict(l=0, r=0, t=50, b=0), dragmode=False,
+            yaxis=dict(range=[0, 120], showticklabels=False, showgrid=False, zeroline=False),
+            xaxis=dict(tickfont=dict(size=11), showgrid=False),
+            legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="left", x=0),
+            shapes=_shapes, annotations=_grp_annots,
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(_cmp_chart, width="stretch", key="cmp_chart_main")
 
         # ── Tăng trưởng doanh thu & lợi nhuận 5 năm ────────────
         st.subheader("Tăng trưởng doanh thu & lợi nhuận (5 năm)")
