@@ -5961,12 +5961,12 @@ elif view == "So sánh Cổ phiếu":
                 for _, _i in _valid_pairs:
                     _ranks[_i] = 0
 
-            _vv = [v for v, _ in _valid_pairs]
-            _mn2, _mx2 = (min(_vv), max(_vv)) if len(_vv) >= 2 else (0, 1)
+            _row_idx = len(_tbl_rows.split("<tr")) - 1
+            _stripe = "background:rgba(255,255,255,0.02)" if _row_idx % 2 == 0 else ""
 
             _cells = (
-                f"<td style='padding:10px 16px;color:#d1d5db;font-size:13px;"
-                f"white-space:nowrap;border-right:1px solid #1f2937'>{_ml}</td>"
+                f"<td style='padding:10px 16px;color:#9ca3af;font-size:13px;"
+                f"white-space:nowrap'>{_ml}</td>"
             )
             for _ci, _ct in enumerate(_cmp_tickers):
                 _v = _dd.get(_ct)
@@ -5975,42 +5975,30 @@ elif view == "So sánh Cổ phiếu":
                 _rk = _ranks.get(_ci, len(_cmp_tickers))
 
                 if _v is None:
-                    _cells += "<td style='text-align:center;padding:10px 16px;color:#374151;font-size:13px'>—</td>"
+                    _cells += f"<td style='text-align:center;padding:10px 20px;color:#374151;font-size:13px'>—</td>"
                     continue
 
                 _display = _fmt(_v)
-                if _mx2 > _mn2:
-                    _bw = 15 + (_v - _mn2) / (_mx2 - _mn2) * 78 if _hib else 15 + (_mx2 - _v) / (_mx2 - _mn2) * 78
-                else:
-                    _bw = 50
-
                 if _rk == 0:
-                    _left_border = f"border-left:3px solid {_cl}"
-                    _tc   = _cl
-                    _fw   = "700"
-                    _bopa = "0.55"
+                    _bg = f"rgba({_r},{_g},{_b},0.10)"
+                    _tc = _cl
+                    _fw = "700"
                 elif _rk == 1:
-                    _left_border = "border-left:1px solid #1f2937"
-                    _tc   = "#e5e7eb"
-                    _fw   = "500"
-                    _bopa = "0.25"
+                    _bg = "transparent"
+                    _tc = "#e5e7eb"
+                    _fw = "400"
                 else:
-                    _left_border = "border-left:1px solid #1f2937"
-                    _tc   = "#6b7280"
-                    _fw   = "400"
-                    _bopa = "0.12"
+                    _bg = "transparent"
+                    _tc = "#6b7280"
+                    _fw = "400"
 
                 _cells += (
-                    f"<td style='text-align:center;padding:0;{_left_border}'>"
-                    f"<div style='position:relative;padding:10px 16px;min-height:40px'>"
-                    f"<div style='position:absolute;bottom:0;left:0;height:3px;"
-                    f"width:{_bw:.0f}%;background:rgba({_r},{_g},{_b},{_bopa});"
-                    f"border-radius:0 2px 0 0'></div>"
-                    f"<span style='color:{_tc};font-weight:{_fw};font-size:13px'>{_display}</span>"
-                    f"</div></td>"
+                    f"<td style='text-align:center;padding:10px 20px;"
+                    f"font-size:13px;background:{_bg};"
+                    f"color:{_tc};font-weight:{_fw}'>{_display}</td>"
                 )
 
-            _tbl_rows += f"<tr style='border-bottom:1px solid #111827'>{_cells}</tr>"
+            _tbl_rows += f"<tr style='border-bottom:1px solid #1f2937;{_stripe}'>{_cells}</tr>"
 
         _hdr = (
             "<th style='padding:11px 16px;text-align:left;color:#6b7280;"
