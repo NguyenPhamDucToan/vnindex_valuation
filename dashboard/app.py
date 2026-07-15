@@ -5934,73 +5934,107 @@ elif view == "So sánh Cổ phiếu":
             ("Triển vọng",        "Quality",             _qs_d,    True,  lambda v: f"{v:.0f}"),
         ]
 
-        def _norm0100(data, tickers, higher_better):
-            vals = [data.get(t) for t in tickers]
-            valid = [v for v in vals if v is not None]
-            if len(valid) < 2: return [60 if v is not None else 15 for v in vals]
-            mn, mx = min(valid), max(valid)
-            if mx == mn: return [60 if v is not None else 15 for v in vals]
-            # Normalize to 15–100 so worst still shows a visible bar
-            n = [15 + (v - mn)/(mx - mn)*85 if v is not None else 15 for v in vals]
-            return n if higher_better else [115-x for x in n]
+        # ── Heatmap table: conditional formatting per row ────────
+        def _hx(h):
+            h = h.lstrip("#")
+            return int(h[:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
-        # Build single grouped bar chart (x=metric, groups=tickers, y=normalized 0-100)
-        _cmp_chart = go.Figure()
-        _metric_labels  = [m for _, m, _, _, _ in _cmp_metric_defs]
-        _group_labels   = [g for g, _, _, _, _ in _cmp_metric_defs]
+        _tbl_rows = ""
+        _prev_grp = None
+        for _grp, _ml, _dd, _hib, _fmt in _cmp_metric_defs:
+            if _grp != _prev_grp:
+                _tbl_rows += (
+                    f"<tr><td colspan='{len(_cmp_tickers)+1}' style='"
+                    "background:#1a2234;color:#6b7280;font-size:11px;font-weight:700;"
+                    "letter-spacing:.08em;text-transform:uppercase;"
+                    f"padding:6px 16px;border-top:2px solid #374151'>{_grp}</td></tr>"
+                )
+                _prev_grp = _grp
 
-        for _ci, _ct in enumerate(_cmp_tickers):
-            _bar_heights, _bar_texts, _custom = [], [], []
-            for _grp, _ml, _dd, _hib, _fmt in _cmp_metric_defs:
-                _norm = _norm0100(_dd, _cmp_tickers, _hib)
-                _bar_heights.append(_norm[_ci])
+            _vals = [_dd.get(_ct) for _ct in _cmp_tickers]
+            _valid_pairs = [(v, i) for i, v in enumerate(_vals) if v is not None]
+            _ranks: dict = {}
+            if len(_valid_pairs) >= 2:
+                for _rk, (_, _i) in enumerate(sorted(_valid_pairs, key=lambda x: x[0], reverse=_hib)):
+                    _ranks[_i] = _rk
+            else:
+                for _, _i in _valid_pairs:
+                    _ranks[_i] = 0
+
+            _vv = [v for v, _ in _valid_pairs]
+            _mn2, _mx2 = (min(_vv), max(_vv)) if len(_vv) >= 2 else (0, 1)
+
+            _cells = (
+                f"<td style='padding:10px 16px;color:#d1d5db;font-size:13px;"
+                f"white-space:nowrap;border-right:1px solid #1f2937'>{_ml}</td>"
+            )
+            for _ci, _ct in enumerate(_cmp_tickers):
                 _v = _dd.get(_ct)
-                _bar_texts.append(_fmt(_v) if _v is not None else "—")
-                _custom.append(_grp)
-            _cmp_chart.add_trace(go.Bar(
-                name=_ct, x=_metric_labels, y=_bar_heights,
-                text=_bar_texts, textposition="outside", textfont=dict(size=10),
-                marker_color=_CMP_COLORS[_ci % len(_CMP_COLORS)],
-                hovertemplate="<b>%{x}</b><br>" + _ct + ": %{text}<extra></extra>",
-                customdata=_custom,
-            ))
+                _cl = _CMP_COLORS[_ci % len(_CMP_COLORS)]
+                _r, _g, _b = _hx(_cl)
+                _rk = _ranks.get(_ci, len(_cmp_tickers))
 
-        # Add group separators via vertical lines between categories
-        _prev_grp, _sep_x = None, []
-        for _xi, (_grp, _ml, _, _, _) in enumerate(_cmp_metric_defs):
-            if _prev_grp and _grp != _prev_grp:
-                _sep_x.append(_xi - 0.5)
-            _prev_grp = _grp
+                if _v is None:
+                    _cells += "<td style='text-align:center;padding:10px 16px;color:#374151;font-size:13px'>—</td>"
+                    continue
 
-        _shapes = [dict(type="line", x0=sx, x1=sx, y0=0, y1=105,
-                        line=dict(color="#4b5563", width=1, dash="dot"), xref="x", yref="y")
-                   for sx in _sep_x]
+                _display = _fmt(_v)
+                if _mx2 > _mn2:
+                    _bw = 15 + (_v - _mn2) / (_mx2 - _mn2) * 78 if _hib else 15 + (_mx2 - _v) / (_mx2 - _mn2) * 78
+                else:
+                    _bw = 50
 
-        # Group annotations
-        _grp_annots = []
-        _grp_start = 0
-        for _gi in range(len(_cmp_metric_defs)):
-            _cur_grp = _cmp_metric_defs[_gi][0]
-            _is_last = _gi == len(_cmp_metric_defs) - 1
-            if _is_last or _cmp_metric_defs[_gi+1][0] != _cur_grp:
-                _mid = (_grp_start + _gi) / 2
-                _grp_annots.append(dict(
-                    x=_mid, y=108, text=f"<b>{_cur_grp}</b>",
-                    xref="x", yref="y", showarrow=False,
-                    font=dict(size=10, color="#6b7280"), align="center",
-                ))
-                _grp_start = _gi + 1
+                if _rk == 0:
+                    _bg   = f"rgba({_r},{_g},{_b},0.18)"
+                    _tc   = _cl
+                    _fw   = "700"
+                    _bopa = "0.75"
+                elif _rk == 1:
+                    _bg   = f"rgba({_r},{_g},{_b},0.07)"
+                    _tc   = "#e5e7eb"
+                    _fw   = "500"
+                    _bopa = "0.35"
+                else:
+                    _bg   = "transparent"
+                    _tc   = "#9ca3af"
+                    _fw   = "400"
+                    _bopa = "0.20"
 
-        _cmp_chart.update_layout(
-            barmode="group", height=420,
-            margin=dict(l=0, r=0, t=50, b=0), dragmode=False,
-            yaxis=dict(range=[0, 120], showticklabels=False, showgrid=False, zeroline=False),
-            xaxis=dict(tickfont=dict(size=11), showgrid=False),
-            legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="left", x=0),
-            shapes=_shapes, annotations=_grp_annots,
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                _cells += (
+                    f"<td style='background:{_bg};text-align:center;padding:0;"
+                    f"border-left:1px solid #1f2937'>"
+                    f"<div style='position:relative;padding:10px 16px;min-height:40px'>"
+                    f"<div style='position:absolute;bottom:0;left:0;height:3px;"
+                    f"width:{_bw:.0f}%;background:rgba({_r},{_g},{_b},{_bopa});"
+                    f"border-radius:0 2px 0 0'></div>"
+                    f"<span style='color:{_tc};font-weight:{_fw};font-size:13px'>{_display}</span>"
+                    f"</div></td>"
+                )
+
+            _tbl_rows += f"<tr style='border-bottom:1px solid #111827'>{_cells}</tr>"
+
+        _hdr = (
+            "<th style='padding:11px 16px;text-align:left;color:#6b7280;"
+            "font-size:12px;font-weight:600;border-bottom:2px solid #374151'>Chỉ số</th>"
         )
-        st.plotly_chart(_cmp_chart, width="stretch", key="cmp_chart_main")
+        for _ci, _ct in enumerate(_cmp_tickers):
+            _cl = _CMP_COLORS[_ci % len(_CMP_COLORS)]
+            _hdr += (
+                f"<th style='padding:11px 20px;text-align:center;color:{_cl};"
+                f"font-size:15px;font-weight:700;border-bottom:2px solid #374151;"
+                f"min-width:120px'>{_ct}</th>"
+            )
+
+        st.markdown(
+            f"<div style='overflow-x:auto;margin-bottom:8px;border-radius:10px;"
+            f"border:1px solid #1f2937'>"
+            f"<table style='width:100%;border-collapse:collapse;"
+            f"background:rgba(13,17,27,0.85)'>"
+            f"<thead><tr>{_hdr}</tr></thead>"
+            f"<tbody>{_tbl_rows}</tbody>"
+            f"</table></div>",
+            unsafe_allow_html=True,
+        )
 
         # ── Tăng trưởng doanh thu & lợi nhuận 5 năm ────────────
         st.subheader("Tăng trưởng doanh thu & lợi nhuận (5 năm)")
