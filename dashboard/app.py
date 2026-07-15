@@ -5945,7 +5945,7 @@ elif view == "So sánh Cổ phiếu":
             if _grp != _prev_grp:
                 _tbl_rows += (
                     f"<tr><td colspan='{len(_cmp_tickers)+1}' style='"
-                    "background:#1e2d45;color:#93c5fd;font-size:11px;font-weight:700;"
+                    "background:#1e2d45;color:#ffffff;font-size:11.5px;font-weight:700;"
                     "letter-spacing:.10em;text-transform:uppercase;"
                     f"padding:8px 16px;border-top:2px solid #2d3f5a'>{_grp}</td></tr>"
                 )
@@ -5987,7 +5987,7 @@ elif view == "So sánh Cổ phiếu":
                     _fs = "14px"
                 elif _rk == 1:
                     _tc = "#e2e8f0"
-                    _fw = "400"
+                    _fw = "500"
                     _fs = "13px"
                 else:
                     _tc = "#64748b"
@@ -5997,9 +5997,9 @@ elif view == "So sánh Cổ phiếu":
                 # Special cell backgrounds
                 if _ml == "Avg Upside":
                     if _v > 0:
-                        _cbg = "background:rgba(34,197,94,0.10);"
+                        _cbg = "background:rgba(34,197,94,0.16);"
                     elif _v < 0:
-                        _cbg = "background:rgba(239,68,68,0.10);"
+                        _cbg = "background:rgba(239,68,68,0.14);"
                     else:
                         _cbg = ""
                 else:
@@ -6008,7 +6008,7 @@ elif view == "So sánh Cổ phiếu":
                 # Quality: inline mini data bar (0–100 scale)
                 if _ml == "Quality":
                     _bw = max(4, min(int(_v), 100))
-                    _bar_color = f"rgba({_r},{_g},{_b},0.55)"
+                    _bar_color = f"rgba({_r},{_g},{_b},0.80)"
                     _inner = (
                         f"<div style='display:flex;align-items:center;gap:8px;justify-content:flex-end'>"
                         f"<div style='flex:1;max-width:70px;height:5px;border-radius:3px;"
