@@ -5857,13 +5857,18 @@ elif view == "So sánh Cổ phiếu":
                     _rvals.append(max(0, min(100, _rv / _rm * 100)))
             _radar_fig.add_trace(go.Scatterpolar(
                 r=_rvals + [_rvals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
-                name=_ct, fill="toself", opacity=0.2,
-                line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2),
+                name=_ct, fill="toself", opacity=0.65,
+                line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2.5),
                 hovertemplate="%{theta}: %{r:.1f}/100<extra>" + _ct + "</extra>",
             ))
         _radar_fig.update_layout(
             height=400, margin=dict(l=60, r=60, t=20, b=40), dragmode=False,
-            polar=dict(radialaxis=dict(visible=True, range=[0, 100], showticklabels=False)),
+            polar=dict(
+                bgcolor="rgba(17,24,39,0.8)",
+                radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, gridcolor="#374151"),
+                angularaxis=dict(gridcolor="#374151", linecolor="#4b5563"),
+            ),
+            paper_bgcolor="rgba(0,0,0,0)",
             legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
         )
         st.plotly_chart(_radar_fig, width="stretch")
