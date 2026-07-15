@@ -2,6 +2,7 @@
 *.db-shm
 *.db-wal
 data/raw/
+data/macro_seen.json
 __pycache__/
 *.log
 *.pyc
@@ -10,4 +11,18 @@ venv/
 *.egg-info/
 dist/
 .streamlit/secrets.toml
-data/macro_seen.json
+
+# Temp investigation/debug scripts
+_pw_sbv_*.js
+_sbv_pw_output*.txt
+check_*.py
+compare_*.py
+debug_*.py
+fix_encoding*.py
+fix_mojibake.py
+finish_pipeline.py
+load_ctr.py
+read_excel.py
+run_prices_loop.py
+dashboard/app.py.bak
+data/annual_reports/
