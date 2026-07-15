@@ -5980,22 +5980,18 @@ elif view == "So sánh Cổ phiếu":
 
                 _display = _fmt(_v)
                 if _rk == 0:
-                    _bg = f"rgba({_r},{_g},{_b},0.10)"
                     _tc = _cl
                     _fw = "700"
                 elif _rk == 1:
-                    _bg = "transparent"
                     _tc = "#e5e7eb"
                     _fw = "400"
                 else:
-                    _bg = "transparent"
                     _tc = "#6b7280"
                     _fw = "400"
 
                 _cells += (
                     f"<td style='text-align:center;padding:10px 20px;"
-                    f"font-size:13px;background:{_bg};"
-                    f"color:{_tc};font-weight:{_fw}'>{_display}</td>"
+                    f"font-size:13px;color:{_tc};font-weight:{_fw}'>{_display}</td>"
                 )
 
             _tbl_rows += f"<tr style='border-bottom:1px solid #1f2937;{_stripe}'>{_cells}</tr>"
