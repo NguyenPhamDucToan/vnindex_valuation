@@ -9,7 +9,7 @@ from collectors.macro_collector import (
     collect_sbv_interest_rates,
     collect_sbv_homepage_stats,
 )
-from collectors.worldbank_collector import run as collect_worldbank
+from collectors.worldbank_collector import collect_worldbank_macro as collect_worldbank
 
 steps = [
     ("SBV interest rates", collect_sbv_interest_rates),
