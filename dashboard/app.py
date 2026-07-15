@@ -5945,9 +5945,9 @@ elif view == "So sánh Cổ phiếu":
             if _grp != _prev_grp:
                 _tbl_rows += (
                     f"<tr><td colspan='{len(_cmp_tickers)+1}' style='"
-                    "background:#1a2234;color:#6b7280;font-size:11px;font-weight:700;"
-                    "letter-spacing:.08em;text-transform:uppercase;"
-                    f"padding:6px 16px;border-top:2px solid #374151'>{_grp}</td></tr>"
+                    "background:#1e2d45;color:#93c5fd;font-size:11px;font-weight:700;"
+                    "letter-spacing:.10em;text-transform:uppercase;"
+                    f"padding:8px 16px;border-top:2px solid #2d3f5a'>{_grp}</td></tr>"
                 )
                 _prev_grp = _grp
 
@@ -5962,10 +5962,10 @@ elif view == "So sánh Cổ phiếu":
                     _ranks[_i] = 0
 
             _row_idx = len(_tbl_rows.split("<tr")) - 1
-            _stripe = "background:rgba(255,255,255,0.02)" if _row_idx % 2 == 0 else ""
+            _stripe = "background:rgba(255,255,255,0.018)" if _row_idx % 2 == 0 else ""
 
             _cells = (
-                f"<td style='padding:10px 16px;color:#9ca3af;font-size:13px;"
+                f"<td style='padding:10px 16px;color:#94a3b8;font-size:13px;"
                 f"white-space:nowrap'>{_ml}</td>"
             )
             for _ci, _ct in enumerate(_cmp_tickers):
@@ -5975,50 +5975,79 @@ elif view == "So sánh Cổ phiếu":
                 _rk = _ranks.get(_ci, len(_cmp_tickers))
 
                 if _v is None:
-                    _cells += f"<td style='text-align:center;padding:10px 20px;color:#374151;font-size:13px'>—</td>"
+                    _cells += "<td style='text-align:right;padding:10px 24px;color:#374151;font-size:13px'>—</td>"
                     continue
 
                 _display = _fmt(_v)
+
+                # Rank-based text style
                 if _rk == 0:
-                    _tc  = "#ffffff"
-                    _fw  = "700"
-                    _fs  = "14px"
-                    _dec = ""
+                    _tc = _cl        # ticker brand colour for winner
+                    _fw = "700"
+                    _fs = "14px"
                 elif _rk == 1:
-                    _tc  = "#cbd5e1"
-                    _fw  = "400"
-                    _fs  = "13px"
-                    _dec = ""
+                    _tc = "#e2e8f0"
+                    _fw = "400"
+                    _fs = "13px"
                 else:
-                    _tc  = "#64748b"
-                    _fw  = "400"
-                    _fs  = "13px"
-                    _dec = ""
+                    _tc = "#64748b"
+                    _fw = "400"
+                    _fs = "13px"
 
-                _cells += (
-                    f"<td style='text-align:center;padding:10px 20px;"
-                    f"font-size:{_fs};color:{_tc};font-weight:{_fw}'>{_display}</td>"
-                )
+                # Special cell backgrounds
+                if _ml == "Avg Upside":
+                    if _v > 0:
+                        _cbg = "background:rgba(34,197,94,0.10);"
+                    elif _v < 0:
+                        _cbg = "background:rgba(239,68,68,0.10);"
+                    else:
+                        _cbg = ""
+                else:
+                    _cbg = ""
 
-            _tbl_rows += f"<tr style='border-bottom:1px solid #1f2937;{_stripe}'>{_cells}</tr>"
+                # Quality: inline mini data bar (0–100 scale)
+                if _ml == "Quality":
+                    _bw = max(4, min(int(_v), 100))
+                    _bar_color = f"rgba({_r},{_g},{_b},0.55)"
+                    _inner = (
+                        f"<div style='display:flex;align-items:center;gap:8px;justify-content:flex-end'>"
+                        f"<div style='flex:1;max-width:70px;height:5px;border-radius:3px;"
+                        f"background:#1f2937'><div style='width:{_bw}%;height:100%;"
+                        f"border-radius:3px;background:{_bar_color}'></div></div>"
+                        f"<span style='color:{_tc};font-weight:{_fw};font-size:{_fs}'>{_display}</span>"
+                        f"</div>"
+                    )
+                    _cells += (
+                        f"<td style='padding:8px 16px;{_cbg}'>{_inner}</td>"
+                    )
+                else:
+                    _cells += (
+                        f"<td style='text-align:right;padding:10px 24px;{_cbg}"
+                        f"font-size:{_fs};color:{_tc};font-weight:{_fw}'>{_display}</td>"
+                    )
 
+            _tbl_rows += f"<tr style='border-bottom:1px solid #1a2234;{_stripe}'>{_cells}</tr>"
+
+        # Column headers with top colour bar per ticker
         _hdr = (
-            "<th style='padding:11px 16px;text-align:left;color:#6b7280;"
-            "font-size:12px;font-weight:600;border-bottom:2px solid #374151'>Chỉ số</th>"
+            "<th style='padding:12px 16px;text-align:left;color:#6b7280;"
+            "font-size:12px;font-weight:600;border-bottom:2px solid #2d3748'>Chỉ số</th>"
         )
         for _ci, _ct in enumerate(_cmp_tickers):
             _cl = _CMP_COLORS[_ci % len(_CMP_COLORS)]
             _hdr += (
-                f"<th style='padding:11px 20px;text-align:center;color:{_cl};"
-                f"font-size:15px;font-weight:700;border-bottom:2px solid #374151;"
-                f"min-width:120px'>{_ct}</th>"
+                f"<th style='padding:12px 24px;text-align:right;color:{_cl};"
+                f"font-size:15px;font-weight:700;"
+                f"border-bottom:2px solid #2d3748;"
+                f"border-top:3px solid {_cl};"
+                f"min-width:130px'>{_ct}</th>"
             )
 
         st.markdown(
             f"<div style='overflow-x:auto;margin-bottom:8px;border-radius:10px;"
-            f"border:1px solid #1f2937'>"
+            f"border:1px solid #1e2d45'>"
             f"<table style='width:100%;border-collapse:collapse;"
-            f"background:rgba(13,17,27,0.85)'>"
+            f"background:rgba(10,14,24,0.90)'>"
             f"<thead><tr>{_hdr}</tr></thead>"
             f"<tbody>{_tbl_rows}</tbody>"
             f"</table></div>",
