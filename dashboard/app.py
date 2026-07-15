@@ -5868,33 +5868,21 @@ elif view == "So sánh Cổ phiếu":
         )
         st.plotly_chart(_radar_fig, width="stretch")
 
-        # ── Vốn hóa thị trường ──────────────────────────────────
-        _mcap_d = {}
-        for _ct in _cmp_tickers:
-            _ydf_mc = load_financials_y(_ct)
-            _pr = _price_map_cmp.get(_ct)
-            if not _ydf_mc.empty and _pr and "shares_outstanding" in _ydf_mc.columns:
-                _sh = _ydf_mc["shares_outstanding"].dropna()
-                if not _sh.empty:
-                    _mcap_d[_ct] = round(_pr * float(_sh.iloc[-1]) / 1000, 1)
-        if _mcap_d:
-            _mc_fig = go.Figure(go.Bar(
-                x=list(_mcap_d.keys()), y=list(_mcap_d.values()),
-                marker_color=_CMP_COLORS[:len(_mcap_d)],
-                hovertemplate="%{x}: %{y:,.1f} nghìn tỷ VND<extra></extra>",
-            ))
-            _mc_fig.update_layout(
-                title=dict(text="Vốn hóa thị trường (nghìn tỷ VND)", font=dict(size=13)),
-                height=240, margin=dict(l=0,r=0,t=36,b=0), dragmode=False,
-                showlegend=False, yaxis=dict(showgrid=True, gridcolor="#374151"),
-            )
-            st.plotly_chart(_mc_fig, width="stretch")
+        # ── Heatmap so sánh chỉ số ──────────────────────────────
+        st.subheader("So sánh chỉ số tài chính")
 
-        # ── Định giá & Sinh lời (grouped bars) ──────────────────
-        st.subheader("So sánh chỉ số định giá & sinh lời")
+        # Collect all metric values
+        _hm_metrics: list[tuple[str, dict, bool, str]] = []  # (label, data, higher_better, fmt)
+        _mcap_d = {}
         _pe_d, _pb_d, _roe_d, _nm_d, _fcfm_d, _de_d, _cr_d, _gm_d, _em_d = ({} for _ in range(9))
         for _ct in _cmp_tickers:
             _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
+            _pr  = _price_map_cmp.get(_ct)
+            _ydf_h = load_financials_y(_ct)
+            if not _ydf_h.empty and _pr and "shares_outstanding" in _ydf_h.columns:
+                _sh = _ydf_h["shares_outstanding"].dropna()
+                if not _sh.empty:
+                    _mcap_d[_ct] = round(_pr * float(_sh.iloc[-1]) / 1000, 1)
             if _row.empty: continue
             _r = _row.iloc[0]
             _pe_d[_ct]   = _px(_r.get("P/E"))
@@ -5904,57 +5892,68 @@ elif view == "So sánh Cổ phiếu":
             _fcfm_d[_ct] = round(_r["_fcfm_raw"] * 100, 1) if _r.get("_fcfm_raw", -999) > -99 else None
             _de_d[_ct]   = round(_r["_de_raw"],  2) if _r.get("_de_raw",  999) < 900 else None
             _cr_d[_ct]   = round(_r["_cr_raw"],  2) if _r.get("_cr_raw",    0) >   0 else None
-            _ydf_m = load_financials_y(_ct)
-            if not _ydf_m.empty and "revenue" in _ydf_m.columns:
-                _last_m = _ydf_m.dropna(subset=["revenue"]).tail(1)
-                if not _last_m.empty:
-                    _rev_m = float(_last_m["revenue"].iloc[0])
-                    if _rev_m > 0:
-                        _gp_m = float(_last_m["gross_profit"].fillna(0).iloc[0]) if "gross_profit" in _last_m else 0
-                        _eb_m = float(_last_m["ebit"].fillna(0).iloc[0])         if "ebit"         in _last_m else 0
-                        _gm_d[_ct] = round(_gp_m / _rev_m * 100, 1)
-                        _em_d[_ct] = round(_eb_m / _rev_m * 100, 1)
+            if not _ydf_h.empty and "revenue" in _ydf_h.columns:
+                _last_h = _ydf_h.dropna(subset=["revenue"]).tail(1)
+                if not _last_h.empty:
+                    _rev_h = float(_last_h["revenue"].iloc[0])
+                    if _rev_h > 0:
+                        _gp_h = float(_last_h["gross_profit"].fillna(0).iloc[0]) if "gross_profit" in _last_h else 0
+                        _eb_h = float(_last_h["ebit"].fillna(0).iloc[0])         if "ebit"         in _last_h else 0
+                        _gm_d[_ct] = round(_gp_h / _rev_h * 100, 1)
+                        _em_d[_ct] = round(_eb_h / _rev_h * 100, 1)
 
-        def _grouped_bar(title, metrics_dict, key):
-            """metrics_dict: {"Metric Name": {ticker: value, ...}, ...}"""
-            _metric_names = list(metrics_dict.keys())
-            _fig = go.Figure()
-            for _ci, _ct in enumerate(_cmp_tickers):
-                _vals = [metrics_dict[m].get(_ct) for m in _metric_names]
-                _fig.add_trace(go.Bar(
-                    name=_ct, x=_metric_names, y=_vals,
-                    marker_color=_CMP_COLORS[_ci % len(_CMP_COLORS)],
-                    hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:.2f}}<extra></extra>",
-                ))
-            _fig.update_layout(
-                title=dict(text=title, font=dict(size=13)),
-                barmode="group", height=280,
-                margin=dict(l=0, r=0, t=36, b=0), dragmode=False,
-                yaxis=dict(showgrid=True, gridcolor="#374151"),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-            )
-            return _fig
+        # (label, data_dict, higher_is_better, display_fmt)
+        _hm_defs = [
+            ("Vốn hóa (nghìn tỷ)",  _mcap_d,  True,  "{:.0f}"),
+            ("P/E (lần)",            _pe_d,    False, "{:.1f}"),
+            ("P/B (lần)",            _pb_d,    False, "{:.1f}"),
+            ("Gross Margin (%)",     _gm_d,    True,  "{:.1f}%"),
+            ("EBIT Margin (%)",      _em_d,    True,  "{:.1f}%"),
+            ("Net Margin (%)",       _nm_d,    True,  "{:.1f}%"),
+            ("FCF Margin (%)",       _fcfm_d,  True,  "{:.1f}%"),
+            ("ROE (%)",              _roe_d,   True,  "{:.1f}%"),
+            ("D/E (lần)",            _de_d,    False, "{:.2f}"),
+            ("Current Ratio (lần)",  _cr_d,    True,  "{:.2f}"),
+            ("Avg Upside (%)",       {ct: round(_cmp_screen[_cmp_screen["Mã"]==ct].iloc[0]["_avg_upside_raw"]*100,1)
+                                      if not _cmp_screen[_cmp_screen["Mã"]==ct].empty
+                                         and _cmp_screen[_cmp_screen["Mã"]==ct].iloc[0]["_avg_upside_raw"] > -999
+                                      else None for ct in _cmp_tickers}, True, "{:+.1f}%"),
+            ("Quality Score",        {ct: int(round(_cmp_screen[_cmp_screen["Mã"]==ct].iloc[0]["_qs_raw"]))
+                                      if not _cmp_screen[_cmp_screen["Mã"]==ct].empty else None
+                                      for ct in _cmp_tickers}, True, "{:.0f}"),
+        ]
 
-        # Chart 1: Định giá (P/E, P/B)
-        st.plotly_chart(_grouped_bar(
-            "Định giá",
-            {"P/E (lần)": _pe_d, "P/B (lần)": _pb_d},
-            "valuation",
-        ), width="stretch", key="cmp_valuation")
+        def _norm_rank(vals, higher_better):
+            valid = [v for v in vals if v is not None]
+            if len(valid) < 2: return [0.5 if v is not None else None for v in vals]
+            mn, mx = min(valid), max(valid)
+            if mx == mn: return [0.5 if v is not None else None for v in vals]
+            n = [(v - mn)/(mx - mn) if v is not None else None for v in vals]
+            return n if higher_better else [1-x if x is not None else None for x in n]
 
-        # Chart 2: Biên lợi nhuận (Gross, EBIT, Net, FCF, ROE - all %)
-        st.plotly_chart(_grouped_bar(
-            "Biên lợi nhuận & sinh lời (%)",
-            {"Gross Margin": _gm_d, "EBIT Margin": _em_d, "Net Margin": _nm_d, "FCF Margin": _fcfm_d, "ROE": _roe_d},
-            "margins",
-        ), width="stretch", key="cmp_margins")
+        _hm_z, _hm_text, _hm_y = [], [], []
+        for _lbl, _ddict, _hib, _fmt in _hm_defs:
+            _vals = [_ddict.get(_ct) for _ct in _cmp_tickers]
+            _norms = _norm_rank(_vals, _hib)
+            _hm_z.append([n if n is not None else -1 for n in _norms])
+            _hm_text.append([_fmt.format(v) if v is not None else "—" for v in _vals])
+            _hm_y.append(_lbl)
 
-        # Chart 3: Sức khỏe tài chính (D/E, CR)
-        st.plotly_chart(_grouped_bar(
-            "Sức khỏe tài chính",
-            {"D/E (lần)": _de_d, "Current Ratio (lần)": _cr_d},
-            "health",
-        ), width="stretch", key="cmp_health")
+        _hm_fig = go.Figure(go.Heatmap(
+            z=_hm_z, x=_cmp_tickers, y=_hm_y,
+            text=_hm_text, texttemplate="<b>%{text}</b>", textfont=dict(size=13),
+            colorscale=[[0,"#7f1d1d"],[0.25,"#991b1b"],[0.5,"#374151"],[0.75,"#166534"],[1,"#14532d"]],
+            showscale=False, zmin=0, zmax=1,
+            hoverongaps=False,
+            hovertemplate="%{y} — %{x}: %{text}<extra></extra>",
+        ))
+        _hm_fig.update_layout(
+            height=44 * len(_hm_defs) + 60,
+            margin=dict(l=160, r=10, t=40, b=10), dragmode=False,
+            xaxis=dict(side="top", tickfont=dict(size=13)),
+            yaxis=dict(tickfont=dict(size=12), autorange="reversed"),
+        )
+        st.plotly_chart(_hm_fig, width="stretch", key="cmp_heatmap")
 
         # ── Tăng trưởng doanh thu & lợi nhuận 5 năm ────────────
         st.subheader("Tăng trưởng doanh thu & lợi nhuận (5 năm)")
