@@ -1,0 +1,28 @@
+name: Weekly macro data refresh
+
+on:
+  schedule:
+    # 02:00 UTC Sunday = 09:00 ICT Sunday
+    - cron: "0 2 * * 0"
+  workflow_dispatch: {}
+
+jobs:
+  macro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run macro collection
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONIOENCODING: utf-8
+        run: python run_macro.py
