@@ -5933,7 +5933,7 @@ elif view == "So sánh Cổ phiếu":
             height=400, margin=dict(l=60, r=60, t=20, b=40), dragmode=False,
             polar=dict(
                 bgcolor="rgba(241,245,249,0.95)",
-                radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, gridcolor="#e2e8f0"),
+                radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, showline=False, ticks="", gridcolor="#e2e8f0"),
                 angularaxis=dict(gridcolor="#e2e8f0", linecolor="#94a3b8"),
             ),
             paper_bgcolor="rgba(0,0,0,0)",
