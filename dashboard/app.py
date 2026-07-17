@@ -5904,9 +5904,9 @@ elif view == "So sánh Cổ phiếu":
             _radar_fig.add_trace(go.Scatterpolar(
                 r=_avg_vals + [_avg_vals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
                 name=f"TB ngành ({len(_tbl_tickers)} CP)",
-                fill="toself", opacity=0.25,
-                line=dict(color="#94a3b8", width=2, dash="dot"),
-                fillcolor="rgba(148,163,184,0.12)",
+                fill="toself",
+                fillcolor="rgba(100,116,139,0.22)",
+                line=dict(color="#475569", width=2, dash="dash"),
                 hovertemplate="%{theta}: %{r:.1f}/100<extra>Trung bình ngành</extra>",
             ))
 
