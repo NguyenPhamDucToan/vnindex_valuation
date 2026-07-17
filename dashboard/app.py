@@ -6216,10 +6216,12 @@ elif view == "So sánh Cổ phiếu":
                         hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:+.1f}}%<extra></extra>",
                     ))
 
-        # ── Industry average revenue / net-income lines ──────────
+        # ── Industry average revenue / net-income / YoY lines ────
+        _AVG_COLOR = "#f97316"  # orange-500 — distinct from ticker blues
         if _ind_mode and _ind_sector and len(_tbl_tickers) > 1:
-            _rev_by_yr: dict[str, list] = {}
-            _np_by_yr:  dict[str, list] = {}
+            _rev_by_yr:  dict[str, list] = {}
+            _np_by_yr:   dict[str, list] = {}
+            _yoy_by_yr:  dict[str, list] = {}
             for _xt in _tbl_tickers:
                 _xdf = load_financials_y(_xt)
                 if _xdf.empty or "revenue" not in _xdf.columns: continue
@@ -6231,26 +6233,43 @@ elif view == "So sánh Cổ phiếu":
                     _rev_by_yr.setdefault(_yr, []).append(float(_xrow["revenue"]))
                     if "net_income" in _xdf.columns and pd.notna(_xrow.get("net_income")):
                         _np_by_yr.setdefault(_yr, []).append(float(_xrow["net_income"]))
+                if len(_xdf) >= 2:
+                    _xdf["_yoy"] = _xdf["revenue"].pct_change() * 100
+                    for _, _xrow in _xdf.dropna(subset=["_yoy"]).iterrows():
+                        _yoy_by_yr.setdefault(_xrow["_yr"], []).append(float(_xrow["_yoy"]))
+            _avg_trace_kw = dict(
+                mode="lines+markers",
+                line=dict(color=_AVG_COLOR, width=2, dash="dash"),
+                marker=dict(size=5, symbol="diamond", color=_AVG_COLOR),
+            )
             if _rev_by_yr:
                 _avg_yrs = sorted(_rev_by_yr)
                 _rev_fig.add_trace(go.Scatter(
                     x=_avg_yrs,
                     y=[round(sum(_rev_by_yr[y]) / len(_rev_by_yr[y]), 0) for y in _avg_yrs],
-                    name="TB ngành", mode="lines+markers",
-                    line=dict(color="#64748b", width=2, dash="dash"),
-                    marker=dict(size=5, symbol="diamond"),
+                    name="TB ngành",
                     hovertemplate="<b>TB ngành</b> %{x}: %{y:,.0f} tỷ<extra></extra>",
+                    **_avg_trace_kw,
                 ))
             if _np_by_yr:
                 _avg_np_yrs = sorted(_np_by_yr)
                 _np_fig.add_trace(go.Scatter(
                     x=_avg_np_yrs,
                     y=[round(sum(_np_by_yr[y]) / len(_np_by_yr[y]), 0) for y in _avg_np_yrs],
-                    name="TB ngành", mode="lines+markers",
-                    line=dict(color="#64748b", width=2, dash="dash"),
-                    marker=dict(size=5, symbol="diamond"),
+                    name="TB ngành",
                     hovertemplate="<b>TB ngành</b> %{x}: %{y:,.0f} tỷ<extra></extra>",
+                    **_avg_trace_kw,
                 ))
+            if _yoy_by_yr:
+                _avg_yoy_yrs = sorted(_yoy_by_yr)
+                _yoy_fig.add_trace(go.Scatter(
+                    x=_avg_yoy_yrs,
+                    y=[round(sum(_yoy_by_yr[y]) / len(_yoy_by_yr[y]), 1) for y in _avg_yoy_yrs],
+                    name="TB ngành",
+                    hovertemplate="<b>TB ngành</b> %{x}: %{y:+.1f}%<extra></extra>",
+                    **_avg_trace_kw,
+                ))
+                _has_yoy = True
 
         _line_layout = dict(
             height=280, dragmode=False, hovermode="x unified",
