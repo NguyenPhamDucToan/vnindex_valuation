@@ -6216,6 +6216,42 @@ elif view == "So sánh Cổ phiếu":
                         hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:+.1f}}%<extra></extra>",
                     ))
 
+        # ── Industry average revenue / net-income lines ──────────
+        if _ind_mode and _ind_sector and len(_tbl_tickers) > 1:
+            _rev_by_yr: dict[str, list] = {}
+            _np_by_yr:  dict[str, list] = {}
+            for _xt in _tbl_tickers:
+                _xdf = load_financials_y(_xt)
+                if _xdf.empty or "revenue" not in _xdf.columns: continue
+                _xdf = _xdf.dropna(subset=["revenue"]).tail(6).copy()
+                if _xdf.empty: continue
+                _xdf["_yr"] = pd.to_datetime(_xdf["period"]).dt.year.astype(str)
+                for _, _xrow in _xdf.iterrows():
+                    _yr = _xrow["_yr"]
+                    _rev_by_yr.setdefault(_yr, []).append(float(_xrow["revenue"]))
+                    if "net_income" in _xdf.columns and pd.notna(_xrow.get("net_income")):
+                        _np_by_yr.setdefault(_yr, []).append(float(_xrow["net_income"]))
+            if _rev_by_yr:
+                _avg_yrs = sorted(_rev_by_yr)
+                _rev_fig.add_trace(go.Scatter(
+                    x=_avg_yrs,
+                    y=[round(sum(_rev_by_yr[y]) / len(_rev_by_yr[y]), 0) for y in _avg_yrs],
+                    name="TB ngành", mode="lines+markers",
+                    line=dict(color="#64748b", width=2, dash="dash"),
+                    marker=dict(size=5, symbol="diamond"),
+                    hovertemplate="<b>TB ngành</b> %{x}: %{y:,.0f} tỷ<extra></extra>",
+                ))
+            if _np_by_yr:
+                _avg_np_yrs = sorted(_np_by_yr)
+                _np_fig.add_trace(go.Scatter(
+                    x=_avg_np_yrs,
+                    y=[round(sum(_np_by_yr[y]) / len(_np_by_yr[y]), 0) for y in _avg_np_yrs],
+                    name="TB ngành", mode="lines+markers",
+                    line=dict(color="#64748b", width=2, dash="dash"),
+                    marker=dict(size=5, symbol="diamond"),
+                    hovertemplate="<b>TB ngành</b> %{x}: %{y:,.0f} tỷ<extra></extra>",
+                ))
+
         _line_layout = dict(
             height=280, dragmode=False, hovermode="x unified",
             margin=dict(l=10, r=10, t=36, b=10),
