@@ -5360,7 +5360,15 @@ elif view == "Sàng lọc Cổ phiếu":
                         f"</div>", unsafe_allow_html=True)
 
             st.write("")
-            _c1, _c2 = st.columns(2)
+            _c1, _c2 = st.columns([4, 6])
+
+            # ── Color helper (shared by combo chart + scatter below) ──────────
+            def _upscolor(v):
+                if v is None:  return "#94a3b8"
+                if v < 0:      return "#ef4444"   # đỏ  – đắt hơn giá trị
+                if v < 10:     return "#f59e0b"   # vàng – upside nhỏ
+                if v < 25:     return "#4ade80"   # xanh nhạt – khá
+                return "#15803d"                  # xanh đậm – hấp dẫn
 
             # ── Chart 1: Signal distribution donut ──────────────────
             with _c1:
@@ -5374,80 +5382,88 @@ elif view == "Sàng lọc Cổ phiếu":
                         hole=0.5, textinfo="label+value",
                         hovertemplate="%{label}: %{value} (%{percent})<extra></extra>",
                     ))
-                    fig_sig.update_layout(height=340, margin=dict(l=0, r=0, t=10, b=0),
-                                          showlegend=False, dragmode=False)
+                    fig_sig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0),
+                                          showlegend=False, dragmode=False,
+                                          font=dict(color="#374151"))
                     st.plotly_chart(fig_sig, width="stretch")
 
-            # ── Chart 2: Buy opportunities by sector ────────────────
+            # ── Chart 2: Combo — cột Mua/StrongBuy + đường Upside ────
             with _c2:
-                st.subheader("Cơ hội Mua theo Ngành")
-                _buys = _an[_an["_signal_clean"].isin(["Strong Buy", "Buy"])].copy()
-                if not _buys.empty:
-                    _by_sec = (_buys.groupby("Ngành")["_signal_clean"]
-                               .value_counts().unstack(fill_value=0))
-                    for _col in ["Strong Buy", "Buy"]:
-                        if _col not in _by_sec.columns:
-                            _by_sec[_col] = 0
-                    _by_sec["_tot"] = _by_sec["Strong Buy"] + _by_sec["Buy"]
-                    _by_sec = _by_sec.sort_values("_tot", ascending=True).tail(12)
-                    fig_sec_buy = go.Figure()
-                    fig_sec_buy.add_trace(go.Bar(
-                        y=_by_sec.index, x=_by_sec["Strong Buy"], orientation="h",
-                        name="Strong Buy", marker_color="#15803d",
-                        text=_by_sec["Strong Buy"].where(_by_sec["Strong Buy"] > 0),
-                        textposition="inside", insidetextanchor="middle",
-                        textfont=dict(color="#ffffff", size=11),
-                        hovertemplate="%{y}: %{x} Strong Buy<extra></extra>"))
-                    fig_sec_buy.add_trace(go.Bar(
-                        y=_by_sec.index, x=_by_sec["Buy"], orientation="h",
-                        name="Buy", marker_color="#4ade80",
-                        text=_by_sec["Buy"].where(_by_sec["Buy"] > 0),
-                        textposition="inside", insidetextanchor="middle",
-                        textfont=dict(color="#166534", size=11),
-                        hovertemplate="%{y}: %{x} Buy<extra></extra>"))
-                    fig_sec_buy.update_layout(
-                        height=340, margin=dict(l=0, r=10, t=10, b=0),
-                        barmode="stack", dragmode=False,
-                        legend=dict(orientation="h", y=-0.12),
-                        xaxis=dict(title="Số mã", dtick=1, tick0=0))
-                    st.plotly_chart(fig_sec_buy, width="stretch")
-                else:
-                    st.info("Không có mã Buy/Strong Buy nào trong bộ lọc hiện tại.")
+                st.subheader("Cơ hội theo Ngành")
+                _sec_n_all  = _an.groupby("Ngành").size()
+                _sec_sb_all = (_an[_an["_signal_clean"] == "Strong Buy"]
+                               .groupby("Ngành").size()
+                               .reindex(_sec_n_all.index, fill_value=0))
+                _sec_b_all  = (_an[_an["_signal_clean"] == "Buy"]
+                               .groupby("Ngành").size()
+                               .reindex(_sec_n_all.index, fill_value=0))
+                _sec_up_all = (_an.dropna(subset=["_avg_upside_raw"])
+                               .groupby("Ngành")["_avg_upside_raw"].median() * 100
+                               .reindex(_sec_n_all.index))
+                _sec_comb = pd.DataFrame({
+                    "sb":      _sec_sb_all,
+                    "buy":     _sec_b_all,
+                    "upside":  _sec_up_all,
+                    "n_total": _sec_n_all,
+                }).dropna(subset=["upside"]).sort_values("upside", ascending=False)
 
-            # ── Chart 2b: Avg Upside by Sector ───────────────────────
-            st.subheader("Avg Upside theo Ngành")
-            _sec_up = (_an.dropna(subset=["_avg_upside_raw"])
-                          .groupby("Ngành")["_avg_upside_raw"].median()
-                          .sort_values())
-            if not _sec_up.empty:
-                _sec_up_pct = (_sec_up * 100)
-                def _upscolor(v):
-                    if v < 0:    return "#ef4444"  # đỏ - đắt hơn giá trị
-                    if v < 10:   return "#f59e0b"  # vàng - upside nhỏ
-                    if v < 25:   return "#4ade80"  # xanh nhạt - khá
-                    return "#15803d"               # xanh đậm - hấp dẫn
-                _up_colors = [_upscolor(v) for v in _sec_up_pct.values]
-                _up_labels = [f"{v:+.1f}%" for v in _sec_up_pct.values]
-                _up_txtcolors = ["#ffffff" if v >= 25 or v < 0 else "#1e293b"
-                                 for v in _sec_up_pct.values]
-                fig_sec_up = go.Figure(go.Bar(
-                    y=_sec_up_pct.index, x=_sec_up_pct.values, orientation="h",
-                    marker_color=_up_colors,
-                    text=_up_labels, textposition="outside",
-                    textfont=dict(size=11, color="#374151"),
-                    hovertemplate="%{y}: %{x:.1f}%<extra></extra>"))
-                fig_sec_up.add_vline(x=0, line_dash="dot", line_color="#94a3b8", opacity=0.6)
-                # Axis must start at 0 (or min if negative); extra right margin for text labels
-                _x_min = min(0.0, float(_sec_up_pct.min()) - 5)
-                _x_max = float(_sec_up_pct.max()) * 1.20 if _sec_up_pct.max() > 0 else 10
-                fig_sec_up.update_layout(
-                    height=max(340, 30 * len(_sec_up_pct)),
-                    margin=dict(l=0, r=60, t=10, b=0),
-                    dragmode=False,
-                    xaxis=dict(title="Trung vị Upside (%)", range=[_x_min, _x_max]))
-                st.plotly_chart(fig_sec_up, width="stretch")
-                st.caption("Trung vị mức tăng giá 'Avg Estimate' giữa các mã trong từng ngành — "
-                           "âm = ngành đang giao dịch cao hơn giá trị hợp lý ước tính.")
+                if not _sec_comb.empty:
+                    _max_cnt = int((_sec_comb["sb"] + _sec_comb["buy"]).max()) + 1
+                    _up_min  = float(_sec_comb["upside"].min())
+                    _up_max  = float(_sec_comb["upside"].max())
+                    _y2_lo   = min(0.0, _up_min) - max(5.0, abs(_up_min) * 0.10)
+                    _y2_hi   = _up_max * 1.25 if _up_max > 0 else 10.0
+                    _mk_clrs = [_upscolor(v) for v in _sec_comb["upside"]]
+
+                    fig_combo = go.Figure()
+                    fig_combo.add_trace(go.Bar(
+                        x=_sec_comb.index, y=_sec_comb["sb"],
+                        name="Strong Buy", marker_color="#15803d", yaxis="y",
+                        hovertemplate="%{x}: %{y} Strong Buy<extra></extra>"))
+                    fig_combo.add_trace(go.Bar(
+                        x=_sec_comb.index, y=_sec_comb["buy"],
+                        name="Buy", marker_color="#4ade80", yaxis="y",
+                        hovertemplate="%{x}: %{y} Buy<extra></extra>"))
+                    fig_combo.add_trace(go.Scatter(
+                        x=_sec_comb.index,
+                        y=_sec_comb["upside"],
+                        name="Upside trung vị %",
+                        mode="lines+markers+text",
+                        yaxis="y2",
+                        line=dict(color="#3b82f6", width=2, dash="solid"),
+                        marker=dict(size=9, color=_mk_clrs,
+                                    line=dict(width=1.5, color="#1d4ed8")),
+                        text=[f"{v:+.0f}%" for v in _sec_comb["upside"]],
+                        textposition="top center",
+                        textfont=dict(size=10, color="#374151"),
+                        hovertemplate="%{x}: %{y:.1f}% upside<extra></extra>"))
+                    fig_combo.update_layout(
+                        height=360,
+                        margin=dict(l=0, r=50, t=30, b=0),
+                        barmode="stack", dragmode=False,
+                        font=dict(color="#374151"),
+                        legend=dict(orientation="h", y=-0.20, x=0,
+                                    font=dict(size=11)),
+                        xaxis=dict(gridcolor="#e2e8f0", tickangle=-30),
+                        yaxis=dict(
+                            title="Số mã",
+                            dtick=1, tick0=0,
+                            range=[0, _max_cnt + 0.5],
+                            gridcolor="#e2e8f0",
+                        ),
+                        yaxis2=dict(
+                            title="Upside (%)",
+                            overlaying="y", side="right",
+                            range=[_y2_lo, _y2_hi],
+                            showgrid=False,
+                            zeroline=True, zerolinecolor="#e2e8f0",
+                        ),
+                    )
+                    st.plotly_chart(fig_combo, width="stretch")
+                    st.caption("Cột = số mã được khuyến nghị Mua/Strong Buy · "
+                               "Chấm + đường = trung vị Upside của ngành (trục phải)")
+                else:
+                    st.info("Không đủ dữ liệu ngành.")
 
             # ── Chart 3: Quality vs Upside scatter ──────────────────
             st.subheader("Quality vs Avg Upside (tất cả mã đã lọc)")
