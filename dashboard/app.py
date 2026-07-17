@@ -5323,7 +5323,7 @@ elif view == "Sàng lọc Cổ phiếu":
             # ── Signal count KPI cards ──────────────────────────────
             _sig_order = ["Strong Buy", "Buy", "Watch", "Neutral", "Reduce", "Sell", "Strong Sell"]
             _sig_colors_map = {
-                "Strong Buy": "#22c55e", "Buy": "#4ade80", "Watch": "#eab308",
+                "Strong Buy": "#15803d", "Buy": "#4ade80", "Watch": "#eab308",
                 "Neutral": "#94a3b8", "Reduce": "#fb923c", "Sell": "#ef4444",
                 "Strong Sell": "#b91c1c",
             }
@@ -5393,11 +5393,17 @@ elif view == "Sàng lọc Cổ phiếu":
                     fig_sec_buy = go.Figure()
                     fig_sec_buy.add_trace(go.Bar(
                         y=_by_sec.index, x=_by_sec["Strong Buy"], orientation="h",
-                        name="Strong Buy", marker_color="#22c55e",
+                        name="Strong Buy", marker_color="#15803d",
+                        text=_by_sec["Strong Buy"].where(_by_sec["Strong Buy"] > 0),
+                        textposition="inside", insidetextanchor="middle",
+                        textfont=dict(color="#ffffff", size=11),
                         hovertemplate="%{y}: %{x} Strong Buy<extra></extra>"))
                     fig_sec_buy.add_trace(go.Bar(
                         y=_by_sec.index, x=_by_sec["Buy"], orientation="h",
                         name="Buy", marker_color="#4ade80",
+                        text=_by_sec["Buy"].where(_by_sec["Buy"] > 0),
+                        textposition="inside", insidetextanchor="middle",
+                        textfont=dict(color="#166534", size=11),
                         hovertemplate="%{y}: %{x} Buy<extra></extra>"))
                     fig_sec_buy.update_layout(
                         height=340, margin=dict(l=0, r=10, t=10, b=0),
@@ -5415,14 +5421,28 @@ elif view == "Sàng lọc Cổ phiếu":
                           .sort_values())
             if not _sec_up.empty:
                 _sec_up_pct = (_sec_up * 100)
+                def _upscolor(v):
+                    if v < 0:    return "#ef4444"  # đỏ - đắt hơn giá trị
+                    if v < 10:   return "#f59e0b"  # vàng - upside nhỏ
+                    if v < 25:   return "#4ade80"  # xanh nhạt - khá
+                    return "#15803d"               # xanh đậm - hấp dẫn
+                _up_colors = [_upscolor(v) for v in _sec_up_pct.values]
+                _up_labels = [f"{v:+.1f}%" for v in _sec_up_pct.values]
+                _up_txtcolors = ["#ffffff" if v >= 25 or v < 0 else "#1e293b"
+                                 for v in _sec_up_pct.values]
                 fig_sec_up = go.Figure(go.Bar(
                     y=_sec_up_pct.index, x=_sec_up_pct.values, orientation="h",
-                    marker_color=["#22c55e" if v >= 0 else "#ef4444" for v in _sec_up_pct.values],
+                    marker_color=_up_colors,
+                    text=_up_labels, textposition="outside",
+                    textfont=dict(size=11, color="#374151"),
                     hovertemplate="%{y}: %{x:.1f}%<extra></extra>"))
-                fig_sec_up.add_vline(x=0, line_dash="dot", line_color="#64748b", opacity=0.4)
+                fig_sec_up.add_vline(x=0, line_dash="dot", line_color="#94a3b8", opacity=0.6)
+                _xpad = max(15, _sec_up_pct.abs().max() * 0.15)
                 fig_sec_up.update_layout(
-                    height=max(340, 24 * len(_sec_up_pct)), margin=dict(l=0, r=10, t=10, b=0),
-                    dragmode=False, xaxis_title="Avg Upside trung vị %")
+                    height=max(340, 30 * len(_sec_up_pct)),
+                    margin=dict(l=0, r=60, t=10, b=0),
+                    dragmode=False, xaxis_title="Avg Upside trung vị %",
+                    xaxis=dict(range=[_sec_up_pct.min() - _xpad, _sec_up_pct.max() + _xpad]))
                 st.plotly_chart(fig_sec_up, width="stretch")
                 st.caption("Trung vị mức tăng giá 'Avg Estimate' giữa các mã trong từng ngành — "
                            "âm = ngành đang giao dịch cao hơn giá trị hợp lý ước tính.")
