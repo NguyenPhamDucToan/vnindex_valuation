@@ -5768,7 +5768,7 @@ elif view == "So sánh Cổ phiếu":
     _sel_col, _tog_col = st.columns([3, 1])
     with _sel_col:
         _cmp_tickers = st.multiselect(
-            "Chọn 2–4 mã cổ phiếu để so sánh",
+            "Chọn 1–4 mã cổ phiếu để so sánh",
             options=sorted(_cmp_all),
             default=st.session_state.get("cmp_tickers", _cmp_default),
             max_selections=4,
@@ -5780,59 +5780,69 @@ elif view == "So sánh Cổ phiếu":
         _ind_mode = st.toggle("Toàn ngành", key="ind_mode", value=False,
                               help="So sánh tất cả công ty cùng ngành với mã đầu tiên được chọn")
 
-    if len(_cmp_tickers) < 2:
-        st.info("Chọn ít nhất 2 mã để so sánh.")
+    _enough = len(_cmp_tickers) >= 2 or (len(_cmp_tickers) == 1 and _ind_mode)
+    if not _enough:
+        if len(_cmp_tickers) == 0:
+            st.info("Chọn ít nhất 1 mã để so sánh.")
+        else:
+            st.info("Chọn thêm mã, hoặc bật **Toàn ngành** để xem tất cả công ty cùng ngành.")
     else:
-        _cmp_period = st.radio(
-            "Khoảng thời gian", ["1M", "3M", "6M", "1Y", "2Y"],
-            index=3, horizontal=True, key="cmp_period",
-        )
-        _cmp_n = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "2Y": 504}[_cmp_period]
+        _single_industry = (len(_cmp_tickers) == 1 and _ind_mode)
 
-        # ── Normalized price chart ────────────────────────────────
-        st.subheader("Hiệu suất giá (chuẩn hóa về 100)")
+        if not _single_industry:
+            _cmp_period = st.radio(
+                "Khoảng thời gian", ["1M", "3M", "6M", "1Y", "2Y"],
+                index=3, horizontal=True, key="cmp_period",
+            )
+        _cmp_n = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "2Y": 504}.get(
+            st.session_state.get("cmp_period", "1Y"), 252
+        ) if _single_industry else {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "2Y": 504}[_cmp_period]
+
+        # ── Normalized price chart + return cards (skip for single-ticker industry mode) ──
         _CMP_COLORS = ["#60a5fa", "#f59e0b", "#22c55e", "#a855f7"]
-        _cmp_fig = go.Figure()
-        _cmp_returns = {}
-        for _ci, _ct in enumerate(_cmp_tickers):
-            _cpdf = load_prices(_ct)
-            if _cpdf.empty:
-                continue
-            _cpdf = _cpdf.tail(_cmp_n).copy()
-            if _cpdf.empty:
-                continue
-            _base = float(_cpdf["close"].iloc[0])
-            _cpdf["norm"] = _cpdf["close"] / _base * 100
-            _cpdf["dlabel"] = pd.to_datetime(_cpdf["date"]).dt.strftime("%Y-%m-%d")
-            _ret = float(_cpdf["close"].iloc[-1]) / _base - 1
-            _cmp_returns[_ct] = _ret
-            _cmp_fig.add_trace(go.Scatter(
-                x=_cpdf["dlabel"], y=_cpdf["norm"], name=_ct,
-                mode="lines", line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2),
-                hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:.1f}} ({_ret:+.1%})<extra></extra>",
-            ))
-        _cmp_fig.add_hline(y=100, line_dash="dot", line_color="#94a3b8", opacity=0.5)
-        _cmp_fig.update_layout(
-            height=380, margin=dict(l=0, r=0, t=20, b=0), dragmode=False,
-            hovermode="x unified",
-            xaxis=dict(type="category", nticks=8, showgrid=False),
-            yaxis_title="Giá chuẩn hóa (100 = đầu kỳ)",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        )
-        st.plotly_chart(_cmp_fig, width="stretch")
+        if not _single_industry:
+            _cmp_fig = go.Figure()
+            _cmp_returns = {}
+            st.subheader("Hiệu suất giá (chuẩn hóa về 100)")
+            for _ci, _ct in enumerate(_cmp_tickers):
+                _cpdf = load_prices(_ct)
+                if _cpdf.empty:
+                    continue
+                _cpdf = _cpdf.tail(_cmp_n).copy()
+                if _cpdf.empty:
+                    continue
+                _base = float(_cpdf["close"].iloc[0])
+                _cpdf["norm"] = _cpdf["close"] / _base * 100
+                _cpdf["dlabel"] = pd.to_datetime(_cpdf["date"]).dt.strftime("%Y-%m-%d")
+                _ret = float(_cpdf["close"].iloc[-1]) / _base - 1
+                _cmp_returns[_ct] = _ret
+                _cmp_fig.add_trace(go.Scatter(
+                    x=_cpdf["dlabel"], y=_cpdf["norm"], name=_ct,
+                    mode="lines", line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2),
+                    hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:.1f}} ({_ret:+.1%})<extra></extra>",
+                ))
+            _cmp_fig.add_hline(y=100, line_dash="dot", line_color="#94a3b8", opacity=0.5)
+            _cmp_fig.update_layout(
+                height=380, margin=dict(l=0, r=0, t=20, b=0), dragmode=False,
+                hovermode="x unified",
+                xaxis=dict(type="category", nticks=8, showgrid=False),
+                yaxis_title="Giá chuẩn hóa (100 = đầu kỳ)",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            )
+            st.plotly_chart(_cmp_fig, width="stretch")
 
-        # ── Return summary cards ─────────────────────────────────
-        if _cmp_returns:
-            _ret_cols = st.columns(len(_cmp_returns))
-            for _ci, (_ct, _ret) in enumerate(_cmp_returns.items()):
-                _cc = "#22c55e" if _ret >= 0 else "#ef4444"
-                _ret_cols[_ci].markdown(
-                    f"<div style='text-align:center;padding:8px;background:#f8fafc;border-radius:8px;'>"
-                    f"<div style='font-size:13px;color:#9ca3af;'>{_ct}</div>"
-                    f"<div style='font-size:22px;font-weight:800;color:{_cc};'>{_ret:+.1%}</div>"
-                    f"<div style='font-size:11px;color:#6b7280;'>{_cmp_period}</div></div>",
-                    unsafe_allow_html=True,
-                )
+            # ── Return summary cards ─────────────────────────────────
+            if _cmp_returns:
+                _ret_cols = st.columns(len(_cmp_returns))
+                for _ci, (_ct, _ret) in enumerate(_cmp_returns.items()):
+                    _cc = "#22c55e" if _ret >= 0 else "#ef4444"
+                    _ret_cols[_ci].markdown(
+                        f"<div style='text-align:center;padding:8px;background:#f8fafc;border-radius:8px;'>"
+                        f"<div style='font-size:13px;color:#9ca3af;'>{_ct}</div>"
+                        f"<div style='font-size:22px;font-weight:800;color:{_cc};'>{_ret:+.1%}</div>"
+                        f"<div style='font-size:11px;color:#6b7280;'>{_cmp_period}</div></div>",
+                        unsafe_allow_html=True,
+                    )
 
         # ── Load screen data once ────────────────────────────────
         with st.spinner("Đang tải..."):
@@ -5902,8 +5912,10 @@ elif view == "So sánh Cổ phiếu":
             legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
         )
         st.plotly_chart(_radar_fig, width="stretch")
-        if _ind_mode:
+        if _ind_mode and not _single_industry:
             st.caption(f"Biểu đồ giá & radar chỉ hiển thị {len(_cmp_tickers)} mã được chọn. Bảng chỉ số bên dưới hiển thị toàn ngành.")
+        elif _single_industry:
+            st.caption(f"Hồ sơ {_cmp_tickers[0]}. Bảng chỉ số bên dưới: toàn ngành sắp xếp theo vốn hóa.")
 
         # ── Heatmap so sánh chỉ số ──────────────────────────────
         if _ind_mode and _ind_sector:
