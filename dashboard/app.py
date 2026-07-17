@@ -5883,9 +5883,18 @@ elif view == "So sánh Cổ phiếu":
         _RADAR_MAXS = [0.30, 0.25, 0.20, 100.0, 1.00]
         _radar_fig = go.Figure()
 
+        def _radar_label(rk, rv):
+            """Human-readable label for a raw radar metric value."""
+            if rv is None or rv <= -99:
+                return "—"
+            if rk == "_qs_raw":
+                return f"{rv:.0f}/100"
+            return f"{rv * 100:.1f}%"
+
         # Industry average trace (only when sector is loaded)
         if _ind_mode and _ind_sector and len(_tbl_tickers) > 1:
-            _avg_buckets: list[list[float]] = [[] for _ in _RADAR_KEYS]
+            _avg_norm: list[list[float]] = [[] for _ in _RADAR_KEYS]
+            _avg_raw:  list[list[float]] = [[] for _ in _RADAR_KEYS]
             for _xt in _tbl_tickers:
                 _xr = _cmp_screen[_cmp_screen["Mã"] == _xt]
                 if _xr.empty: continue
@@ -5893,13 +5902,16 @@ elif view == "So sánh Cổ phiếu":
                 for _xi, (_rk, _rm) in enumerate(zip(_RADAR_KEYS, _RADAR_MAXS)):
                     _xv = _xrow.get(_rk)
                     if _xv is None or (isinstance(_xv, float) and _xv <= -99): continue
+                    _xv = float(_xv)
+                    _avg_raw[_xi].append(_xv)
                     if _rk == "_qs_raw":
-                        _avg_buckets[_xi].append(max(0, min(100, float(_xv))))
+                        _avg_norm[_xi].append(max(0, min(100, _xv)))
                     else:
-                        _avg_buckets[_xi].append(max(0, min(100, float(_xv) / _rm * 100)))
-            _avg_vals = [
-                round(sum(b) / len(b), 1) if b else 0
-                for b in _avg_buckets
+                        _avg_norm[_xi].append(max(0, min(100, _xv / _rm * 100)))
+            _avg_vals = [round(sum(b) / len(b), 1) if b else 0 for b in _avg_norm]
+            _avg_labels = [
+                _radar_label(_rk, sum(b) / len(b) if b else None)
+                for _rk, b in zip(_RADAR_KEYS, _avg_raw)
             ]
             _radar_fig.add_trace(go.Scatterpolar(
                 r=_avg_vals + [_avg_vals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
@@ -5907,16 +5919,18 @@ elif view == "So sánh Cổ phiếu":
                 fill="toself",
                 fillcolor="rgba(100,116,139,0.22)",
                 line=dict(color="#475569", width=2, dash="dash"),
-                hovertemplate="%{theta}: %{r:.1f}/100<extra>Trung bình ngành</extra>",
+                customdata=_avg_labels + [_avg_labels[0]],
+                hovertemplate="%{theta}: %{customdata}<extra>Trung bình ngành</extra>",
             ))
 
         for _ci, _ct in enumerate(_cmp_tickers):
             _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
             if _row.empty: continue
             _r = _row.iloc[0]
-            _rvals = []
+            _rvals, _rlabels = [], []
             for _rk, _rm in zip(_RADAR_KEYS, _RADAR_MAXS):
                 _rv = _r.get(_rk)
+                _rlabels.append(_radar_label(_rk, _rv))
                 if _rv is None or _rv <= -99:
                     _rvals.append(0)
                 elif _rk == "_qs_raw":
@@ -5927,7 +5941,8 @@ elif view == "So sánh Cổ phiếu":
                 r=_rvals + [_rvals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
                 name=_ct, fill="toself", opacity=0.65,
                 line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2.5),
-                hovertemplate="%{theta}: %{r:.1f}/100<extra>" + _ct + "</extra>",
+                customdata=_rlabels + [_rlabels[0]],
+                hovertemplate="%{theta}: %{customdata}<extra>" + _ct + "</extra>",
             ))
         _radar_fig.update_layout(
             height=400, margin=dict(l=60, r=60, t=20, b=40), dragmode=False,
@@ -5940,6 +5955,12 @@ elif view == "So sánh Cổ phiếu":
             legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
         )
         st.plotly_chart(_radar_fig, width="stretch")
+        st.caption(
+            "**Trục:** ROE — lợi nhuận vốn chủ | Net Margin — biên lợi nhuận ròng | "
+            "FCF Margin — biên dòng tiền tự do | Quality — điểm chất lượng tổng thể (0–100) | "
+            "Upside — tiềm năng tăng giá (trung bình DCF). "
+            "Giá trị trên radar được chuẩn hóa 0–100 theo ngưỡng tối đa; hover để xem số thực."
+        )
         if _ind_mode and not _single_industry:
             st.caption(f"Biểu đồ giá & radar chỉ hiển thị {len(_cmp_tickers)} mã được chọn. Bảng chỉ số bên dưới hiển thị toàn ngành.")
         elif _single_industry:
