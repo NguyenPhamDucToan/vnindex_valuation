@@ -132,8 +132,8 @@ st.set_page_config(
 
 # Kill all animations/transitions globally — prevents white flash and dialog delay
 st.markdown("""<style>
-html { background:#0e1117!important; color-scheme:dark; }
-body,[data-testid="stApp"],.main,.block-container { background-color:#0e1117!important; }
+html { background:#f8fafc!important; }
+body,[data-testid="stApp"],.main,.block-container { background-color:#f8fafc!important; }
 [data-testid="stApp"]*{ animation-duration:0.001s!important; transition-duration:0.001s!important; }
 [data-testid="stStatusWidget"]{ visibility:hidden!important; }
 [data-testid="stDecoration"]{ display:none!important; }
@@ -162,7 +162,7 @@ body,[data-testid="stApp"],.main,.block-container { background-color:#0e1117!imp
     .ttm-row { flex-wrap:wrap!important; }
     .ttm-cell {
         flex:1 1 50%!important; min-width:50%!important; box-sizing:border-box!important;
-        border-right:none!important; border-bottom:1px solid rgba(148,163,184,0.2)!important;
+        border-right:none!important; border-bottom:1px solid rgba(148,163,184,0.3)!important;
         padding:12px 6px!important;
     }
     .ttm-value { font-size:17px!important; }
@@ -181,7 +181,7 @@ body,[data-testid="stApp"],.main,.block-container { background-color:#0e1117!imp
 .mobile-sidebar-hint { display:none; }
 @media (max-width: 640px) {
     .mobile-sidebar-hint {
-        display:block!important; background:#1e3a5f; color:#93c5fd;
+        display:block!important; background:#dbeafe; color:#1d4ed8;
         font-size:13px; font-weight:600; padding:8px 14px; border-radius:8px;
         margin-bottom:10px;
     }
@@ -1740,19 +1740,19 @@ def _render_index_ticker_bar():
         # Card border
         _fig_i.add_shape(type="rect", xref="paper", yref="paper",
             x0=0, y0=0, x1=1, y1=1.7,
-            line=dict(color="rgba(148,163,184,0.2)", width=1),
+            line=dict(color="rgba(148,163,184,0.3)", width=1),
             fillcolor="rgba(0,0,0,0)")
 
         _fig_i.update_layout(
             height=175, margin=dict(l=8, r=8, t=70, b=8), dragmode=False,
             showlegend=False, hovermode="x", bargap=0,
-            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(255,255,255,0)", paper_bgcolor="rgba(0,0,0,0)",
             xaxis=dict(visible=False, showticklabels=False, ticks="",
                        showspikes=False, showgrid=False, zeroline=False),
             yaxis=dict(visible=False, showticklabels=False, ticks="",
                        showgrid=False, zeroline=False,
                        range=[_y_min - _y_pad, _y_max + _y_pad]),
-            hoverlabel=dict(bgcolor="#1e293b", font_size=11, font_color="#f9fafb",
+            hoverlabel=dict(bgcolor="#ffffff", font_size=11, font_color="#0f172a",
                             bordercolor="rgba(255,255,255,0.1)"))
         with _col:
             st.plotly_chart(_fig_i, width="stretch", config={"displayModeBar": False})
@@ -1889,9 +1889,9 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
 
         # LEFT — ticker + name
         f'<div class="ch-left" style="min-width:230px;padding-right:28px;">'
-        f'<div class="ch-ticker" style="font-size:33px;font-weight:800;color:#f9fafb;line-height:1.2;">'
+        f'<div class="ch-ticker" style="font-size:33px;font-weight:800;color:#0f172a;line-height:1.2;">'
         f'{ticker}'
-        f'<span style="font-size:16px;background:#1e3a5f;color:#60a5fa;padding:3px 10px;'
+        f'<span style="font-size:16px;background:#dbeafe;color:#60a5fa;padding:3px 10px;'
         f'border-radius:6px;margin-left:9px;vertical-align:middle;">{co_exch}</span>'
         f'</div>'
         f'<div style="font-size:18px;color:#9ca3af;margin-top:8px;">{co_name}</div>'
@@ -1900,7 +1900,7 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
         # CENTER — price + change + day range
         f'<div class="ch-center" style="min-width:300px;padding-right:28px;">'
         f'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">'
-        f'<span class="ch-price" style="font-size:45px;font-weight:800;color:#f9fafb;">{current_price:,.0f}</span>'
+        f'<span class="ch-price" style="font-size:45px;font-weight:800;color:#0f172a;">{current_price:,.0f}</span>'
         f'<span style="font-size:22px;color:{_cc};font-weight:600;">{_chg_disp}</span>'
         f'<span style="font-size:18px;background:{_cbg};color:{_cc};padding:3px 12px;'
         f'border-radius:8px;font-weight:600;">{_arrow}{abs(_chg_pct):.2f}%</span>'
@@ -1908,14 +1908,14 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
         f'</div>'
         f'<div style="margin-top:10px;width:100%;">'
         f'<div style="display:flex;justify-content:space-between;font-size:16px;color:#9ca3af;margin-bottom:5px;">'
-        f'<span>Low &nbsp;<b style="color:#f9fafb;">{_low_d:,.0f}</b></span>'
-        f'<span>High <b style="color:#f9fafb;">{_high_d:,.0f}</b></span>'
+        f'<span>Low &nbsp;<b style="color:#0f172a;">{_low_d:,.0f}</b></span>'
+        f'<span>High <b style="color:#0f172a;">{_high_d:,.0f}</b></span>'
         f'</div>'
         f'<div style="position:relative;height:4px;background:#374151;border-radius:2px;margin-bottom:10px;">'
         f'<div style="position:absolute;left:0;top:0;height:100%;width:{_rng_pct}%;'
         f'background:{_cc};border-radius:2px;opacity:0.7;"></div>'
         f'<div style="position:absolute;left:{_rng_pct}%;top:50%;transform:translate(-50%,-50%);'
-        f'width:11px;height:11px;background:{_cc};border-radius:50%;box-shadow:0 0 0 2px #1f2937;"></div>'
+        f'width:11px;height:11px;background:{_cc};border-radius:50%;box-shadow:0 0 0 2px #e2e8f0;"></div>'
         f'<div style="position:absolute;left:{_rng_pct}%;top:10px;transform:translateX(-50%);'
         f'width:0;height:0;'
         f'border-left:6px solid transparent;'
@@ -2052,11 +2052,11 @@ if st.session_state.get("hm_popup_ticker"):
             with _left:
                 st.markdown(
                     f"<div style='font-size:11px;color:#9ca3af;margin-bottom:2px;'>"
-                    f"O&nbsp;<b style='color:#f9fafb'>{_gopen:,.0f}</b>&nbsp;"
+                    f"O&nbsp;<b style='color:#0f172a'>{_gopen:,.0f}</b>&nbsp;"
                     f"H&nbsp;<b style='color:#22c55e'>{_ghigh:,.0f}</b>&nbsp;"
                     f"L&nbsp;<b style='color:#ef4444'>{_glow:,.0f}</b>&nbsp;"
                     f"C&nbsp;<b style='color:{_gcc}'>{_gcur:,.0f}</b>&nbsp;"
-                    f"Vol&nbsp;<b style='color:#f9fafb'>{_gvol/1e6:.2f}M</b><br>"
+                    f"Vol&nbsp;<b style='color:#0f172a'>{_gvol/1e6:.2f}M</b><br>"
                     f"MA10&nbsp;<b style='color:#60a5fa'>{_gmini['ma10'].dropna().iloc[-1]:,.0f}</b>&nbsp;"
                     f"MA50&nbsp;<b style='color:#fb923c'>{_gmini['ma50'].dropna().iloc[-1]:,.0f}</b></div>",
                     unsafe_allow_html=True)
@@ -2067,11 +2067,11 @@ if st.session_state.get("hm_popup_ticker"):
                 _gmini["vol_m"] = _gmini["volume"]/1e6
                 _gfig.add_trace(go.Bar(x=_gmini["dlabel"],y=_gmini["volume"],marker_color=_gmini["vc"].tolist(),yaxis="y2",showlegend=False,hoverinfo="skip"))
                 _gfig.add_trace(go.Scatter(x=_gmini["dlabel"],y=_gmini["close"]*1000,yaxis="y",mode="markers",marker=dict(color="rgba(0,0,0,0)",size=1),showlegend=False,name="Vol",customdata=_gmini["vol_m"],hovertemplate="Vol %{customdata:.2f}M<extra></extra>"))
-                _gfig.update_layout(height=360,margin=dict(l=0,r=0,t=0,b=0),dragmode=False,hovermode="x unified",xaxis=dict(type="category",rangeslider=dict(visible=False),nticks=6,showgrid=False),yaxis=dict(domain=[0.25,1.0],showgrid=True,gridcolor="rgba(255,255,255,0.06)"),yaxis2=dict(domain=[0.0,0.22],showgrid=False),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)")
+                _gfig.update_layout(height=360,margin=dict(l=0,r=0,t=0,b=0),dragmode=False,hovermode="x unified",xaxis=dict(type="category",rangeslider=dict(visible=False),nticks=6,showgrid=False),yaxis=dict(domain=[0.25,1.0],showgrid=True,gridcolor="rgba(255,255,255,0.06)"),yaxis2=dict(domain=[0.0,0.22],showgrid=False),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,0)")
                 st.plotly_chart(_gfig, width="stretch")
             with _right:
-                def _gs(label,value,color="#f9fafb"):
-                    return (f"<div style='display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #1f2937;font-size:13px;'><span style='color:#9ca3af'>{label}</span><span style='color:{color};font-weight:600'>{value}</span></div>")
+                def _gs(label,value,color="#0f172a"):
+                    return (f"<div style='display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #e2e8f0;font-size:13px;'><span style='color:#9ca3af'>{label}</span><span style='color:{color};font-weight:600'>{value}</span></div>")
                 _gmcap = f"{_gcur*_gsh/1e12:,.1f} tn" if _gsh else "—"
                 _gpe = f"{_gtd['pe']:.1f}×" if _gtd is not None and pd.notna(_gtd.get("pe")) else "—"
                 _gpb = f"{_gtd['pb']:.2f}×" if _gtd is not None and pd.notna(_gtd.get("pb")) else "—"
@@ -2495,8 +2495,8 @@ if view == "Phân tích Cổ phiếu":
                     "<extra></extra>"
                 ),
                 hoverlabel=dict(
-                    bgcolor="#1e2533", bordercolor="#374151",
-                    font=dict(color="#f9fafb", size=12, family="monospace"),
+                    bgcolor="#ffffff", bordercolor="#e2e8f0",
+                    font=dict(color="#0f172a", size=12, family="monospace"),
                     align="left",
                 ),
             ))
@@ -2561,7 +2561,7 @@ if view == "Phân tích Cổ phiếu":
                   st.write("")
                   with st.container(border=True):
                     st.markdown(
-                        f'<div style="font-size:17px;font-weight:700;color:#f9fafb;margin-bottom:8px;">'
+                        f'<div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:8px;">'
                         f'So sánh cùng ngành <span style="color:#9ca3af;font-size:13px;font-weight:400;">'
                         f'· {_co_sect}</span></div>', unsafe_allow_html=True)
 
@@ -2619,7 +2619,7 @@ if view == "Phân tích Cổ phiếu":
             st.write("")
             with st.container(border=True):
                 st.markdown(
-                    '<div style="font-size:17px;font-weight:700;color:#f9fafb;margin-bottom:8px;">'
+                    '<div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:8px;">'
                     'Giao dịch Nước ngoài & Tự doanh <span style="color:#9ca3af;font-size:13px;'
                     'font-weight:400;">· 20 phiên gần nhất</span></div>', unsafe_allow_html=True)
 
@@ -2674,7 +2674,7 @@ if view == "Phân tích Cổ phiếu":
                         fig_nn.update_layout(
                             height=280, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
                             hovermode="x unified",
-                            hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
+                            hoverlabel=dict(bgcolor="#ffffff", font_size=12, font_color="#0f172a"),
                             xaxis=dict(type="category", showgrid=False, tickfont=dict(size=10)),
                             legend=dict(orientation="h", y=1.1, x=0))
                         fig_nn.update_yaxes(title_text="GTNN ròng (tỷ)", showgrid=True,
@@ -2784,7 +2784,7 @@ if view == "Phân tích Cổ phiếu":
             if current_price:
                 st.markdown(
                     f"<div style='font-size:12.5px;color:#9ca3af;margin:-6px 0 10px;'>"
-                    f"Giá thị trường hiện tại: <b style='color:#f9fafb;'>{current_price:,.0f} ₫</b></div>",
+                    f"Giá thị trường hiện tại: <b style='color:#0f172a;'>{current_price:,.0f} ₫</b></div>",
                     unsafe_allow_html=True)
 
             def _val_card(label, price_val, hint):
@@ -2792,11 +2792,11 @@ if view == "Phân tích Cổ phiếu":
                 clr = "#4ade80" if u >= 0 else "#f87171"
                 arrow = "▲" if u >= 0 else "▼"
                 return (
-                    f'<div title="{hint}" style="background:#1e293b;border:1px solid #334155;'
+                    f'<div title="{hint}" style="background:#ffffff;border:1px solid #334155;'
                     f'border-radius:8px;padding:12px 14px;">'
                     f'<div style="font-size:12px;color:#9ca3af;margin-bottom:6px;'
                     f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>'
-                    f'<div style="font-size:21px;font-weight:800;color:#f9fafb;letter-spacing:.3px;">'
+                    f'<div style="font-size:21px;font-weight:800;color:#0f172a;letter-spacing:.3px;">'
                     f'{price_val:,.0f} <span style="font-size:13px;font-weight:600;color:#9ca3af;">₫</span></div>'
                     f'<div style="font-size:12px;font-weight:700;color:{clr};margin-top:4px;">'
                     f'{arrow} {u:+.1f}% <span style="color:#6b7280;font-weight:400;">so với thị trường</span></div>'
@@ -2827,14 +2827,14 @@ if view == "Phân tích Cổ phiếu":
                 arr_avg = "▲" if u_avg >= 0 else "▼"
                 arr_med = "▲" if u_med >= 0 else "▼"
                 st.markdown(
-                    f'<div style="margin-top:10px;background:linear-gradient(135deg,#1e3a5f,#1e293b);'
+                    f'<div style="margin-top:10px;background:linear-gradient(135deg,#dbeafe,#eff6ff);'
                     f'border:1px solid #3b82f6;border-radius:8px;padding:14px 16px;">'
                     # Row 1: trimmed mean (primary)
                     f'<div style="display:flex;justify-content:space-between;align-items:center;">'
                     f'<div>'
-                    f'<div style="font-size:11px;color:#93c5fd;font-weight:700;letter-spacing:.4px;">'
+                    f'<div style="font-size:11px;color:#1d4ed8;font-weight:700;letter-spacing:.4px;">'
                     f'{_trim_label}</div>'
-                    f'<div style="font-size:27px;font-weight:800;color:#f9fafb;margin-top:2px;">'
+                    f'<div style="font-size:27px;font-weight:800;color:#0f172a;margin-top:2px;">'
                     f'{avg_val:,.0f} <span style="font-size:14px;font-weight:600;color:#9ca3af;">₫</span></div>'
                     f'</div>'
                     f'<div style="text-align:right;">'
@@ -2863,7 +2863,7 @@ if view == "Phân tích Cổ phiếu":
                     </style>
                 ''', unsafe_allow_html=True)
                 st.markdown(
-                    '<div style="font-size:17px;font-weight:700;color:#f9fafb;margin-bottom:8px;">'
+                    '<div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:8px;">'
                     'Phân tích kỹ thuật <span style="color:#9ca3af;font-size:13px;'
                     'font-weight:400;">· 1 ngày</span></div>', unsafe_allow_html=True)
 
@@ -3005,17 +3005,17 @@ if view == "Phân tích Cổ phiếu":
                                 },
                             }))
                         fig_gauge.update_layout(height=140, margin=dict(l=10, r=10, t=10, b=0),
-                                                 font=dict(color="#f9fafb"))
+                                                 font=dict(color="#0f172a"))
                         st.plotly_chart(fig_gauge, width="stretch")
 
                     st.markdown(
-                        '<div style="background:#1e293b;border-left:4px solid #3b82f6;'
+                        '<div style="background:#ffffff;border-left:4px solid #3b82f6;'
                         'border-radius:6px;padding:10px 14px;margin-top:8px;font-size:12.5px;'
                         'color:#94a3b8;line-height:1.7;">'
-                        '💡 <b style="color:#cbd5e1;">TỔNG HỢP</b> = tổng hợp tất cả tín hiệu '
+                        '💡 <b style="color:#64748b;">TỔNG HỢP</b> = tổng hợp tất cả tín hiệu '
                         'Mua/Bán từ 7 chỉ số kỹ thuật và các đường trung bình '
                         '(Simple &amp; Exponential) bên dưới.<br>'
-                        '📊 <b style="color:#cbd5e1;">Điểm gauge</b> chạy từ -1 (Bán mạnh) đến '
+                        '📊 <b style="color:#64748b;">Điểm gauge</b> chạy từ -1 (Bán mạnh) đến '
                         '+1 (Mua mạnh) = (Số tín hiệu Mua − Số tín hiệu Bán) / Tổng số tín hiệu. '
                         '0 = cân bằng giữa Mua và Bán.'
                         '</div>',
@@ -3199,7 +3199,7 @@ if view == "Phân tích Cổ phiếu":
                                hovertemplate="%{y:.1f}%<extra></extra>"),
                     secondary_y=True,
                 )
-                fig.add_hline(y=0, line_dash="dot", line_color="gray",
+                fig.add_hline(y=0, line_dash="dot", line_color="#94a3b8",
                               opacity=0.4, secondary_y=True)
                 fig.update_layout(
                     title=title, height=_CHART_H, margin=_CHART_M,
@@ -3237,7 +3237,7 @@ if view == "Phân tích Cổ phiếu":
                         line=dict(color=color, width=2),
                         hovertemplate="%{y:.1f}%<extra></extra>",
                     ))
-            fig_mg.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4)
+            fig_mg.add_hline(y=0, line_dash="dot", line_color="#94a3b8", opacity=0.4)
             fig_mg.update_layout(
                 title="Biên lợi nhuận (%)", height=_CHART_H, margin=_CHART_M,
                 yaxis_title="%", legend=_LEG_LAYOUT, hovermode="x unified",
@@ -3300,7 +3300,7 @@ if view == "Phân tích Cổ phiếu":
                         mode="lines+markers", line=dict(color="#f5c518", width=2),
                         marker=dict(size=5), hovertemplate="%{y:.1f}%<extra></extra>"),
                         secondary_y=True)
-                    fig_b2.add_hline(y=0, line_dash="dot", line_color="gray",
+                    fig_b2.add_hline(y=0, line_dash="dot", line_color="#94a3b8",
                                      opacity=0.4, secondary_y=True)
                     fig_b2.update_layout(title="Tiền gửi khách hàng", height=_CHART_H,
                         margin=_CHART_M, legend=_LEG_LAYOUT,
@@ -3367,7 +3367,7 @@ if view == "Phân tích Cổ phiếu":
                                    hovertemplate="%{y:.1f}%<extra></extra>"),
                         secondary_y=True,
                     )
-                    fig4.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4, secondary_y=True)
+                    fig4.add_hline(y=0, line_dash="dot", line_color="#94a3b8", opacity=0.4, secondary_y=True)
                     fig4.update_layout(
                         title="Cấu trúc lợi nhuận trước thuế", height=_CHART_H, margin=_CHART_M,
                         barmode="relative", legend=_LEG_LAYOUT, hovermode="x unified",
@@ -3562,7 +3562,7 @@ if view == "Phân tích Cổ phiếu":
                             if any(v is not None for v in vals):
                                 fig7.add_trace(go.Bar(x=labels, y=vals, name=name,
                                     marker_color=color, hovertemplate="%{y:,.1f} tỷ<extra></extra>"))
-                        fig7.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4)
+                        fig7.add_hline(y=0, line_dash="dot", line_color="#94a3b8", opacity=0.4)
                         fig7.update_layout(title="Trích lập dự phòng", height=_CHART_H, margin=_CHART_M,
                             barmode="relative", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
                         fig7.update_yaxes(title_text="tỷ VND")
@@ -3586,7 +3586,7 @@ if view == "Phân tích Cổ phiếu":
                             fig8.add_trace(go.Scatter(x=labels, y=fi_yoy, name="Tăng trưởng %",
                                 mode="lines", line=dict(color="#c00000", width=2),
                                 hovertemplate="%{y:.1f}%<extra></extra>"), secondary_y=True)
-                        fig8.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4, secondary_y=False)
+                        fig8.add_hline(y=0, line_dash="dot", line_color="#94a3b8", opacity=0.4, secondary_y=False)
                         fig8.update_layout(title="Doanh thu tài chính", height=_CHART_H, margin=_CHART_M,
                             legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
                         fig8.update_yaxes(title_text="tỷ VND", secondary_y=False)
@@ -3612,7 +3612,7 @@ if view == "Phân tích Cổ phiếu":
                         fig9.add_trace(go.Scatter(x=labels, y=fin_exp_abs, name="Tổng chi phí tài chính",
                             mode="lines", line=dict(color="#ffb3b3", width=2),
                             hovertemplate="%{y:,.1f} tỷ<extra></extra>"), secondary_y=True)
-                        fig9.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4, secondary_y=False)
+                        fig9.add_hline(y=0, line_dash="dot", line_color="#94a3b8", opacity=0.4, secondary_y=False)
                         fig9.update_layout(title="Chi phí tài chính", height=_CHART_H, margin=_CHART_M,
                             barmode="stack", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
                         fig9.update_yaxes(title_text="tỷ VND", secondary_y=False)
@@ -3783,7 +3783,7 @@ if view == "Phân tích Cổ phiếu":
                                 fig12.add_trace(go.Scatter(x=labels, y=vals, name=name,
                                     mode="lines+markers", line=dict(width=2), marker=dict(size=5),
                                     hovertemplate="%{y:.2f}x<extra></extra>"))
-                        fig12.add_hline(y=1, line_dash="dot", line_color="gray", opacity=0.5)
+                        fig12.add_hline(y=1, line_dash="dot", line_color="#94a3b8", opacity=0.5)
                         fig12.update_layout(title="Hệ số thanh khoản", height=_CHART_H, margin=_CHART_M,
                             yaxis_title="lần (x)", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
                         st.plotly_chart(fig12, width="stretch")
@@ -3811,7 +3811,7 @@ if view == "Phân tích Cổ phiếu":
                             mode="lines+markers", line=dict(color="#f5c518", width=2),
                             marker=dict(size=5), hovertemplate="%{y:.1f}%<extra></extra>"),
                             secondary_y=True)
-                        fig13b.add_hline(y=0, line_dash="dot", line_color="gray",
+                        fig13b.add_hline(y=0, line_dash="dot", line_color="#94a3b8",
                                          opacity=0.4, secondary_y=True)
                         fig13b.update_layout(title="Dư nợ cho vay", height=_CHART_H, margin=_CHART_M,
                             legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
@@ -3840,7 +3840,7 @@ if view == "Phân tích Cổ phiếu":
                             textfont=dict(color="#22c55e", size=10),
                             hovertemplate="%{x}: %{y:,.0f} tỷ<extra></extra>",
                         ), secondary_y=False)
-                        fig14b.add_hline(y=0, line_dash="dot", line_color="gray",
+                        fig14b.add_hline(y=0, line_dash="dot", line_color="#94a3b8",
                                          opacity=0.5, secondary_y=False)
                         fig14b.add_trace(go.Scatter(
                             x=labels, y=cc_r5, name="Chi phí tín dụng % (năm hóa)",
@@ -3917,7 +3917,7 @@ if view == "Phân tích Cổ phiếu":
                                 mode="lines", line=dict(color="#c00000", width=2),
                                 hovertemplate="%{y:,.0f} tỷ<extra></extra>",
                             ))
-                        fig13.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4)
+                        fig13.add_hline(y=0, line_dash="dot", line_color="#94a3b8", opacity=0.4)
                         fig13.update_layout(
                             title="Các khoản phải thu", height=_CHART_H, margin=_CHART_M,
                             barmode="relative", legend=_LEG_LAYOUT, hovermode="x unified",
@@ -3975,7 +3975,7 @@ if view == "Phân tích Cổ phiếu":
                                 fig14.add_trace(go.Scatter(x=labels, y=inv_pct, name="Tồn kho/Tổng TS %",
                                     mode="lines", line=dict(color="#c00000", width=2),
                                     hovertemplate="%{y:.1f}%<extra></extra>"), secondary_y=True)
-                            fig14.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4, secondary_y=False)
+                            fig14.add_hline(y=0, line_dash="dot", line_color="#94a3b8", opacity=0.4, secondary_y=False)
                             fig14.update_layout(title="Hàng tồn kho", height=_CHART_H, margin=_CHART_M,
                                 barmode="relative", legend=_LEG_LAYOUT, hovermode="x unified", dragmode=False)
                             fig14.update_yaxes(title_text="tỷ VND", secondary_y=False)
@@ -4056,7 +4056,7 @@ if view == "Phân tích Cổ phiếu":
                             mode="lines", line=dict(color="#d62728", width=2),
                             hovertemplate="%{y:,.0f} tỷ<extra></extra>",
                         ), secondary_y=True)
-                    fig16.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4, secondary_y=False)
+                    fig16.add_hline(y=0, line_dash="dot", line_color="#94a3b8", opacity=0.4, secondary_y=False)
                     fig16.update_layout(
                         title="Dòng tiền", height=_CHART_H, margin=_CHART_M,
                         barmode="relative", legend=_LEG_LAYOUT, hovermode="x unified",
@@ -4239,7 +4239,7 @@ if view == "Phân tích Cổ phiếu":
                                 hovertemplate="%{y:.1f}%<extra></extra>",
                             ), secondary_y=True)
 
-                    fig19.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.4,
+                    fig19.add_hline(y=0, line_dash="dot", line_color="#94a3b8", opacity=0.4,
                                     secondary_y=False)
                     fig19.update_layout(
                         title="Dự báo kinh doanh", height=_CHART_H, margin=_CHART_M,
@@ -4426,8 +4426,8 @@ if view == "Phân tích Cổ phiếu":
                     return (
                         '<div class="ttm-tooltip">'
                         f'<div style="font-size:10px;color:#64748b;margin-bottom:4px;font-style:italic;">{_esc(t["f"])}</div>'
-                        f'<div style="font-size:12px;color:#e2e8f0;margin-bottom:10px;line-height:1.45;">{_esc(t["d"])}</div>'
-                        '<div style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:#cbd5e1;">'
+                        f'<div style="font-size:12px;color:#475569;margin-bottom:10px;line-height:1.45;">{_esc(t["d"])}</div>'
+                        '<div style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:#64748b;">'
                         f'<span><span style="color:#16a34a;margin-right:6px;font-size:9px;">&#9679;</span>Tốt: {_esc(t["g"])}</span>'
                         f'<span><span style="color:#d97706;margin-right:6px;font-size:9px;">&#9679;</span>Cảnh báo: {_esc(t["w"])}</span>'
                         f'<span><span style="color:#dc2626;margin-right:6px;font-size:9px;">&#9679;</span>Nguy hiểm: {_esc(t["b"])}</span>'
@@ -4440,7 +4440,7 @@ if view == "Phân tích Cổ phiếu":
                 for i, metric in enumerate(metrics):
                     label, value, color = metric[0], metric[1], metric[2]
                     tip_dict = metric[3] if len(metric) > 3 else {}
-                    sep = "border-right:1px solid rgba(148,163,184,0.2);" if i < len(metrics) - 1 else ""
+                    sep = "border-right:1px solid rgba(148,163,184,0.3);" if i < len(metrics) - 1 else ""
                     tooltip = _tip_html(tip_dict) if tip_dict else ""
                     cells += (
                         f'<div class="ttm-cell" style="flex:1;text-align:center;padding:16px 10px;{sep}position:relative;">'
@@ -4452,7 +4452,7 @@ if view == "Phân tích Cổ phiếu":
                         f'</div>'
                     )
                 return (
-                    f'<div style="border:1px solid rgba(148,163,184,0.2);border-radius:10px;'
+                    f'<div style="border:1px solid rgba(148,163,184,0.3);border-radius:10px;'
                     f'margin-bottom:10px;">'
                     f'<div style="background:rgba(148,163,184,0.08);padding:6px 14px;'
                     f'font-size:10px;font-weight:700;letter-spacing:1.4px;color:#94a3b8;'
@@ -4471,7 +4471,7 @@ if view == "Phân tích Cổ phiếu":
                 "bottom:calc(100% + 10px);"
                 "left:50%;"
                 "transform:translateX(-50%);"
-                "background:#1e293b;"
+                "background:#ffffff;"
                 "border:1px solid rgba(148,163,184,0.15);"
                 "border-radius:8px;"
                 "padding:12px 14px;"
@@ -4596,7 +4596,7 @@ if view == "Phân tích Cổ phiếu":
 
                 def _dp_card(label, value, color, hint):
                     return (
-                        '<div class="dp-card" style="background:#1e293b;border-radius:10px;padding:14px 10px 12px;'
+                        '<div class="dp-card" style="background:#ffffff;border-radius:10px;padding:14px 10px 12px;'
                         'flex:1;min-width:0;text-align:center;">'
                         f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;'
                         f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>'
@@ -4643,14 +4643,14 @@ if view == "Phân tích Cổ phiếu":
                 st.markdown(_badges_html, unsafe_allow_html=True)
 
                 _dp_notes_html = (
-                    '<div style="font-size:15px;color:#cbd5e1;line-height:1.8;margin-bottom:8px;">'
+                    '<div style="font-size:15px;color:#64748b;line-height:1.8;margin-bottom:8px;">'
                     f'<div>• {_dp["margin_note"]}</div>'
                     f'<div>• {_dp["turnover_note"]}</div>'
                     f'<div>• {_dp["leverage_note"]}</div>'
                     '</div>'
                 )
                 st.markdown(_dp_notes_html, unsafe_allow_html=True)
-                st.markdown(f'<div style="font-size:16px;font-weight:600;color:#e2e8f0;">{_dp["comment"]}</div>',
+                st.markdown(f'<div style="font-size:16px;font-weight:600;color:#475569;">{_dp["comment"]}</div>',
                             unsafe_allow_html=True)
 
             # ── ROIC vs WACC — multi-period average ─────────────────
@@ -4716,7 +4716,7 @@ if view == "Phân tích Cổ phiếu":
 
                 def _rw_card(label, value, color, hint):
                     return (
-                        '<div class="dp-card" style="background:#1e293b;border-radius:10px;padding:14px 10px 12px;'
+                        '<div class="dp-card" style="background:#ffffff;border-radius:10px;padding:14px 10px 12px;'
                         'flex:1;min-width:0;text-align:center;">'
                         f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">{label}</div>'
                         f'<div class="dp-value" style="font-size:22px;font-weight:700;color:{color};'
@@ -4741,7 +4741,7 @@ if view == "Phân tích Cổ phiếu":
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f'<div style="font-size:15px;color:#cbd5e1;line-height:1.7;'
+                    f'<div style="font-size:15px;color:#64748b;line-height:1.7;'
                     f'border-left:3px solid {_rw_color};padding:4px 0 4px 12px;margin-bottom:10px;">'
                     f'{_rw_verdict}</div>',
                     unsafe_allow_html=True,
@@ -4791,7 +4791,7 @@ if view == "Phân tích Cổ phiếu":
                         height=230,
                         margin=dict(l=10, r=110, t=12, b=10),
                         dragmode=False, showlegend=False,
-                        plot_bgcolor="rgba(0,0,0,0)",
+                        plot_bgcolor="rgba(255,255,255,0)",
                         paper_bgcolor="rgba(0,0,0,0)",
                         yaxis=dict(
                             ticksuffix="%", title="",
@@ -4924,7 +4924,7 @@ if view == "Phân tích Cổ phiếu":
                         if _blbl else ""
                     )
                     _title_el = (
-                        f"<a href='{_link}' target='_blank' style='color:#e2e8f0;text-decoration:none;'>{_title}</a>"
+                        f"<a href='{_link}' target='_blank' style='color:#475569;text-decoration:none;'>{_title}</a>"
                         if _link else f"{_title}"
                     )
                     _date_tip = f" title='{_abs}'" if _abs and _rel != _abs else ""
@@ -4932,14 +4932,14 @@ if view == "Phân tích Cổ phiếu":
                         f"<div class='ni' style='border-left-color:{_border}' "
                         f"onmouseover=\"this.style.background='#1a2235'\" "
                         f"onmouseout=\"this.style.background='transparent'\">"
-                        f"<div style='font-size:14px;line-height:1.5;color:#e2e8f0;'>"
+                        f"<div style='font-size:14px;line-height:1.5;color:#475569;'>"
                         f"{_badge_html}{_title_el}</div>"
                         f"<div style='font-size:11px;color:#6b7280;margin-top:3px;'{_date_tip}>{_rel}</div>"
                         f"</div>"
                     )
                 st.markdown(
                     "<style>.ni{padding:9px 12px 9px 14px;border-left:3px solid #374151;"
-                    "border-bottom:1px solid #1f2937;margin-bottom:2px;"
+                    "border-bottom:1px solid #e2e8f0;margin-bottom:2px;"
                     "transition:background .1s;}</style>" + _news_html,
                     unsafe_allow_html=True,
                 )
@@ -4974,7 +4974,7 @@ if view == "Phân tích Cổ phiếu":
                     ".ev-badge{font-size:10px;font-weight:700;letter-spacing:.6px;padding:2px 8px;"
                     "border-radius:4px;text-transform:uppercase;white-space:nowrap;}"
                     ".ev-date{font-size:11px;color:#6b7280;margin-left:auto;white-space:nowrap;}"
-                    ".ev-title{font-size:13.5px;font-weight:500;color:#e2e8f0;line-height:1.45;}"
+                    ".ev-title{font-size:13.5px;font-weight:500;color:#475569;line-height:1.45;}"
                     ".ev-detail{font-size:12px;color:#94a3b8;margin-top:6px;line-height:1.7;display:flex;"
                     "flex-wrap:wrap;align-items:center;gap:6px;}"
                     ".pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;"
@@ -5003,9 +5003,9 @@ if view == "Phân tích Cổ phiếu":
                         _rd  = _ev_date(_ev.get("record_date"))
                         _pay = _ev_date(_ev.get("payout_date"))
                         if _xd:
-                            _detail_parts.append(f"<span class='sep'>|</span> GDKHQ <b style='color:#e2e8f0'>{_xd}</b>")
+                            _detail_parts.append(f"<span class='sep'>|</span> GDKHQ <b style='color:#475569'>{_xd}</b>")
                         if _rd:
-                            _detail_parts.append(f"<span class='sep'>|</span> Chốt DS <b style='color:#e2e8f0'>{_rd}</b>")
+                            _detail_parts.append(f"<span class='sep'>|</span> Chốt DS <b style='color:#475569'>{_rd}</b>")
                         if _pay:
                             _detail_parts.append(f"<span class='sep'>|</span> Thanh toán <b style='color:#fcd34d'>{_pay}</b>")
                     elif _cat == "MAJOR_SHAREHOLDER_TRADING":
@@ -5020,16 +5020,16 @@ if view == "Phân tích Cổ phiếu":
                                 f"<span class='pill' style='background:{_pill_bg};color:{_pill_fg}'>{_action}</span>"
                             )
                         if _sd and _ed:
-                            _detail_parts.append(f"<span style='color:#cbd5e1'>{_sd} – {_ed}</span>")
+                            _detail_parts.append(f"<span style='color:#64748b'>{_sd} – {_ed}</span>")
                         elif _sd:
-                            _detail_parts.append(f"<span style='color:#cbd5e1'>Từ {_sd}</span>")
+                            _detail_parts.append(f"<span style='color:#64748b'>Từ {_sd}</span>")
                     elif _cat in ("STOCK_ISSUANCE", "BONUS_SHARE"):
                         _ratio = _ev.get("exercise_ratio")
                         _issue = _ev_date(_ev.get("issue_date") or _ev.get("start_date"))
                         if pd.notna(_ratio) and _ratio:
                             _detail_parts.append(f"Tỷ lệ <b style='color:#c4b5fd'>{_ratio}</b>")
                         if _issue:
-                            _detail_parts.append(f"<span class='sep'>|</span> Ngày <b style='color:#e2e8f0'>{_issue}</b>")
+                            _detail_parts.append(f"<span class='sep'>|</span> Ngày <b style='color:#475569'>{_issue}</b>")
 
                     _detail_html = (
                         f"<div class='ev-detail'>{''.join(_detail_parts)}</div>"
@@ -5293,10 +5293,10 @@ elif view == "Sàng lọc Cổ phiếu":
       <span style="background:#14532d;color:#86efac;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Buy: upside ≥+20% &amp; quality ≥60</span>
       <span style="background:#166534;color:#bbf7d0;padding:2px 8px;border-radius:4px;font-weight:600;">Buy: upside ≥+10% &amp; quality ≥45</span>
       <span style="background:#713f12;color:#fde68a;padding:2px 8px;border-radius:4px;">Watch: upside ≥0%</span>
-      <span style="background:#1e293b;color:#94a3b8;padding:2px 8px;border-radius:4px;">Neutral: -10% đến 0%</span>
+      <span style="background:#ffffff;color:#94a3b8;padding:2px 8px;border-radius:4px;">Neutral: -10% đến 0%</span>
       <span style="background:#7c2d12;color:#fdba74;padding:2px 8px;border-radius:4px;">Reduce: -30% đến -10%</span>
       <span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:4px;font-weight:600;">Sell: -50% đến -30%</span>
-      <span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Sell: &lt;-50%</span>
+      <span style="background:#fee2e2;color:#f87171;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Sell: &lt;-50%</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -5349,11 +5349,11 @@ elif view == "Sàng lọc Cổ phiếu":
                     _col.markdown(
                         f"<div style='text-align:center;padding:10px 6px;border-radius:8px;"
                         f"background:rgba(255,255,255,0.03);border:1px solid {_clr}44;'>"
-                        f"<div style='font-size:16px;font-weight:800;color:#f9fafb;'>{_r['Mã']}</div>"
+                        f"<div style='font-size:16px;font-weight:800;color:#0f172a;'>{_r['Mã']}</div>"
                         f"<div style='font-size:11px;color:#9ca3af;margin-bottom:4px;'>{_r['Ngành']}</div>"
                         f"<div style='font-size:13px;color:{_clr};font-weight:700;'>+{_r['_avg_upside_raw']*100:.0f}%</div>"
                         f"<div style='font-size:11px;color:#9ca3af;'>Upside</div>"
-                        f"<div style='font-size:13px;color:#f9fafb;margin-top:4px;'>Q{int(round(_r['_qs_raw']))}</div>"
+                        f"<div style='font-size:13px;color:#0f172a;margin-top:4px;'>Q{int(round(_r['_qs_raw']))}</div>"
                         f"<div style='font-size:11px;color:#9ca3af;'>Quality</div>"
                         f"</div>", unsafe_allow_html=True)
 
@@ -5417,7 +5417,7 @@ elif view == "Sàng lọc Cổ phiếu":
                     y=_sec_up_pct.index, x=_sec_up_pct.values, orientation="h",
                     marker_color=["#22c55e" if v >= 0 else "#ef4444" for v in _sec_up_pct.values],
                     hovertemplate="%{y}: %{x:.1f}%<extra></extra>"))
-                fig_sec_up.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.4)
+                fig_sec_up.add_vline(x=0, line_dash="dot", line_color="#94a3b8", opacity=0.4)
                 fig_sec_up.update_layout(
                     height=max(340, 24 * len(_sec_up_pct)), margin=dict(l=0, r=10, t=10, b=0),
                     dragmode=False, xaxis_title="Avg Upside trung vị %")
@@ -5450,8 +5450,8 @@ elif view == "Sàng lọc Cổ phiếu":
                               "Upside %{customdata[1]:.1f}%<br>Quality %{y:.0f}<extra></extra>",
             ))
             # Quadrant reference lines
-            fig_qs.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.4)
-            fig_qs.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.4)
+            fig_qs.add_vline(x=0, line_dash="dot", line_color="#94a3b8", opacity=0.4)
+            fig_qs.add_hline(y=50, line_dash="dot", line_color="#94a3b8", opacity=0.4)
             fig_qs.add_annotation(x=75, y=85, text="★ Rẻ & Chất lượng", showarrow=False,
                                   font=dict(color="#22c55e", size=12))
             fig_qs.add_annotation(x=-50, y=15, text="Tránh", showarrow=False,
@@ -5480,7 +5480,7 @@ elif view == "Sàng lọc Cổ phiếu":
                 customdata=np.stack([_bin_edges[:-1], _bin_edges[1:]], axis=-1),
                 hovertemplate="%{customdata[0]:.0f}% to %{customdata[1]:.0f}%: %{y} tickers<extra></extra>",
             ))
-            fig_hist.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.6)
+            fig_hist.add_vline(x=0, line_dash="dot", line_color="#94a3b8", opacity=0.6)
             fig_hist.update_layout(
                 height=260, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
                 xaxis=dict(title="Avg Upside %", range=[_CLIP_LO, _CLIP_HI]),
@@ -5811,7 +5811,7 @@ elif view == "So sánh Cổ phiếu":
                 mode="lines", line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2),
                 hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:.1f}} ({_ret:+.1%})<extra></extra>",
             ))
-        _cmp_fig.add_hline(y=100, line_dash="dot", line_color="gray", opacity=0.5)
+        _cmp_fig.add_hline(y=100, line_dash="dot", line_color="#94a3b8", opacity=0.5)
         _cmp_fig.update_layout(
             height=380, margin=dict(l=0, r=0, t=20, b=0), dragmode=False,
             hovermode="x unified",
@@ -5827,7 +5827,7 @@ elif view == "So sánh Cổ phiếu":
             for _ci, (_ct, _ret) in enumerate(_cmp_returns.items()):
                 _cc = "#22c55e" if _ret >= 0 else "#ef4444"
                 _ret_cols[_ci].markdown(
-                    f"<div style='text-align:center;padding:8px;background:#1f2937;border-radius:8px;'>"
+                    f"<div style='text-align:center;padding:8px;background:#f8fafc;border-radius:8px;'>"
                     f"<div style='font-size:13px;color:#9ca3af;'>{_ct}</div>"
                     f"<div style='font-size:22px;font-weight:800;color:{_cc};'>{_ret:+.1%}</div>"
                     f"<div style='font-size:11px;color:#6b7280;'>{_cmp_period}</div></div>",
@@ -5894,9 +5894,9 @@ elif view == "So sánh Cổ phiếu":
         _radar_fig.update_layout(
             height=400, margin=dict(l=60, r=60, t=20, b=40), dragmode=False,
             polar=dict(
-                bgcolor="rgba(17,24,39,0.8)",
-                radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, gridcolor="#374151"),
-                angularaxis=dict(gridcolor="#374151", linecolor="#4b5563"),
+                bgcolor="rgba(241,245,249,0.95)",
+                radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, gridcolor="#e2e8f0"),
+                angularaxis=dict(gridcolor="#e2e8f0", linecolor="#94a3b8"),
             ),
             paper_bgcolor="rgba(0,0,0,0)",
             legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
@@ -5908,10 +5908,10 @@ elif view == "So sánh Cổ phiếu":
         # ── Heatmap so sánh chỉ số ──────────────────────────────
         if _ind_mode and _ind_sector:
             st.markdown(
-                f"<div style='background:#1e2d45;border-left:4px solid #60a5fa;"
+                f"<div style='background:#dbeafe;border-left:4px solid #3b82f6;"
                 f"padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
-                f"<span style='color:#93c5fd;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase'>Ngành</span>"
-                f"<span style='color:#f9fafb;font-size:15px;font-weight:600;margin-left:12px'>{_ind_sector}</span>"
+                f"<span style='color:#1d4ed8;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase'>Ngành</span>"
+                f"<span style='color:#0f172a;font-size:15px;font-weight:600;margin-left:12px'>{_ind_sector}</span>"
                 f"<span style='color:#6b7280;font-size:13px;margin-left:16px'>— {len(_tbl_tickers)} công ty, sắp xếp theo vốn hóa</span>"
                 f"</div>",
                 unsafe_allow_html=True,
@@ -6001,9 +6001,9 @@ elif view == "So sánh Cổ phiếu":
             if _grp != _prev_grp:
                 _tbl_rows += (
                     f"<tr><td colspan='{len(_tbl_tickers)+1}' style='"
-                    "background:#1e2d45;color:#ffffff;font-size:11.5px;font-weight:700;"
+                    "background:#dbeafe;color:#1e3a5f;font-size:11.5px;font-weight:700;"
                     "letter-spacing:.10em;text-transform:uppercase;"
-                    f"padding:8px 16px;border-top:2px solid #2d3f5a'>{_grp}</td></tr>"
+                    f"padding:8px 16px;border-top:2px solid #bfdbfe'>{_grp}</td></tr>"
                 )
                 _prev_grp = _grp
 
@@ -6018,7 +6018,7 @@ elif view == "So sánh Cổ phiếu":
                     _ranks[_i] = 0
 
             _row_idx = len(_tbl_rows.split("<tr")) - 1
-            _stripe = "background:rgba(255,255,255,0.018)" if _row_idx % 2 == 0 else ""
+            _stripe = "background:rgba(0,0,0,0.025)" if _row_idx % 2 == 0 else ""
 
             _cells = (
                 f"<td style='padding:10px 16px;color:#94a3b8;font-size:{_cell_fs};"
@@ -6069,7 +6069,7 @@ elif view == "So sánh Cổ phiếu":
                     _inner = (
                         f"<div style='display:flex;align-items:center;gap:6px;justify-content:flex-end'>"
                         f"<div style='flex:1;max-width:{_bar_w};height:5px;border-radius:3px;"
-                        f"background:#1f2937'><div style='width:{_bw}%;height:100%;"
+                        f"background:#f8fafc'><div style='width:{_bw}%;height:100%;"
                         f"border-radius:3px;background:{_bar_color}'></div></div>"
                         f"<span style='color:{_tc};font-weight:{_fw};font-size:{_fs}'>{_display}</span>"
                         f"</div>"
@@ -6081,28 +6081,28 @@ elif view == "So sánh Cổ phiếu":
                         f"font-size:{_fs};color:{_tc};font-weight:{_fw}'>{_display}</td>"
                     )
 
-            _tbl_rows += f"<tr style='border-bottom:1px solid #1a2234;{_stripe}'>{_cells}</tr>"
+            _tbl_rows += f"<tr style='border-bottom:1px solid #e2e8f0;{_stripe}'>{_cells}</tr>"
 
         # Column headers with top colour bar per ticker
         _hdr = (
             f"<th style='padding:12px 16px;text-align:left;color:#6b7280;"
-            f"font-size:12px;font-weight:600;border-bottom:2px solid #2d3748'>Chỉ số</th>"
+            f"font-size:12px;font-weight:600;border-bottom:2px solid #cbd5e1'>Chỉ số</th>"
         )
         for _ci, _ct in enumerate(_tbl_tickers):
             _cl = _TBL_COLORS[_ci % len(_TBL_COLORS)]
             _hdr += (
                 f"<th style='padding:{_hdr_pad};text-align:right;color:{_cl};"
                 f"font-size:{_hdr_fs};font-weight:700;"
-                f"border-bottom:2px solid #2d3748;"
+                f"border-bottom:2px solid #cbd5e1;"
                 f"border-top:3px solid {_cl};"
                 f"min-width:{_min_w}'>{_ct}</th>"
             )
 
         st.markdown(
             f"<div style='overflow-x:auto;margin-bottom:8px;border-radius:10px;"
-            f"border:1px solid #1e2d45'>"
+            f"border:1px solid #bfdbfe'>"
             f"<table style='width:100%;border-collapse:collapse;"
-            f"background:rgba(10,14,24,0.90)'>"
+            f"background:rgba(255,255,255,0.97)'>"
             f"<thead><tr>{_hdr}</tr></thead>"
             f"<tbody>{_tbl_rows}</tbody>"
             f"</table></div>",
@@ -6152,9 +6152,9 @@ elif view == "So sánh Cổ phiếu":
             height=280, dragmode=False, hovermode="x unified",
             margin=dict(l=10, r=10, t=36, b=10),
             xaxis=dict(type="category", showgrid=False),
-            yaxis=dict(showgrid=True, gridcolor="#2d3748"),
+            yaxis=dict(showgrid=True, gridcolor="#e2e8f0"),
             legend=dict(orientation="h", yanchor="bottom", y=-0.28, xanchor="center", x=0.5),
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0)",
         )
         _tc1, _tc2 = st.columns(2)
         for _tfig, _ttitle, _tcol in [
@@ -6166,11 +6166,11 @@ elif view == "So sánh Cổ phiếu":
                 st.plotly_chart(_tfig, width="stretch")
 
         if _has_yoy:
-            _yoy_fig.add_hline(y=0, line_color="#4b5563", line_dash="dot", line_width=1)
+            _yoy_fig.add_hline(y=0, line_color="#cbd5e1", line_dash="dot", line_width=1)
             _yoy_fig.update_layout(
                 title=dict(text="Tăng trưởng doanh thu YoY (%)", font=dict(size=13)),
                 **{**_line_layout, "height": 260,
-                   "yaxis": dict(showgrid=True, gridcolor="#2d3748", ticksuffix="%")},
+                   "yaxis": dict(showgrid=True, gridcolor="#e2e8f0", ticksuffix="%")},
             )
             st.plotly_chart(_yoy_fig, width="stretch")
 
@@ -6256,7 +6256,7 @@ elif view == "Phân tích Ngành":
         # Hide iframe white flash
         st.markdown("""<style>
 iframe[title="heatmap_click.heatmap_click"] {
-    background: #0e1117 !important;
+    background: #f8fafc !important;
     border: none !important;
 }
 </style>""", unsafe_allow_html=True)
@@ -6625,7 +6625,7 @@ iframe[title="heatmap_click.heatmap_click"] {
                     "tickers": "Số mã", "roe_pct": "ROE (%)"},
         )
         fig_sc.update_traces(textposition="top center")
-        fig_sc.add_vline(x=0, line_dash="dash", line_color="gray", opacity=0.5)
+        fig_sc.add_vline(x=0, line_dash="dash", line_color="#94a3b8", opacity=0.5)
         fig_sc.update_layout(height=460, margin=dict(l=0, r=0, t=10, b=0), dragmode=False)
         st.plotly_chart(fig_sc, width="stretch")
 
@@ -6766,8 +6766,8 @@ elif view == "Tổng quan Thị trường":
                     hovertemplate=f"Hiện tại: {_cur_pe:.1f}x<extra></extra>", showlegend=False))
                 fig_mpe.update_layout(
                     height=300, margin=dict(l=0, r=10, t=30, b=0), dragmode=False,
-                    hovermode="x unified", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
+                    hovermode="x unified", plot_bgcolor="rgba(255,255,255,0)", paper_bgcolor="rgba(0,0,0,0)",
+                    hoverlabel=dict(bgcolor="#ffffff", font_size=12, font_color="#0f172a"),
                     title=dict(text=f"P/E hiện tại: <span style='color:{_pe_clr}'>{_cur_pe:.1f}x "
                                     f"({_pe_diff:+.0f}% so TB)</span>", font=dict(size=14)),
                     legend=dict(orientation="h", y=-0.15),
@@ -6796,8 +6796,8 @@ elif view == "Tổng quan Thị trường":
                     hovertemplate=f"Hiện tại: {_cur_pb:.2f}x<extra></extra>", showlegend=False))
                 fig_mpb.update_layout(
                     height=300, margin=dict(l=0, r=10, t=30, b=0), dragmode=False,
-                    hovermode="x unified", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    hoverlabel=dict(bgcolor="#1e293b", font_size=12, font_color="#f9fafb"),
+                    hovermode="x unified", plot_bgcolor="rgba(255,255,255,0)", paper_bgcolor="rgba(0,0,0,0)",
+                    hoverlabel=dict(bgcolor="#ffffff", font_size=12, font_color="#0f172a"),
                     title=dict(text=f"P/B hiện tại: <span style='color:{_pb_clr}'>{_cur_pb:.2f}x "
                                     f"({_pb_diff:+.0f}% so TB)</span>", font=dict(size=14)),
                     legend=dict(orientation="h", y=-0.15),
@@ -6910,7 +6910,7 @@ elif view == "Tổng quan Thị trường":
                 marker_color=_sp_colors,
                 text=[f"{v:+.2f}%" for v in _sp["chg_pct"]], textposition="outside",
                 hovertemplate="%{y}: %{x:+.2f}%<extra></extra>"))
-            _fig_sp.add_vline(x=0, line_dash="dot", line_color="gray", opacity=0.5)
+            _fig_sp.add_vline(x=0, line_dash="dot", line_color="#94a3b8", opacity=0.5)
             _fig_sp.update_layout(height=max(300, len(_sp)*24), margin=dict(l=0,r=60,t=10,b=0),
                 dragmode=False, showlegend=False, xaxis_title="Thay đổi TB %")
             st.plotly_chart(_fig_sp, width="stretch")
@@ -6948,7 +6948,7 @@ elif view == "Tổng quan Thị trường":
         ))
         _fig_hm.update_layout(
             height=430, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0)",
         )
         st.plotly_chart(_fig_hm, width="stretch")
         _hm_up   = int((_hm_df["chg_pct"] > 0).sum())
@@ -6991,7 +6991,7 @@ elif view == "Tổng quan Thị trường":
                 x = _ps.apply(lambda p: f"{p.month:02d}/{p.year}")
             hover = "%{x}: %{y:+.2f}" + unit + "<extra></extra>"
             fig = go.Figure(go.Bar(x=x, y=df["value"], marker_color=colors, hovertemplate=hover))
-            fig.add_hline(y=0, line_color="gray", opacity=0.5)
+            fig.add_hline(y=0, line_color="#94a3b8", opacity=0.5)
             fig.update_layout(
                 title=title, height=280, margin=dict(l=0, r=0, t=40, b=0),
                 dragmode=False, showlegend=False,
@@ -7041,7 +7041,7 @@ elif view == "Tổng quan Thị trường":
                     x=_xlabels, y=df["value"], name=label, mode="lines+markers",
                     line=dict(color=_colors[i % len(_colors)], width=2),
                     hovertemplate="%{x} · " + label + ": %{y:+.2f}" + unit + "<extra></extra>"))
-            fig.add_hline(y=0, line_color="gray", opacity=0.5)
+            fig.add_hline(y=0, line_color="#94a3b8", opacity=0.5)
             fig.update_layout(
                 title=title, height=340, margin=dict(l=0, r=0, t=40, b=40),
                 dragmode=False, showlegend=len(series) > 1,
