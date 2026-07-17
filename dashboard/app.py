@@ -5934,6 +5934,9 @@ elif view == "So sánh Cổ phiếu":
         _hm_metrics: list[tuple[str, dict, bool, str]] = []  # (label, data, higher_better, fmt)
         _mcap_d = {}
         _pe_d, _pb_d, _roe_d, _nm_d, _fcfm_d, _de_d, _cr_d, _gm_d, _em_d = ({} for _ in range(9))
+        _metrics_ph = st.empty()
+        if len(_tbl_tickers) > 4:
+            _metrics_ph.info(f"Đang tổng hợp chỉ số {len(_tbl_tickers)} công ty...")
         for _ct in _tbl_tickers:
             _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
             _pr  = _price_map_cmp.get(_ct)
@@ -5971,6 +5974,8 @@ elif view == "So sánh Cổ phiếu":
                     _upside_d[_ct] = round(_rv2["_avg_upside_raw"] * 100, 1)
                 if pd.notna(_rv2.get("_qs_raw")):
                     _qs_d[_ct] = int(round(_rv2["_qs_raw"]))
+
+        _metrics_ph.empty()  # clear loading indicator
 
         # (group_label, metric_label, data_dict, higher_better, fmt_fn)
         _cmp_metric_defs = [
@@ -6130,6 +6135,7 @@ elif view == "So sánh Cổ phiếu":
         for _ci, _ct in enumerate(_cmp_tickers):
             _ydf_t = load_financials_y(_ct)
             if _ydf_t.empty: continue
+            if "revenue" not in _ydf_t.columns: continue
             # Load 6 rows so we get 5 YoY data points
             _ydf_t = _ydf_t.dropna(subset=["revenue"]).tail(6).copy()
             if _ydf_t.empty: continue
@@ -6141,11 +6147,12 @@ elif view == "So sánh Cổ phiếu":
                 mode="lines+markers", line=dict(color=_cl, width=2),
                 hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:,.0f}} tỷ<extra></extra>",
             ))
-            _np_fig.add_trace(go.Scatter(
-                x=_ydf_t["year"], y=_ydf_t["net_income"].round(0), name=_ct,
-                mode="lines+markers", line=dict(color=_cl, width=2),
-                hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:,.0f}} tỷ<extra></extra>",
-            ))
+            if "net_income" in _ydf_t.columns:
+                _np_fig.add_trace(go.Scatter(
+                    x=_ydf_t["year"], y=_ydf_t["net_income"].round(0), name=_ct,
+                    mode="lines+markers", line=dict(color=_cl, width=2),
+                    hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:,.0f}} tỷ<extra></extra>",
+                ))
 
             # YoY growth per year
             if len(_ydf_t) >= 2:
