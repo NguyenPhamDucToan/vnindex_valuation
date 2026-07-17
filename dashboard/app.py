@@ -5398,8 +5398,8 @@ elif view == "Sàng lọc Cổ phiếu":
                                .groupby("Ngành").size()
                                .reindex(_sec_n_all.index, fill_value=0))
                 _sec_up_all = (_an.dropna(subset=["_avg_upside_raw"])
-                               .groupby("Ngành")["_avg_upside_raw"].median() * 100
-                               .reindex(_sec_n_all.index))
+                               .groupby("Ngành")["_avg_upside_raw"].median()
+                               .reindex(_sec_n_all.index) * 100)
                 _sec_comb = pd.DataFrame({
                     "sb":      _sec_sb_all,
                     "buy":     _sec_b_all,
