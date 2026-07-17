@@ -75,12 +75,13 @@ def fetch_live_quote(ticker: str) -> dict | None:
         price = float(row[("match", "match_price")])
         if not price:
             return None
+        # price_board returns raw VND; divide by 1000 to match Price.close convention
         return {
-            "price":  price,
-            "open":   float(row[("match", "open_price")] or price),
-            "high":   float(row[("match", "highest")] or price),
-            "low":    float(row[("match", "lowest")] or price),
-            "ref":    float(row[("match", "reference_price")] or price),
+            "price":  price / 1000,
+            "open":   float(row[("match", "open_price")] or price) / 1000,
+            "high":   float(row[("match", "highest")] or price) / 1000,
+            "low":    float(row[("match", "lowest")] or price) / 1000,
+            "ref":    float(row[("match", "reference_price")] or price) / 1000,
             "volume": float(row[("match", "accumulated_volume")] or 0),
             "as_of":  datetime.now(_ICT).strftime("%H:%M:%S"),
         }
