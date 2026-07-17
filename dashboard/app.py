@@ -6995,6 +6995,9 @@ elif view == "Tổng quan Thị trường":
             fig.update_layout(
                 title=title, height=280, margin=dict(l=0, r=0, t=40, b=0),
                 dragmode=False, showlegend=False,
+                hovermode="x",
+                hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
+                                font=dict(color="#0f172a", size=12)),
                 xaxis=dict(type="category", nticks=12),
                 yaxis_title=unit)
             st.plotly_chart(fig, width="stretch")
@@ -7045,6 +7048,9 @@ elif view == "Tổng quan Thị trường":
             fig.update_layout(
                 title=title, height=340, margin=dict(l=0, r=0, t=40, b=40),
                 dragmode=False, showlegend=len(series) > 1,
+                hovermode="x unified",
+                hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
+                                font=dict(color="#0f172a", size=12)),
                 legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0),
                 xaxis=dict(type="category", nticks=10),
                 yaxis_title=unit)
@@ -7274,7 +7280,10 @@ elif view == "Tổng quan Thị trường":
                     line=dict(color="#60a5fa", width=1.8),
                     hovertemplate="%{x|%d/%m/%Y}: %{y:,.0f} VND<extra></extra>"))
                 fig_fx.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0),
-                                      dragmode=False, yaxis_title="VND")
+                                      dragmode=False, yaxis_title="VND",
+                                      hovermode="x",
+                                      hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
+                                                      font=dict(color="#0f172a", size=12)))
                 st.plotly_chart(fig_fx, width="stretch")
                 st.caption(f"Nguồn: vnstock (MSN, USD/VND) · Cập nhật đến {_fx_df['period'].iloc[-1]:%d/%m/%Y}")
             else:
@@ -7326,6 +7335,8 @@ elif view == "Tổng quan Thị trường":
                 fig_cg.update_layout(
                     height=360, margin=dict(l=0, r=0, t=10, b=60),
                     dragmode=False, hovermode="x unified",
+                    hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
+                                    font=dict(color="#0f172a", size=12)),
                     yaxis_title="%YTD",
                     xaxis=dict(type="category"),
                     legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0))
@@ -7369,6 +7380,8 @@ elif view == "Tổng quan Thị trường":
                 fig_rate.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=40),
                                         dragmode=False, yaxis_title="%/năm",
                                         hovermode="x unified",
+                                        hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
+                                                        font=dict(color="#0f172a", size=12)),
                                         legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0))
                 fig_rate.update_xaxes(tickformat="%m/%Y", dtick="M1")
                 st.plotly_chart(fig_rate, width="stretch")
@@ -7387,5 +7400,8 @@ elif view == "Tổng quan Thị trường":
                     hovertemplate="Tín dụng: %{y:.2f}%YTD<extra></extra>"))
                 fig_cg2.update_layout(height=260, margin=dict(l=0, r=0, t=10, b=40),
                                       dragmode=False, yaxis_title="%YTD",
+                                      hovermode="x",
+                                      hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
+                                                      font=dict(color="#0f172a", size=12)),
                                       xaxis=dict(type="category"))
                 st.plotly_chart(fig_cg2, width="stretch")
