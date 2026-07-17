@@ -5409,7 +5409,7 @@ elif view == "Sàng lọc Cổ phiếu":
                         height=340, margin=dict(l=0, r=10, t=10, b=0),
                         barmode="stack", dragmode=False,
                         legend=dict(orientation="h", y=-0.12),
-                        xaxis_title="Số mã")
+                        xaxis=dict(title="Số mã", dtick=1, tick0=0))
                     st.plotly_chart(fig_sec_buy, width="stretch")
                 else:
                     st.info("Không có mã Buy/Strong Buy nào trong bộ lọc hiện tại.")
@@ -5437,12 +5437,14 @@ elif view == "Sàng lọc Cổ phiếu":
                     textfont=dict(size=11, color="#374151"),
                     hovertemplate="%{y}: %{x:.1f}%<extra></extra>"))
                 fig_sec_up.add_vline(x=0, line_dash="dot", line_color="#94a3b8", opacity=0.6)
-                _xpad = max(15, _sec_up_pct.abs().max() * 0.15)
+                # Axis must start at 0 (or min if negative); extra right margin for text labels
+                _x_min = min(0.0, float(_sec_up_pct.min()) - 5)
+                _x_max = float(_sec_up_pct.max()) * 1.20 if _sec_up_pct.max() > 0 else 10
                 fig_sec_up.update_layout(
                     height=max(340, 30 * len(_sec_up_pct)),
                     margin=dict(l=0, r=60, t=10, b=0),
-                    dragmode=False, xaxis_title="Avg Upside trung vị %",
-                    xaxis=dict(range=[_sec_up_pct.min() - _xpad, _sec_up_pct.max() + _xpad]))
+                    dragmode=False,
+                    xaxis=dict(title="Trung vị Upside (%)", range=[_x_min, _x_max]))
                 st.plotly_chart(fig_sec_up, width="stretch")
                 st.caption("Trung vị mức tăng giá 'Avg Estimate' giữa các mã trong từng ngành — "
                            "âm = ngành đang giao dịch cao hơn giá trị hợp lý ước tính.")
