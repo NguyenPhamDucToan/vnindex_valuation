@@ -5917,8 +5917,8 @@ elif view == "So sánh Cổ phiếu":
                 r=_avg_vals + [_avg_vals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
                 name=f"TB ngành ({len(_tbl_tickers)} CP)",
                 fill="toself",
-                fillcolor="rgba(100,116,139,0.22)",
-                line=dict(color="#475569", width=2, dash="dash"),
+                fillcolor="rgba(249,115,22,0.12)",
+                line=dict(color="#f97316", width=2, dash="dash"),
                 customdata=_avg_labels + [_avg_labels[0]],
                 hovertemplate="%{theta}: %{customdata}<extra>Trung bình ngành</extra>",
             ))
