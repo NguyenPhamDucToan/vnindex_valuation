@@ -5764,14 +5764,21 @@ elif view == "So sánh Cổ phiếu":
     # ── Ticker selector ────────────────────────────────────────────
     _cmp_all = load_available_tickers()
     _cmp_default = ["HPG", "NKG", "HSG"] if all(t in _cmp_all for t in ["HPG", "NKG", "HSG"]) else _cmp_all[:3]
-    _cmp_tickers = st.multiselect(
-        "Chọn 2–4 mã cổ phiếu để so sánh",
-        options=sorted(_cmp_all),
-        default=st.session_state.get("cmp_tickers", _cmp_default),
-        max_selections=4,
-        key="cmp_tickers",
-        placeholder="Tìm mã...",
-    )
+
+    _sel_col, _tog_col = st.columns([3, 1])
+    with _sel_col:
+        _cmp_tickers = st.multiselect(
+            "Chọn 2–4 mã cổ phiếu để so sánh",
+            options=sorted(_cmp_all),
+            default=st.session_state.get("cmp_tickers", _cmp_default),
+            max_selections=4,
+            key="cmp_tickers",
+            placeholder="Tìm mã...",
+        )
+    with _tog_col:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        _ind_mode = st.toggle("Toàn ngành", key="ind_mode", value=False,
+                              help="So sánh tất cả công ty cùng ngành với mã đầu tiên được chọn")
 
     if len(_cmp_tickers) < 2:
         st.info("Chọn ít nhất 2 mã để so sánh.")
@@ -5836,6 +5843,28 @@ elif view == "So sánh Cổ phiếu":
             try: return float(str(v).replace("x","").replace("%","").replace(",","").replace("—",""))
             except: return None
 
+        # ── Industry mode: detect sector & build full ticker list ─
+        _ind_sector = None
+        _tbl_tickers = _cmp_tickers  # default: same as chart tickers
+        if _ind_mode and _cmp_tickers:
+            _base_row = _cmp_screen[_cmp_screen["Mã"] == _cmp_tickers[0]]
+            if not _base_row.empty:
+                _ind_sector = _base_row.iloc[0]["Ngành"]
+                _sector_df  = _cmp_screen[_cmp_screen["Ngành"] == _ind_sector].copy()
+                # sort by market cap: price × shares (best effort, fallback to ticker order)
+                _sect_mcap = {}
+                for _st in _sector_df["Mã"].tolist():
+                    _pr2 = _price_map_cmp.get(_st)
+                    _yf2 = load_financials_y(_st)
+                    if _pr2 and not _yf2.empty and "shares_outstanding" in _yf2.columns:
+                        _sh2 = _yf2["shares_outstanding"].dropna()
+                        if not _sh2.empty:
+                            _sect_mcap[_st] = _pr2 * float(_sh2.iloc[-1]) / 1000
+                _tbl_tickers = sorted(
+                    _sector_df["Mã"].tolist(),
+                    key=lambda t: _sect_mcap.get(t, 0), reverse=True
+                )
+
         # ── Hồ sơ tổng thể (Radar) ──────────────────────────────
         st.subheader("Hồ sơ tổng thể")
         _RADAR_CATS = ["ROE", "Net\nMargin", "FCF\nMargin", "Quality", "Upside"]
@@ -5874,13 +5903,23 @@ elif view == "So sánh Cổ phiếu":
         st.plotly_chart(_radar_fig, width="stretch")
 
         # ── Heatmap so sánh chỉ số ──────────────────────────────
+        if _ind_mode and _ind_sector:
+            st.markdown(
+                f"<div style='background:#1e2d45;border-left:4px solid #60a5fa;"
+                f"padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
+                f"<span style='color:#93c5fd;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase'>Ngành</span>"
+                f"<span style='color:#f9fafb;font-size:15px;font-weight:600;margin-left:12px'>{_ind_sector}</span>"
+                f"<span style='color:#6b7280;font-size:13px;margin-left:16px'>— {len(_tbl_tickers)} công ty, sắp xếp theo vốn hóa</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
         st.subheader("So sánh chỉ số tài chính")
 
-        # Collect all metric values
+        # Collect all metric values (use _tbl_tickers = full sector in industry mode)
         _hm_metrics: list[tuple[str, dict, bool, str]] = []  # (label, data, higher_better, fmt)
         _mcap_d = {}
         _pe_d, _pb_d, _roe_d, _nm_d, _fcfm_d, _de_d, _cr_d, _gm_d, _em_d = ({} for _ in range(9))
-        for _ct in _cmp_tickers:
+        for _ct in _tbl_tickers:
             _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
             _pr  = _price_map_cmp.get(_ct)
             _ydf_h = load_financials_y(_ct)
@@ -5909,7 +5948,7 @@ elif view == "So sánh Cổ phiếu":
 
         # Build upside/quality dicts
         _upside_d, _qs_d = {}, {}
-        for _ct in _cmp_tickers:
+        for _ct in _tbl_tickers:
             _r2 = _cmp_screen[_cmp_screen["Mã"] == _ct]
             if not _r2.empty:
                 _rv2 = _r2.iloc[0]
@@ -5939,19 +5978,33 @@ elif view == "So sánh Cổ phiếu":
             h = h.lstrip("#")
             return int(h[:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
+        # Extended palette for industry mode (up to 20 tickers)
+        _TBL_COLORS = [
+            "#60a5fa","#f59e0b","#22c55e","#a855f7",
+            "#f87171","#34d399","#fbbf24","#38bdf8",
+            "#c084fc","#fb923c","#4ade80","#e879f9",
+        ]
+        # Compact layout when many tickers
+        _many = len(_tbl_tickers) > 6
+        _cell_pad  = "6px 10px" if _many else "10px 24px"
+        _cell_fs   = "12px"     if _many else "13px"
+        _hdr_fs    = "12px"     if _many else "15px"
+        _hdr_pad   = "10px 10px" if _many else "12px 24px"
+        _min_w     = "80px"     if _many else "130px"
+
         _tbl_rows = ""
         _prev_grp = None
         for _grp, _ml, _dd, _hib, _fmt in _cmp_metric_defs:
             if _grp != _prev_grp:
                 _tbl_rows += (
-                    f"<tr><td colspan='{len(_cmp_tickers)+1}' style='"
+                    f"<tr><td colspan='{len(_tbl_tickers)+1}' style='"
                     "background:#1e2d45;color:#ffffff;font-size:11.5px;font-weight:700;"
                     "letter-spacing:.10em;text-transform:uppercase;"
                     f"padding:8px 16px;border-top:2px solid #2d3f5a'>{_grp}</td></tr>"
                 )
                 _prev_grp = _grp
 
-            _vals = [_dd.get(_ct) for _ct in _cmp_tickers]
+            _vals = [_dd.get(_ct) for _ct in _tbl_tickers]
             _valid_pairs = [(v, i) for i, v in enumerate(_vals) if v is not None]
             _ranks: dict = {}
             if len(_valid_pairs) >= 2:
@@ -5965,34 +6018,34 @@ elif view == "So sánh Cổ phiếu":
             _stripe = "background:rgba(255,255,255,0.018)" if _row_idx % 2 == 0 else ""
 
             _cells = (
-                f"<td style='padding:10px 16px;color:#94a3b8;font-size:13px;"
+                f"<td style='padding:10px 16px;color:#94a3b8;font-size:{_cell_fs};"
                 f"white-space:nowrap'>{_ml}</td>"
             )
-            for _ci, _ct in enumerate(_cmp_tickers):
+            for _ci, _ct in enumerate(_tbl_tickers):
                 _v = _dd.get(_ct)
-                _cl = _CMP_COLORS[_ci % len(_CMP_COLORS)]
+                _cl = _TBL_COLORS[_ci % len(_TBL_COLORS)]
                 _r, _g, _b = _hx(_cl)
-                _rk = _ranks.get(_ci, len(_cmp_tickers))
+                _rk = _ranks.get(_ci, len(_tbl_tickers))
 
                 if _v is None:
-                    _cells += "<td style='text-align:right;padding:10px 24px;color:#374151;font-size:13px'>—</td>"
+                    _cells += f"<td style='text-align:right;padding:{_cell_pad};color:#374151;font-size:{_cell_fs}'>—</td>"
                     continue
 
                 _display = _fmt(_v)
 
                 # Rank-based text style
                 if _rk == 0:
-                    _tc = _cl        # ticker brand colour for winner
+                    _tc = _cl
                     _fw = "700"
-                    _fs = "14px"
+                    _fs = "14px" if not _many else "12px"
                 elif _rk == 1:
                     _tc = "#e2e8f0"
                     _fw = "500"
-                    _fs = "13px"
+                    _fs = _cell_fs
                 else:
                     _tc = "#64748b"
                     _fw = "400"
-                    _fs = "13px"
+                    _fs = _cell_fs
 
                 # Special cell backgrounds
                 if _ml == "Avg Upside":
@@ -6009,20 +6062,19 @@ elif view == "So sánh Cổ phiếu":
                 if _ml == "Quality":
                     _bw = max(4, min(int(_v), 100))
                     _bar_color = f"rgba({_r},{_g},{_b},0.80)"
+                    _bar_w = "50px" if _many else "70px"
                     _inner = (
-                        f"<div style='display:flex;align-items:center;gap:8px;justify-content:flex-end'>"
-                        f"<div style='flex:1;max-width:70px;height:5px;border-radius:3px;"
+                        f"<div style='display:flex;align-items:center;gap:6px;justify-content:flex-end'>"
+                        f"<div style='flex:1;max-width:{_bar_w};height:5px;border-radius:3px;"
                         f"background:#1f2937'><div style='width:{_bw}%;height:100%;"
                         f"border-radius:3px;background:{_bar_color}'></div></div>"
                         f"<span style='color:{_tc};font-weight:{_fw};font-size:{_fs}'>{_display}</span>"
                         f"</div>"
                     )
-                    _cells += (
-                        f"<td style='padding:8px 16px;{_cbg}'>{_inner}</td>"
-                    )
+                    _cells += f"<td style='padding:8px {('10px' if _many else '16px')};{_cbg}'>{_inner}</td>"
                 else:
                     _cells += (
-                        f"<td style='text-align:right;padding:10px 24px;{_cbg}"
+                        f"<td style='text-align:right;padding:{_cell_pad};{_cbg}"
                         f"font-size:{_fs};color:{_tc};font-weight:{_fw}'>{_display}</td>"
                     )
 
@@ -6030,17 +6082,17 @@ elif view == "So sánh Cổ phiếu":
 
         # Column headers with top colour bar per ticker
         _hdr = (
-            "<th style='padding:12px 16px;text-align:left;color:#6b7280;"
-            "font-size:12px;font-weight:600;border-bottom:2px solid #2d3748'>Chỉ số</th>"
+            f"<th style='padding:12px 16px;text-align:left;color:#6b7280;"
+            f"font-size:12px;font-weight:600;border-bottom:2px solid #2d3748'>Chỉ số</th>"
         )
-        for _ci, _ct in enumerate(_cmp_tickers):
-            _cl = _CMP_COLORS[_ci % len(_CMP_COLORS)]
+        for _ci, _ct in enumerate(_tbl_tickers):
+            _cl = _TBL_COLORS[_ci % len(_TBL_COLORS)]
             _hdr += (
-                f"<th style='padding:12px 24px;text-align:right;color:{_cl};"
-                f"font-size:15px;font-weight:700;"
+                f"<th style='padding:{_hdr_pad};text-align:right;color:{_cl};"
+                f"font-size:{_hdr_fs};font-weight:700;"
                 f"border-bottom:2px solid #2d3748;"
                 f"border-top:3px solid {_cl};"
-                f"min-width:130px'>{_ct}</th>"
+                f"min-width:{_min_w}'>{_ct}</th>"
             )
 
         st.markdown(
