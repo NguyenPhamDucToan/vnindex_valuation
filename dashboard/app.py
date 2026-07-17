@@ -5882,6 +5882,34 @@ elif view == "So sánh Cổ phiếu":
         _RADAR_KEYS = ["_roe_raw", "_nm_raw", "_fcfm_raw", "_qs_raw", "_avg_upside_raw"]
         _RADAR_MAXS = [0.30, 0.25, 0.20, 100.0, 1.00]
         _radar_fig = go.Figure()
+
+        # Industry average trace (only when sector is loaded)
+        if _ind_mode and _ind_sector and len(_tbl_tickers) > 1:
+            _avg_buckets: list[list[float]] = [[] for _ in _RADAR_KEYS]
+            for _xt in _tbl_tickers:
+                _xr = _cmp_screen[_cmp_screen["Mã"] == _xt]
+                if _xr.empty: continue
+                _xrow = _xr.iloc[0]
+                for _xi, (_rk, _rm) in enumerate(zip(_RADAR_KEYS, _RADAR_MAXS)):
+                    _xv = _xrow.get(_rk)
+                    if _xv is None or (isinstance(_xv, float) and _xv <= -99): continue
+                    if _rk == "_qs_raw":
+                        _avg_buckets[_xi].append(max(0, min(100, float(_xv))))
+                    else:
+                        _avg_buckets[_xi].append(max(0, min(100, float(_xv) / _rm * 100)))
+            _avg_vals = [
+                round(sum(b) / len(b), 1) if b else 0
+                for b in _avg_buckets
+            ]
+            _radar_fig.add_trace(go.Scatterpolar(
+                r=_avg_vals + [_avg_vals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
+                name=f"TB ngành ({len(_tbl_tickers)} CP)",
+                fill="toself", opacity=0.25,
+                line=dict(color="#94a3b8", width=2, dash="dot"),
+                fillcolor="rgba(148,163,184,0.12)",
+                hovertemplate="%{theta}: %{r:.1f}/100<extra>Trung bình ngành</extra>",
+            ))
+
         for _ci, _ct in enumerate(_cmp_tickers):
             _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
             if _row.empty: continue
