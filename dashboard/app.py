@@ -4952,12 +4952,12 @@ if view == "Phân tích Cổ phiếu":
             else:
                 # (label, badge_bg, badge_fg, left_border)
                 _CAT_CFG = {
-                    "DIVIDEND":                  ("Cổ tức",       "#78350f", "#fcd34d", "#f59e0b"),
-                    "MAJOR_SHAREHOLDER_TRADING": ("Giao dịch NB", "#0c2340", "#60a5fa", "#3b82f6"),
-                    "STOCK_ISSUANCE":            ("Phát hành",    "#3b0764", "#c4b5fd", "#a78bfa"),
-                    "BONUS_SHARE":               ("Thưởng CP",    "#431407", "#fdba74", "#fb923c"),
-                    "STOCK_LISTING":             ("Niêm yết",     "#064e3b", "#6ee7b7", "#10b981"),
-                    "SHAREHOLDER_MEETING":       ("Họp ĐHCĐ",     "#1e1b4b", "#a5b4fc", "#818cf8"),
+                    "DIVIDEND":                  ("Cổ tức",       "#fef3c7", "#92400e", "#f59e0b"),
+                    "MAJOR_SHAREHOLDER_TRADING": ("Giao dịch NB", "#dbeafe", "#1d4ed8", "#3b82f6"),
+                    "STOCK_ISSUANCE":            ("Phát hành",    "#f5f3ff", "#6d28d9", "#a78bfa"),
+                    "BONUS_SHARE":               ("Thưởng CP",    "#fff7ed", "#c2410c", "#fb923c"),
+                    "STOCK_LISTING":             ("Niêm yết",     "#ecfdf5", "#065f46", "#10b981"),
+                    "SHAREHOLDER_MEETING":       ("Họp ĐHCĐ",     "#eef2ff", "#4338ca", "#818cf8"),
                 }
 
                 def _ev_date(val):
@@ -4968,26 +4968,27 @@ if view == "Phân tích Cổ phiếu":
 
                 _ev_css = (
                     "<style>"
-                    ".ev{background:rgba(17,24,39,.55);border-radius:8px;border-left:4px solid #374151;"
+                    ".ev{background:#ffffff;border-radius:8px;border:1px solid #e2e8f0;"
+                    "border-left:4px solid #cbd5e1;"
                     "padding:10px 14px;margin-bottom:8px;transition:background .15s;}"
-                    ".ev:hover{background:rgba(30,41,59,.75);}"
+                    ".ev:hover{background:#f8fafc;}"
                     ".ev-hdr{display:flex;align-items:center;gap:8px;margin-bottom:5px;}"
                     ".ev-badge{font-size:10px;font-weight:700;letter-spacing:.6px;padding:2px 8px;"
                     "border-radius:4px;text-transform:uppercase;white-space:nowrap;}"
                     ".ev-date{font-size:11px;color:#6b7280;margin-left:auto;white-space:nowrap;}"
-                    ".ev-title{font-size:13.5px;font-weight:500;color:#475569;line-height:1.45;}"
-                    ".ev-detail{font-size:12px;color:#94a3b8;margin-top:6px;line-height:1.7;display:flex;"
+                    ".ev-title{font-size:13.5px;font-weight:500;color:#1e293b;line-height:1.45;}"
+                    ".ev-detail{font-size:12px;color:#64748b;margin-top:6px;line-height:1.7;display:flex;"
                     "flex-wrap:wrap;align-items:center;gap:6px;}"
                     ".pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;"
                     "border-radius:10px;line-height:1.4;}"
-                    ".sep{color:#374151;}"
+                    ".sep{color:#cbd5e1;}"
                     "</style>"
                 )
 
                 _ev_html = ""
                 for _, _ev in _evts_df.iterrows():
                     _cat    = _ev.get("category") or ""
-                    _cfg    = _CAT_CFG.get(_cat, ("Sự kiện", "#1f2937", "#9ca3af", "#374151"))
+                    _cfg    = _CAT_CFG.get(_cat, ("Sự kiện", "#f1f5f9", "#475569", "#94a3b8"))
                     _label, _bbg, _bfg, _border = _cfg
                     _title  = _ev.get("event_title_vi") or _ev.get("event_name_vi") or ""
                     _d1_str = _ev_date(_ev.get("display_date1")) or "—"
@@ -4997,7 +4998,7 @@ if view == "Phân tích Cổ phiếu":
                         _vpsh = _ev.get("value_per_share")
                         if pd.notna(_vpsh) and _vpsh and float(_vpsh) > 0:
                             _detail_parts.append(
-                                f"<span class='pill' style='background:#78350f;color:#fcd34d'>"
+                                f"<span class='pill' style='background:#fef3c7;color:#92400e'>"
                                 f"{int(_vpsh):,} VND/CP</span>"
                             )
                         _xd  = _ev_date(_ev.get("exright_date"))
@@ -5008,7 +5009,7 @@ if view == "Phân tích Cổ phiếu":
                         if _rd:
                             _detail_parts.append(f"<span class='sep'>|</span> Chốt DS <b style='color:#475569'>{_rd}</b>")
                         if _pay:
-                            _detail_parts.append(f"<span class='sep'>|</span> Thanh toán <b style='color:#fcd34d'>{_pay}</b>")
+                            _detail_parts.append(f"<span class='sep'>|</span> Thanh toán <b style='color:#d97706'>{_pay}</b>")
                     elif _cat == "MAJOR_SHAREHOLDER_TRADING":
                         _action = _ev.get("action_type_vi") or ""
                         _sd = _ev_date(_ev.get("start_date"))
