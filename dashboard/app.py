@@ -6021,7 +6021,7 @@ elif view == "So sánh Cổ phiếu":
             _stripe = "background:rgba(0,0,0,0.025)" if _row_idx % 2 == 0 else ""
 
             _cells = (
-                f"<td style='padding:10px 16px;color:#94a3b8;font-size:{_cell_fs};"
+                f"<td style='padding:10px 16px;color:#374151;font-size:{_cell_fs};"
                 f"white-space:nowrap'>{_ml}</td>"
             )
             for _ci, _ct in enumerate(_tbl_tickers):
@@ -6042,8 +6042,8 @@ elif view == "So sánh Cổ phiếu":
                     _fw = "700"
                     _fs = "14px" if not _many else "12px"
                 elif _rk == 1:
-                    _tc = "#e2e8f0"
-                    _fw = "500"
+                    _tc = "#374151"
+                    _fw = "600"
                     _fs = _cell_fs
                 else:
                     _tc = "#64748b"
