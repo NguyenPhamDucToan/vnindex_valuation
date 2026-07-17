@@ -5853,13 +5853,14 @@ elif view == "So sánh Cổ phiếu":
                 _sector_df  = _cmp_screen[_cmp_screen["Ngành"] == _ind_sector].copy()
                 # sort by market cap: price × shares (best effort, fallback to ticker order)
                 _sect_mcap = {}
-                for _st in _sector_df["Mã"].tolist():
-                    _pr2 = _price_map_cmp.get(_st)
-                    _yf2 = load_financials_y(_st)
-                    if _pr2 and not _yf2.empty and "shares_outstanding" in _yf2.columns:
-                        _sh2 = _yf2["shares_outstanding"].dropna()
-                        if not _sh2.empty:
-                            _sect_mcap[_st] = _pr2 * float(_sh2.iloc[-1]) / 1000
+                with st.spinner(f"Đang tải dữ liệu ngành {_ind_sector}..."):
+                    for _st in _sector_df["Mã"].tolist():
+                        _pr2 = _price_map_cmp.get(_st)
+                        _yf2 = load_financials_y(_st)
+                        if _pr2 and not _yf2.empty and "shares_outstanding" in _yf2.columns:
+                            _sh2 = _yf2["shares_outstanding"].dropna()
+                            if not _sh2.empty:
+                                _sect_mcap[_st] = _pr2 * float(_sh2.iloc[-1]) / 1000
                 _tbl_tickers = sorted(
                     _sector_df["Mã"].tolist(),
                     key=lambda t: _sect_mcap.get(t, 0), reverse=True
@@ -5901,6 +5902,8 @@ elif view == "So sánh Cổ phiếu":
             legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
         )
         st.plotly_chart(_radar_fig, width="stretch")
+        if _ind_mode:
+            st.caption(f"Biểu đồ giá & radar chỉ hiển thị {len(_cmp_tickers)} mã được chọn. Bảng chỉ số bên dưới hiển thị toàn ngành.")
 
         # ── Heatmap so sánh chỉ số ──────────────────────────────
         if _ind_mode and _ind_sector:
