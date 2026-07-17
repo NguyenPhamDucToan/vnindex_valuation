@@ -1854,15 +1854,15 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
     _floor_p  = _prev_c * (1 - _band_pct)
 
     if _prev_c and current_price >= _ceil_p * 0.9995:   # at ceiling (within 0.05% rounding)
-        _cc, _cbg, _arrow = "#a855f7", "#4a1d96", "▲"
+        _cc, _cbg, _arrow = "#7c3aed", "#ede9fe", "▲"
     elif _chg > 0:
-        _cc, _cbg, _arrow = "#22c55e", "#166534", "▲"
+        _cc, _cbg, _arrow = "#16a34a", "#dcfce7", "▲"
     elif _chg == 0:
-        _cc, _cbg, _arrow = "#eab308", "#713f12", "—"
+        _cc, _cbg, _arrow = "#b45309", "#fef3c7", "—"
     elif _prev_c and current_price <= _floor_p * 1.0005:  # at floor
-        _cc, _cbg, _arrow = "#22d3ee", "#164e63", "▼"
+        _cc, _cbg, _arrow = "#0e7490", "#ecfeff", "▼"
     else:
-        _cc, _cbg, _arrow = "#ef4444", "#7f1d1d", "▼"
+        _cc, _cbg, _arrow = "#dc2626", "#fee2e2", "▼"
 
     _mcap     = round(current_price * sh / 1e3) if sh else None
     _bvps     = (eq * 1e9 / (sh * 1e6))        if sh else None
@@ -1877,10 +1877,10 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
     _rng_pct  = max(2, min(98, _rng_pct))  # keep dot inside bar
 
     _live_badge = (
-        f'<span style="font-size:13px;background:#7f1d1d;color:#fca5a5;padding:3px 10px;'
+        f'<span style="font-size:13px;background:#fee2e2;color:#dc2626;padding:3px 10px;'
         f'border-radius:8px;font-weight:600;">🔴 LIVE · {_live_as_of}</span>'
         if _live_as_of else
-        f'<span style="font-size:13px;background:#374151;color:#9ca3af;padding:3px 10px;'
+        f'<span style="font-size:13px;background:#f1f5f9;color:#64748b;padding:3px 10px;'
         f'border-radius:8px;font-weight:600;">EOD</span>'
     )
 
@@ -4596,7 +4596,7 @@ if view == "Phân tích Cổ phiếu":
 
                 def _dp_card(label, value, color, hint):
                     return (
-                        '<div class="dp-card" style="background:#ffffff;border-radius:10px;padding:14px 10px 12px;'
+                        '<div class="dp-card" style="background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,0.07);border-radius:10px;padding:14px 10px 12px;'
                         'flex:1;min-width:0;text-align:center;">'
                         f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;'
                         f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>'
@@ -4627,7 +4627,7 @@ if view == "Phân tích Cổ phiếu":
                 _dp = dupont_analysis(dp_margin, dp_turnover, dp_leverage)
 
                 def _badge(text, color):
-                    return (f'<span style="background:{color}26;color:{color};padding:2px 9px;'
+                    return (f'<span style="background:{color}18;border:1px solid {color}55;color:{color};padding:2px 9px;'
                              f'border-radius:5px;font-weight:600;font-size:12px;white-space:nowrap;">{text}</span>')
 
                 _lvl_label = {"cao": "Tốt", "trung bình": "Trung bình", "thấp": "Yếu"}
@@ -4716,7 +4716,7 @@ if view == "Phân tích Cổ phiếu":
 
                 def _rw_card(label, value, color, hint):
                     return (
-                        '<div class="dp-card" style="background:#ffffff;border-radius:10px;padding:14px 10px 12px;'
+                        '<div class="dp-card" style="background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,0.07);border-radius:10px;padding:14px 10px 12px;'
                         'flex:1;min-width:0;text-align:center;">'
                         f'<div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">{label}</div>'
                         f'<div class="dp-value" style="font-size:22px;font-weight:700;color:{color};'
@@ -5014,8 +5014,8 @@ if view == "Phân tích Cổ phiếu":
                         _ed = _ev_date(_ev.get("end_date"))
                         if _action:
                             _is_buy  = "mua" in _action.lower()
-                            _pill_bg = "#052e16" if _is_buy else "#450a0a"
-                            _pill_fg = "#22c55e" if _is_buy else "#ef4444"
+                            _pill_bg = "#dcfce7" if _is_buy else "#fee2e2"
+                            _pill_fg = "#16a34a" if _is_buy else "#dc2626"
                             _detail_parts.append(
                                 f"<span class='pill' style='background:{_pill_bg};color:{_pill_fg}'>{_action}</span>"
                             )
@@ -5259,22 +5259,22 @@ elif view == "Sàng lọc Cổ phiếu":
                 # strip invisible prefix for lookup
                 _v = val.lstrip("⁠") if val else val
                 return {
-                    "Strong Buy":  "background-color:#14532d; color:#86efac; font-weight:700",
-                    "Buy":         "background-color:#166534; color:#bbf7d0; font-weight:600",
-                    "Watch":       "background-color:#713f12; color:#fde68a; font-weight:600",
-                    "Neutral":     "background-color:#1e293b; color:#94a3b8",
-                    "Reduce":      "background-color:#7c2d12; color:#fdba74",
-                    "Sell":        "background-color:#7f1d1d; color:#fca5a5; font-weight:600",
-                    "Strong Sell": "background-color:#450a0a; color:#f87171; font-weight:700",
+                    "Strong Buy":  "background-color:#dcfce7; color:#15803d; font-weight:700",
+                    "Buy":         "background-color:#bbf7d0; color:#166534; font-weight:600",
+                    "Watch":       "background-color:#fef3c7; color:#92400e; font-weight:600",
+                    "Neutral":     "background-color:#f1f5f9; color:#475569",
+                    "Reduce":      "background-color:#ffedd5; color:#c2410c",
+                    "Sell":        "background-color:#fee2e2; color:#dc2626; font-weight:600",
+                    "Strong Sell": "background-color:#fecaca; color:#991b1b; font-weight:700",
                 }.get(_v, "")
 
             def _quality_color(val):
                 try:
                     q = int(val)
-                    if q >= 70:   return "background-color:#166534; color:#86efac"
-                    elif q >= 50: return "background-color:#713f12; color:#fde047"
-                    elif q >= 30: return "background-color:#7c2d12; color:#fdba74"
-                    else:         return "background-color:#7f1d1d; color:#fca5a5"
+                    if q >= 70:   return "background-color:#dcfce7; color:#15803d"
+                    elif q >= 50: return "background-color:#fef3c7; color:#92400e"
+                    elif q >= 30: return "background-color:#ffedd5; color:#c2410c"
+                    else:         return "background-color:#fee2e2; color:#dc2626"
                 except Exception:
                     return ""
 
@@ -5290,13 +5290,13 @@ elif view == "Sàng lọc Cổ phiếu":
             st.markdown("""
     <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;padding:8px 0 4px 0;justify-content:flex-end;">
       <span style="color:#6b7280;font-size:11px;align-self:center;">Trung bình 10 phương pháp định giá so với giá thị trường · Quality Score 0–100 (ROE, margin, FCF, thanh khoản) · bấm Tín hiệu để sắp xếp ·</span>
-      <span style="background:#14532d;color:#86efac;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Buy: upside ≥+20% &amp; quality ≥60</span>
-      <span style="background:#166534;color:#bbf7d0;padding:2px 8px;border-radius:4px;font-weight:600;">Buy: upside ≥+10% &amp; quality ≥45</span>
-      <span style="background:#713f12;color:#fde68a;padding:2px 8px;border-radius:4px;">Watch: upside ≥0%</span>
-      <span style="background:#ffffff;color:#94a3b8;padding:2px 8px;border-radius:4px;">Neutral: -10% đến 0%</span>
-      <span style="background:#7c2d12;color:#fdba74;padding:2px 8px;border-radius:4px;">Reduce: -30% đến -10%</span>
-      <span style="background:#7f1d1d;color:#fca5a5;padding:2px 8px;border-radius:4px;font-weight:600;">Sell: -50% đến -30%</span>
-      <span style="background:#fee2e2;color:#f87171;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Sell: &lt;-50%</span>
+      <span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Buy: upside ≥+20% &amp; quality ≥60</span>
+      <span style="background:#bbf7d0;color:#166534;padding:2px 8px;border-radius:4px;font-weight:600;">Buy: upside ≥+10% &amp; quality ≥45</span>
+      <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;">Watch: upside ≥0%</span>
+      <span style="background:#f1f5f9;color:#475569;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;">Neutral: -10% đến 0%</span>
+      <span style="background:#ffedd5;color:#c2410c;padding:2px 8px;border-radius:4px;">Reduce: -30% đến -10%</span>
+      <span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:4px;font-weight:600;">Sell: -50% đến -30%</span>
+      <span style="background:#fecaca;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Sell: &lt;-50%</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -5507,16 +5507,16 @@ elif view == "Sàng lọc Cổ phiếu":
 
                 _bt_cols = st.columns(len(_bt))
                 _bt_bgs = {
-                    "Strong Buy": ("#14532d", "#86efac"),
-                    "Buy":        ("#166534", "#bbf7d0"),
-                    "Watch":      ("#713f12", "#fde68a"),
-                    "Neutral":    ("#1e293b", "#94a3b8"),
-                    "Reduce":     ("#7c2d12", "#fdba74"),
-                    "Sell":       ("#7f1d1d", "#fca5a5"),
-                    "Strong Sell":("#450a0a", "#f87171"),
+                    "Strong Buy": ("#dcfce7", "#15803d"),
+                    "Buy":        ("#bbf7d0", "#166534"),
+                    "Watch":      ("#fef3c7", "#92400e"),
+                    "Neutral":    ("#f1f5f9", "#475569"),
+                    "Reduce":     ("#ffedd5", "#c2410c"),
+                    "Sell":       ("#fee2e2", "#dc2626"),
+                    "Strong Sell":("#fecaca", "#991b1b"),
                 }
                 for _col, (_, _r) in zip(_bt_cols, _bt.iterrows()):
-                    _bg, _fg = _bt_bgs.get(_r["signal"], ("#1e293b", "#94a3b8"))
+                    _bg, _fg = _bt_bgs.get(_r["signal"], ("#f1f5f9", "#475569"))
                     _wr = float(_r.get("win_rate", 0))
                     _ret = float(_r.get("mean_return", 0))
                     _cnt = int(_r.get("count", 0))
@@ -5621,22 +5621,22 @@ elif view == "Sàng lọc Cổ phiếu":
 
                 def _sc_sig_col(val):
                     _v = val.lstrip("⁠") if val else val
-                    return {"Strong Buy":"background-color:#14532d;color:#86efac;font-weight:700",
-                            "Buy":"background-color:#166534;color:#bbf7d0;font-weight:600",
-                            "Watch":"background-color:#713f12;color:#fde68a",
-                            "Neutral":"background-color:#1e293b;color:#94a3b8",
-                            "Reduce":"background-color:#7c2d12;color:#fdba74",
-                            "Sell":"background-color:#7f1d1d;color:#fca5a5;font-weight:600",
-                            "Strong Sell":"background-color:#450a0a;color:#f87171;font-weight:700",
+                    return {"Strong Buy":"background-color:#dcfce7;color:#15803d;font-weight:700",
+                            "Buy":"background-color:#bbf7d0;color:#166534;font-weight:600",
+                            "Watch":"background-color:#fef3c7;color:#92400e",
+                            "Neutral":"background-color:#f1f5f9;color:#475569",
+                            "Reduce":"background-color:#ffedd5;color:#c2410c",
+                            "Sell":"background-color:#fee2e2;color:#dc2626;font-weight:600",
+                            "Strong Sell":"background-color:#fecaca;color:#991b1b;font-weight:700",
                             }.get(_v, "")
 
                 def _sc_q_col(val):
                     try:
                         q = int(val)
-                        if q >= 70: return "background-color:#166534;color:#86efac"
-                        elif q >= 50: return "background-color:#713f12;color:#fde047"
-                        elif q >= 30: return "background-color:#7c2d12;color:#fdba74"
-                        else: return "background-color:#7f1d1d;color:#fca5a5"
+                        if q >= 70: return "background-color:#dcfce7;color:#15803d"
+                        elif q >= 50: return "background-color:#fef3c7;color:#92400e"
+                        elif q >= 30: return "background-color:#ffedd5;color:#c2410c"
+                        else: return "background-color:#fee2e2;color:#dc2626"
                     except: return ""
 
                 _final_cols = ["Mã"] + display_cols
@@ -5714,22 +5714,22 @@ elif view == "Sàng lọc Cổ phiếu":
                 # Color Signal + Quality
                 def _saved_sig_color(val):
                     _v = val.lstrip("⁠") if val else val
-                    return {"Strong Buy":"background-color:#14532d;color:#86efac;font-weight:700",
-                            "Buy":"background-color:#166534;color:#bbf7d0;font-weight:600",
-                            "Watch":"background-color:#713f12;color:#fde68a",
-                            "Neutral":"background-color:#1e293b;color:#94a3b8",
-                            "Reduce":"background-color:#7c2d12;color:#fdba74",
-                            "Sell":"background-color:#7f1d1d;color:#fca5a5;font-weight:600",
-                            "Strong Sell":"background-color:#450a0a;color:#f87171;font-weight:700",
+                    return {"Strong Buy":"background-color:#dcfce7;color:#15803d;font-weight:700",
+                            "Buy":"background-color:#bbf7d0;color:#166534;font-weight:600",
+                            "Watch":"background-color:#fef3c7;color:#92400e",
+                            "Neutral":"background-color:#f1f5f9;color:#475569",
+                            "Reduce":"background-color:#ffedd5;color:#c2410c",
+                            "Sell":"background-color:#fee2e2;color:#dc2626;font-weight:600",
+                            "Strong Sell":"background-color:#fecaca;color:#991b1b;font-weight:700",
                             }.get(_v, "")
 
                 def _saved_q_color(val):
                     try:
                         q = int(val)
-                        if q >= 70: return "background-color:#166534;color:#86efac"
-                        elif q >= 50: return "background-color:#713f12;color:#fde047"
-                        elif q >= 30: return "background-color:#7c2d12;color:#fdba74"
-                        else: return "background-color:#7f1d1d;color:#fca5a5"
+                        if q >= 70: return "background-color:#dcfce7;color:#15803d"
+                        elif q >= 50: return "background-color:#fef3c7;color:#92400e"
+                        elif q >= 30: return "background-color:#ffedd5;color:#c2410c"
+                        else: return "background-color:#fee2e2;color:#dc2626"
                     except: return ""
 
                 saved_disp = saved_df[["Mã"] + display_cols2].copy()
@@ -6202,10 +6202,10 @@ elif view == "So sánh Cổ phiếu":
             def _cmp_q2(v):
                 try:
                     q = int(v)
-                    if q >= 70:   return "background-color:#166534; color:#86efac"
-                    elif q >= 50: return "background-color:#713f12; color:#fde047"
-                    elif q >= 30: return "background-color:#7c2d12; color:#fdba74"
-                    else:         return "background-color:#7f1d1d; color:#fca5a5"
+                    if q >= 70:   return "background-color:#dcfce7; color:#15803d"
+                    elif q >= 50: return "background-color:#fef3c7; color:#92400e"
+                    elif q >= 30: return "background-color:#ffedd5; color:#c2410c"
+                    else:         return "background-color:#fee2e2; color:#dc2626"
                 except: return ""
             st.dataframe(_cmp_df2.style.map(_cmp_q2, subset=["Quality"]), width="stretch")
 
