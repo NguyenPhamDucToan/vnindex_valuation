@@ -7150,7 +7150,10 @@ elif view == "Tổng quan Thị trường":
             )
             row3 = st.columns(3)
             with row3[0]:
-                _macro_line_chart({"Quy mô GDP": load_macro_indicator("wb_gdp_usd")}, "Quy mô GDP (World Bank, theo năm)", unit=" tỷ USD")
+                _gdp_usd_df = load_macro_indicator("wb_gdp_usd").copy()
+                if not _gdp_usd_df.empty:
+                    _gdp_usd_df["value"] = _gdp_usd_df["value"] / 1e9
+                _macro_line_chart({"Quy mô GDP": _gdp_usd_df}, "Quy mô GDP (World Bank, theo năm)", unit=" tỷ USD")
             with row3[1]:
                 _macro_line_chart({"GDP bình quân đầu người": load_macro_indicator("wb_gdp_per_capita")}, "GDP bình quân đầu người (World Bank, theo năm)", unit=" USD")
             with row3[2]:
