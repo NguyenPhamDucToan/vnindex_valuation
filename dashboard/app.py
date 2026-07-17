@@ -1753,7 +1753,7 @@ def _render_index_ticker_bar():
                        showgrid=False, zeroline=False,
                        range=[_y_min - _y_pad, _y_max + _y_pad]),
             hoverlabel=dict(bgcolor="#ffffff", font_size=11, font_color="#0f172a",
-                            bordercolor="rgba(255,255,255,0.1)"))
+                            bordercolor="#e2e8f0"))
         with _col:
             st.plotly_chart(_fig_i, width="stretch", config={"displayModeBar": False})
     st.caption("Xanh = đang tăng so với hôm trước · Đỏ = đang giảm")
@@ -2067,7 +2067,7 @@ if st.session_state.get("hm_popup_ticker"):
                 _gmini["vol_m"] = _gmini["volume"]/1e6
                 _gfig.add_trace(go.Bar(x=_gmini["dlabel"],y=_gmini["volume"],marker_color=_gmini["vc"].tolist(),yaxis="y2",showlegend=False,hoverinfo="skip"))
                 _gfig.add_trace(go.Scatter(x=_gmini["dlabel"],y=_gmini["close"]*1000,yaxis="y",mode="markers",marker=dict(color="rgba(0,0,0,0)",size=1),showlegend=False,name="Vol",customdata=_gmini["vol_m"],hovertemplate="Vol %{customdata:.2f}M<extra></extra>"))
-                _gfig.update_layout(height=360,margin=dict(l=0,r=0,t=0,b=0),dragmode=False,hovermode="x unified",xaxis=dict(type="category",rangeslider=dict(visible=False),nticks=6,showgrid=False),yaxis=dict(domain=[0.25,1.0],showgrid=True,gridcolor="rgba(255,255,255,0.06)"),yaxis2=dict(domain=[0.0,0.22],showgrid=False),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,0)")
+                _gfig.update_layout(height=360,margin=dict(l=0,r=0,t=0,b=0),dragmode=False,hovermode="x unified",font=dict(color="#374151"),xaxis=dict(type="category",rangeslider=dict(visible=False),nticks=6,showgrid=False),yaxis=dict(domain=[0.25,1.0],showgrid=True,gridcolor="#e2e8f0"),yaxis2=dict(domain=[0.0,0.22],showgrid=False),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,0)")
                 st.plotly_chart(_gfig, width="stretch")
             with _right:
                 def _gs(label,value,color="#0f172a"):
@@ -2521,10 +2521,11 @@ if view == "Phân tích Cổ phiếu":
             fig_price.update_layout(
                 height=480, margin=dict(l=0, r=10, t=4, b=0),
                 hovermode="x unified", dragmode=False,
+                font=dict(color="#374151"),
                 showlegend=True,
                 legend=dict(
                     orientation="h", yanchor="top", y=-0.06,
-                    xanchor="left", x=0, font=dict(size=11),
+                    xanchor="left", x=0, font=dict(size=11, color="#374151"),
                     itemclick="toggle", itemdoubleclick="toggleothers",
                 ),
                 # Single x-axis — spike spans full figure height automatically
@@ -2534,15 +2535,15 @@ if view == "Phân tích Cổ phiếu":
                     # remove blank padding on left/right edges
                     range=[-0.5, len(df1y) - 0.5],
                     showspikes=True, spikemode="across",
-                    spikesnap="cursor", spikecolor="rgba(255,255,255,0.3)",
+                    spikesnap="cursor", spikecolor="#94a3b8",
                     spikethickness=1, spikedash="dot",
                 ),
                 # Price y-axis: top 75%
                 yaxis=dict(
                     domain=[0.25, 1.0], title="VND",
-                    showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                    showgrid=True, gridcolor="#e2e8f0",
                     showspikes=True, spikemode="across+toaxis",
-                    spikesnap="cursor", spikecolor="rgba(255,255,255,0.25)",
+                    spikesnap="cursor", spikecolor="#94a3b8",
                     spikethickness=1, spikedash="dot",
                 ),
                 # Volume y-axis: bottom 22%
@@ -2670,7 +2671,7 @@ if view == "Phân tích Cổ phiếu":
                                 connectgaps=True,
                                 hovertemplate="%{y:,.1f}<extra>Giá đóng cửa</extra>"),
                                 secondary_y=True)
-                        fig_nn.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
+                        fig_nn.add_hline(y=0, line_color="#cbd5e1", line_width=1)
                         fig_nn.update_layout(
                             height=280, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
                             hovermode="x unified",
@@ -2678,7 +2679,7 @@ if view == "Phân tích Cổ phiếu":
                             xaxis=dict(type="category", showgrid=False, tickfont=dict(size=10)),
                             legend=dict(orientation="h", y=1.1, x=0))
                         fig_nn.update_yaxes(title_text="GTNN ròng (tỷ)", showgrid=True,
-                                             gridcolor="rgba(255,255,255,0.06)", zeroline=False, secondary_y=False)
+                                             gridcolor="#e2e8f0", zeroline=False, secondary_y=False)
                         fig_nn.update_yaxes(title_text="Giá (nghìn VND)", showgrid=False, secondary_y=True)
                         st.plotly_chart(fig_nn, width="stretch")
                         st.caption("GTNN = giá trị giao dịch ròng của nhà đầu tư nước ngoài.")
@@ -4795,7 +4796,7 @@ if view == "Phân tích Cổ phiếu":
                         paper_bgcolor="rgba(0,0,0,0)",
                         yaxis=dict(
                             ticksuffix="%", title="",
-                            gridcolor="rgba(148,163,184,0.07)",
+                            gridcolor="#e2e8f0",
                             zeroline=False,
                             range=[_wacc_pct - 2, _ymax],
                             tickfont=dict(size=11),
@@ -4804,7 +4805,7 @@ if view == "Phân tích Cổ phiếu":
                             title="", tickfont=dict(size=13),
                             type="category",
                         ),
-                        font=dict(color="#cbd5e1"),
+                        font=dict(color="#374151"),
                     )
                     st.plotly_chart(_fig_rw, width="stretch")
 
@@ -6824,9 +6825,9 @@ elif view == "Tổng quan Thị trường":
                 _fig_vi.add_trace(go.Scatter(x=_vi["dlabel"], y=_vi["close"], mode="lines", name="VN-Index",
                     line=dict(color="#5b9bd5", width=2), fill="tozeroy", fillcolor="rgba(91,155,213,0.08)",
                     hovertemplate="%{y:,.2f}<extra></extra>"))
-                _fig_vi.add_hline(y=_first_vi, line_dash="dot", line_color="rgba(255,255,255,0.4)", line_width=1,
+                _fig_vi.add_hline(y=_first_vi, line_dash="dot", line_color="#cbd5e1", line_width=1,
                     annotation_text=f"1 năm trước: {_first_vi:,.0f}", annotation_position="bottom right",
-                    annotation_font=dict(size=11, color="rgba(255,255,255,0.6)"))
+                    annotation_font=dict(size=11, color="#64748b"))
                 _fig_vi.update_layout(height=320, margin=dict(l=0,r=10,t=40,b=0), dragmode=False,
                     hovermode="x unified", showlegend=False,
                     title=dict(text=(f"<span style='color:{_cc_vi}'>{_last_vi:,.2f}  ({_chg_vi:+.2f}%)</span>"
@@ -6834,7 +6835,7 @@ elif view == "Tổng quan Thị trường":
                                       f"<span style='color:{_yr_cc_vi};font-size:13px;'>{_yr_chg_vi:+.1f}% trong 1 năm</span>"),
                                font=dict(size=16)),
                     xaxis=dict(type="category", nticks=8, showgrid=False, rangeslider=dict(visible=False)),
-                    yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                    yaxis=dict(showgrid=True, gridcolor="#e2e8f0",
                                range=[_vi_ymin, _vi_ymax]))
                 st.plotly_chart(_fig_vi, width="stretch")
             else:
@@ -6965,14 +6966,14 @@ elif view == "Tổng quan Thị trường":
                 hovertemplate=("<b>%{x}</b><br>Mua-Bán: %{y:,.1f} tỷ<br>"
                                "Mua: %{customdata[0]:,.1f} tỷ<br>"
                                "Bán: %{customdata[1]:,.1f} tỷ<extra></extra>")))
-            _fig_ff.add_hline(y=0, line_color="rgba(255,255,255,0.3)", line_width=1)
+            _fig_ff.add_hline(y=0, line_color="#cbd5e1", line_width=1)
             _fig_ff.update_layout(
                 height=300, margin=dict(l=0, r=10, t=40, b=0), dragmode=False, showlegend=False,
                 title=dict(text=("Mua-bán ròng nước ngoài · 15 phiên gần nhất  "
                                  f"<span style='color:{_cc_net}'>(gần nhất {_last_net:+,.0f} tỷ)</span>"),
                            font=dict(size=14)),
                 xaxis=dict(type="category", showgrid=False),
-                yaxis=dict(title="Giá trị ròng (tỷ VND)", showgrid=True, gridcolor="rgba(255,255,255,0.06)",
+                yaxis=dict(title="Giá trị ròng (tỷ VND)", showgrid=True, gridcolor="#e2e8f0",
                            zeroline=False))
             st.plotly_chart(_fig_ff, width="stretch")
             st.caption(
