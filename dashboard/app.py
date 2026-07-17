@@ -6095,9 +6095,11 @@ elif view == "So sánh Cổ phiếu":
                 _cl = _TBL_COLORS[_ci % len(_TBL_COLORS)]
                 _r, _g, _b = _hx(_cl)
                 _rk = _ranks.get(_ci, len(_tbl_tickers))
+                _is_sel = _ct in _cmp_tickers
+                _sel_bg = f"background:rgba({_r},{_g},{_b},0.09);" if _is_sel else ""
 
                 if _v is None:
-                    _cells += f"<td style='text-align:right;padding:{_cell_pad};color:#374151;font-size:{_cell_fs}'>—</td>"
+                    _cells += f"<td style='text-align:right;padding:{_cell_pad};{_sel_bg}color:#374151;font-size:{_cell_fs}'>—</td>"
                     continue
 
                 _display = _fmt(_v)
@@ -6116,16 +6118,16 @@ elif view == "So sánh Cổ phiếu":
                     _fw = "400"
                     _fs = _cell_fs
 
-                # Special cell backgrounds
+                # Special cell backgrounds (Avg Upside overrides selection tint)
                 if _ml == "Avg Upside":
                     if _v > 0:
                         _cbg = "background:rgba(34,197,94,0.16);"
                     elif _v < 0:
                         _cbg = "background:rgba(239,68,68,0.14);"
                     else:
-                        _cbg = ""
+                        _cbg = _sel_bg
                 else:
-                    _cbg = ""
+                    _cbg = _sel_bg
 
                 # Quality: inline mini data bar (0–100 scale)
                 if _ml == "Quality":
@@ -6156,12 +6158,19 @@ elif view == "So sánh Cổ phiếu":
         )
         for _ci, _ct in enumerate(_tbl_tickers):
             _cl = _TBL_COLORS[_ci % len(_TBL_COLORS)]
+            _r2, _g2, _b2 = _hx(_cl)
+            _is_sel = _ct in _cmp_tickers
+            _hdr_sel = (
+                f"background:rgba({_r2},{_g2},{_b2},0.09);border-top:5px solid {_cl};"
+                if _is_sel else f"border-top:3px solid {_cl};"
+            )
+            _hdr_label = f"<b>{_ct}</b>" if _is_sel else _ct
             _hdr += (
                 f"<th style='padding:{_hdr_pad};text-align:right;color:{_cl};"
                 f"font-size:{_hdr_fs};font-weight:700;"
                 f"border-bottom:2px solid #cbd5e1;"
-                f"border-top:3px solid {_cl};"
-                f"min-width:{_min_w}'>{_ct}</th>"
+                f"{_hdr_sel}"
+                f"min-width:{_min_w}'>{_hdr_label}</th>"
             )
 
         st.markdown(
