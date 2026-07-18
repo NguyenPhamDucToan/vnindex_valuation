@@ -19,6 +19,7 @@ numpy>=1.26.0
 # Visualization
 streamlit>=1.32.0
 plotly>=5.20.0
+streamlit-js-eval>=0.1.7
 
 # Market data / export
 yfinance>=0.2.40

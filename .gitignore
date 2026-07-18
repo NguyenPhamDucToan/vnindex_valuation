@@ -1,6 +1,7 @@
 .env
 *.db-shm
 *.db-wal
+data/vnindex.db
 data/raw/
 data/macro_seen.json
 __pycache__/

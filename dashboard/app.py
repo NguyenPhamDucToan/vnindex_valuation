@@ -2,6 +2,8 @@
 
 Run with:  streamlit run dashboard/app.py
 """
+from __future__ import annotations
+
 import sys, os
 import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -100,6 +102,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import streamlit as st
+from streamlit_js_eval import streamlit_js_eval
 from sqlalchemy import select, func as sqlfunc
 
 from models.database import get_session
@@ -129,6 +132,43 @@ st.set_page_config(
     page_icon="📈",
     layout="wide",
 )
+
+# ─────────────────────────────────────────────
+# Viewport width detection (for responsive chart heights)
+# ─────────────────────────────────────────────
+# Streamlit has no native way to know the browser viewport size in Python;
+# streamlit_js_eval bridges window.innerWidth back into session_state. On
+# the very first render (before the JS round-trip completes) this returns
+# None, so callers must fall back to a desktop-sized default.
+# streamlit_js_eval owns st.session_state["viewport_w"] itself (the `key`
+# param registers it as a component widget) -- writing to that same key
+# ourselves raises StreamlitAPIException, so the resolved value is cached
+# under a different key instead.
+_viewport_w = streamlit_js_eval(js_expressions="window.innerWidth", key="viewport_w")
+if _viewport_w is not None:
+    st.session_state["_viewport_w_resolved"] = _viewport_w
+
+# Breakpoints match the mobile/tablet/desktop non-negotiables used elsewhere
+# in this project's design tooling (375 / 768 / 1024 / 1440px).
+_MOBILE_BREAKPOINT = 480
+_TABLET_BREAKPOINT = 900
+
+
+def _responsive_height(desktop_px: int) -> int:
+    """Scale a chart's Plotly height down for narrower viewports.
+
+    Plotly's own width-responsiveness (via `width="stretch"`) doesn't touch
+    height, so a chart tuned for a 1440px desktop looks disproportionately
+    tall/cramped on a narrow phone screen unless height scales down too.
+    """
+    w = st.session_state.get("_viewport_w_resolved")
+    if w is None:
+        return desktop_px  # first paint, before JS reports back — assume desktop
+    if w < _MOBILE_BREAKPOINT:
+        return max(160, round(desktop_px * 0.62))
+    if w < _TABLET_BREAKPOINT:
+        return max(180, round(desktop_px * 0.80))
+    return desktop_px
 
 # Kill all animations/transitions globally — prevents white flash and dialog delay
 st.markdown("""<style>
@@ -1744,7 +1784,7 @@ def _render_index_ticker_bar():
             fillcolor="rgba(0,0,0,0)")
 
         _fig_i.update_layout(
-            height=175, margin=dict(l=8, r=8, t=70, b=8), dragmode=False,
+            height=_responsive_height(175), margin=dict(l=8, r=8, t=70, b=8), dragmode=False,
             showlegend=False, hovermode="x", bargap=0,
             plot_bgcolor="rgba(255,255,255,0)", paper_bgcolor="rgba(0,0,0,0)",
             xaxis=dict(visible=False, showticklabels=False, ticks="",
@@ -1818,10 +1858,13 @@ def _hf(v, d=1, sfx=""):
 
 
 def _mc(label, value, accent=False):
-    vc = "#60a5fa" if accent else "#f9fafb"
+    # Regression note: this previously defaulted non-accent values to #f9fafb
+    # (near-white), which is invisible against the app's light background —
+    # metric cards like Market Cap / Book Value silently rendered blank.
+    vc = "#3b82f6" if accent else "#1e3a8a"
     return (
         f'<div style="min-width:0;">'
-        f'<div style="font-size:16px;color:#6b7280;white-space:nowrap;">{label}</div>'
+        f'<div style="font-size:16px;color:#64748b;white-space:nowrap;">{label}</div>'
         f'<div style="font-size:20px;font-weight:600;color:{vc};white-space:nowrap;">{value}</div>'
         f'</div>'
     )
@@ -1889,29 +1932,29 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
 
         # LEFT — ticker + name
         f'<div class="ch-left" style="min-width:230px;padding-right:28px;">'
-        f'<div class="ch-ticker" style="font-size:33px;font-weight:800;color:#0f172a;line-height:1.2;">'
+        f'<div class="ch-ticker" style="font-size:33px;font-weight:800;color:#1e3a8a;line-height:1.2;">'
         f'{ticker}'
-        f'<span style="font-size:16px;background:#dbeafe;color:#60a5fa;padding:3px 10px;'
+        f'<span style="font-size:16px;background:#dbeafe;color:#1e40af;padding:3px 10px;'
         f'border-radius:6px;margin-left:9px;vertical-align:middle;">{co_exch}</span>'
         f'</div>'
-        f'<div style="font-size:18px;color:#6b7280;margin-top:8px;">{co_name}</div>'
+        f'<div style="font-size:18px;color:#64748b;margin-top:8px;">{co_name}</div>'
         f'</div>'
 
         # CENTER — price + change + day range
         f'<div class="ch-center" style="min-width:300px;padding-right:28px;">'
         f'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">'
-        f'<span class="ch-price" style="font-size:45px;font-weight:800;color:#0f172a;">{current_price:,.0f}</span>'
+        f'<span class="ch-price" style="font-size:45px;font-weight:800;color:#1e3a8a;">{current_price:,.0f}</span>'
         f'<span style="font-size:22px;color:{_cc};font-weight:600;">{_chg_disp}</span>'
         f'<span style="font-size:18px;background:{_cbg};color:{_cc};padding:3px 12px;'
         f'border-radius:8px;font-weight:600;">{_arrow}{abs(_chg_pct):.2f}%</span>'
         f'{_live_badge}'
         f'</div>'
         f'<div style="margin-top:10px;width:100%;">'
-        f'<div style="display:flex;justify-content:space-between;font-size:16px;color:#6b7280;margin-bottom:5px;">'
-        f'<span>Low &nbsp;<b style="color:#0f172a;">{_low_d:,.0f}</b></span>'
-        f'<span>High <b style="color:#0f172a;">{_high_d:,.0f}</b></span>'
+        f'<div style="display:flex;justify-content:space-between;font-size:16px;color:#64748b;margin-bottom:5px;">'
+        f'<span>Low &nbsp;<b style="color:#1e3a8a;">{_low_d:,.0f}</b></span>'
+        f'<span>High <b style="color:#1e3a8a;">{_high_d:,.0f}</b></span>'
         f'</div>'
-        f'<div style="position:relative;height:4px;background:#374151;border-radius:2px;margin-bottom:10px;">'
+        f'<div style="position:relative;height:4px;background:#dbeafe;border-radius:2px;margin-bottom:10px;">'
         f'<div style="position:absolute;left:0;top:0;height:100%;width:{_rng_pct}%;'
         f'background:{_cc};border-radius:2px;opacity:0.7;"></div>'
         f'<div style="position:absolute;left:{_rng_pct}%;top:50%;transform:translate(-50%,-50%);'
@@ -2067,7 +2110,7 @@ if st.session_state.get("hm_popup_ticker"):
                 _gmini["vol_m"] = _gmini["volume"]/1e6
                 _gfig.add_trace(go.Bar(x=_gmini["dlabel"],y=_gmini["volume"],marker_color=_gmini["vc"].tolist(),yaxis="y2",showlegend=False,hoverinfo="skip"))
                 _gfig.add_trace(go.Scatter(x=_gmini["dlabel"],y=_gmini["close"]*1000,yaxis="y",mode="markers",marker=dict(color="rgba(0,0,0,0)",size=1),showlegend=False,name="Vol",customdata=_gmini["vol_m"],hovertemplate="Vol %{customdata:.2f}M<extra></extra>"))
-                _gfig.update_layout(height=360,margin=dict(l=0,r=0,t=0,b=0),dragmode=False,hovermode="x unified",font=dict(color="#374151"),xaxis=dict(type="category",rangeslider=dict(visible=False),nticks=6,showgrid=False),yaxis=dict(domain=[0.25,1.0],showgrid=True,gridcolor="#e2e8f0"),yaxis2=dict(domain=[0.0,0.22],showgrid=False),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,0)")
+                _gfig.update_layout(height=_responsive_height(360),margin=dict(l=0,r=0,t=0,b=0),dragmode=False,hovermode="x unified",font=dict(color="#374151"),xaxis=dict(type="category",rangeslider=dict(visible=False),nticks=6,showgrid=False),yaxis=dict(domain=[0.25,1.0],showgrid=True,gridcolor="#e2e8f0"),yaxis2=dict(domain=[0.0,0.22],showgrid=False),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,0)")
                 st.plotly_chart(_gfig, width="stretch")
             with _right:
                 def _gs(label,value,color="#0f172a"):
@@ -2228,7 +2271,7 @@ if view == "Phân tích Cổ phiếu":
                     hovertemplate="<b>%{customdata}</b><br>%{x:.3f}%<extra></extra>",
                 ))
                 _fig_sh.update_layout(
-                    height=400, margin=dict(l=0, r=70, t=4, b=0),
+                    height=_responsive_height(400), margin=dict(l=0, r=70, t=4, b=0),
                     dragmode=False, showlegend=False,
                     xaxis=dict(title="Tỷ lệ sở hữu (%)", ticksuffix="%"),
                     yaxis=dict(tickfont=dict(size=12), automargin=True),
@@ -2255,7 +2298,7 @@ if view == "Phân tích Cổ phiếu":
                     hovertemplate="%{label}: <b>%{value:.2f}%</b><extra></extra>",
                 ))
                 _fig_pie.update_layout(
-                    height=400, margin=dict(l=10, r=10, t=10, b=10),
+                    height=_responsive_height(400), margin=dict(l=10, r=10, t=10, b=10),
                     dragmode=False, showlegend=False,
                 )
                 st.plotly_chart(_fig_pie, width="stretch")
@@ -2519,7 +2562,7 @@ if view == "Phân tích Cổ phiếu":
             )
 
             fig_price.update_layout(
-                height=480, margin=dict(l=0, r=10, t=4, b=0),
+                height=_responsive_height(480), margin=dict(l=0, r=10, t=4, b=0),
                 hovermode="x unified", dragmode=False,
                 font=dict(color="#374151"),
                 showlegend=True,
@@ -2610,7 +2653,7 @@ if view == "Phân tích Cổ phiếu":
                                 hovertemplate="<b>%{text}</b><br>P/E %{x:.1f}× · ROE %{y:.1f}%<extra></extra>",
                                 name=ticker))
                         fig_pc.update_layout(
-                            height=340, margin=dict(l=0, r=0, t=6, b=0), dragmode=False,
+                            height=_responsive_height(340), margin=dict(l=0, r=0, t=6, b=0), dragmode=False,
                             xaxis_title="P/E (×)", yaxis_title="ROE (%)",
                             showlegend=False, hovermode="closest")
                         st.plotly_chart(fig_pc, width="stretch")
@@ -2673,7 +2716,7 @@ if view == "Phân tích Cổ phiếu":
                                 secondary_y=True)
                         fig_nn.add_hline(y=0, line_color="#cbd5e1", line_width=1)
                         fig_nn.update_layout(
-                            height=280, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+                            height=_responsive_height(280), margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
                             hovermode="x unified",
                             hoverlabel=dict(bgcolor="#ffffff", font_size=12, font_color="#0f172a"),
                             xaxis=dict(type="category", showgrid=False, tickfont=dict(size=10)),
@@ -2861,6 +2904,18 @@ if view == "Phân tích Cổ phiếu":
                     .st-key-ta_card table { font-size: 14px !important; }
                     .st-key-ta_card p, .st-key-ta_card td, .st-key-ta_card th { font-size: 14px !important; }
                     .st-key-ta_card { border: none !important; padding: 0 !important; }
+                    /* Regression note: the Mua/Bán table (gc1) and the Plotly gauge (gc2)
+                       are narrow flex columns nested inside an already-narrow side panel.
+                       A flex item's default min-width is "auto" (shrink-to-fit content),
+                       so the gauge's iframe can briefly report its natural (wider) size
+                       before Plotly's resize-observer shrinks it, bleeding over the table
+                       next to it -- intermittent, since it depends on paint/resize timing.
+                       min-width:0 + overflow:hidden force the column to always respect its
+                       allotted flex width instead of growing to fit content. */
+                    .st-key-ta_card [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+                        min-width: 0 !important;
+                        overflow: hidden !important;
+                    }
                     </style>
                 ''', unsafe_allow_html=True)
                 st.markdown(
@@ -2970,43 +3025,54 @@ if view == "Phân tích Cổ phiếu":
                     ma_buy   = sum(1 for s in ma_sigs if "mua" in s.lower())
                     ma_sell  = sum(1 for s in ma_sigs if "bán" in s.lower())
 
-                    gc1, gc2 = st.columns([3, 2])
-                    with gc1:
-                        st.markdown(
-                            f'<div style="margin-top:12px;">TỔNG HỢP: '
-                            f'<span style="background:{vcolor};color:white;font-weight:700;'
-                            f'padding:2px 10px;border-radius:4px;">{verdict}</span></div>',
-                            unsafe_allow_html=True)
-                        st.markdown(f"""
+                    # Regression note: this used to be a 2-column side-by-side layout
+                    # (table | gauge). Inside an already-narrow nested side panel that
+                    # left ~150px for a 4-column table, which either overlapped the gauge
+                    # or (after adding overflow:hidden to stop the overlap) got its own
+                    # "Bán" column silently clipped instead -- fixing the symptom, not the
+                    # cause. Stacking vertically instead means the table and the gauge
+                    # each always get the card's *full* width, at any screen size, so
+                    # neither ever has to compete with the other for room.
+                    st.markdown(
+                        f'<div style="margin-top:12px;">TỔNG HỢP: '
+                        f'<span style="background:{vcolor};color:white;font-weight:700;'
+                        f'padding:2px 10px;border-radius:4px;">{verdict}</span></div>',
+                        unsafe_allow_html=True)
+                    st.markdown(f"""
     | | | Mua | Bán |
     |---|---|---|---|
     | Đường trung bình | **{_verdict(ma_buy, ma_sell)}** | {ma_buy} | {ma_sell} |
     | Chỉ số kỹ thuật | **{_verdict(ind_buy, ind_sell)}** | {ind_buy} | {ind_sell} |
     """)
-                    with gc2:
-                        fig_gauge = go.Figure(go.Indicator(
-                            mode="gauge+number",
-                            value=score,
-                            number={"valueformat": ".2f", "font": {"size": 20}},
-                            gauge={
-                                "axis": {"range": [-1, 1], "visible": False},
-                                "bar": {"color": "rgba(0,0,0,0)"},
-                                "bgcolor": "rgba(0,0,0,0)",
-                                "steps": [
-                                    {"range": [-1, -0.6], "color": "#dc2626"},
-                                    {"range": [-0.6, -0.2], "color": "#f97316"},
-                                    {"range": [-0.2, 0.2], "color": "#eab308"},
-                                    {"range": [0.2, 0.6], "color": "#84cc16"},
-                                    {"range": [0.6, 1], "color": "#22c55e"},
-                                ],
-                                "threshold": {
-                                    "line": {"color": "white", "width": 4},
-                                    "thickness": 0.85,
-                                    "value": score,
-                                },
-                            }))
-                        fig_gauge.update_layout(height=140, margin=dict(l=10, r=10, t=10, b=0),
-                                                 font=dict(color="#0f172a"))
+                    fig_gauge = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=score,
+                        number={"valueformat": ".2f", "font": {"size": 20}},
+                        gauge={
+                            "axis": {"range": [-1, 1], "visible": False},
+                            "bar": {"color": "rgba(0,0,0,0)"},
+                            "bgcolor": "rgba(0,0,0,0)",
+                            "steps": [
+                                {"range": [-1, -0.6], "color": "#dc2626"},
+                                {"range": [-0.6, -0.2], "color": "#f97316"},
+                                {"range": [-0.2, 0.2], "color": "#eab308"},
+                                {"range": [0.2, 0.6], "color": "#84cc16"},
+                                {"range": [0.6, 1], "color": "#22c55e"},
+                            ],
+                            "threshold": {
+                                "line": {"color": "white", "width": 4},
+                                "thickness": 0.85,
+                                "value": score,
+                            },
+                        }))
+                    fig_gauge.update_layout(height=_responsive_height(150), margin=dict(l=10, r=10, t=10, b=0),
+                                             font=dict(color="#0f172a"))
+                    # Cap the gauge's own width (it's a semi-circle -- letting it
+                    # stretch to the card's full width on a wide desktop screen would
+                    # look oversized/misshapen) and center it, now that it's on its
+                    # own row instead of sharing one with the table.
+                    _gg1, _gg2, _gg3 = st.columns([1, 2, 1])
+                    with _gg2:
                         st.plotly_chart(fig_gauge, width="stretch")
 
                     st.markdown(
@@ -3065,17 +3131,36 @@ if view == "Phân tích Cổ phiếu":
                         "R2":     [R2c, R2f, R2ca, R2w, R2d],
                         "R3":     [R3c, R3f, R3ca, R3w, R3d],
                     }, index=["Classic", "Fibonacci", "Camarilla", "Woodie", "DeMark"]).round(2)
+                    # Regression note: st.dataframe (unlike st.table) is a real
+                    # interactive grid with its own native horizontal scroll, so
+                    # wide content is never silently lost -- but it still defaults
+                    # to auto-sized columns wide enough that this 7-column table
+                    # needs scrolling sooner than necessary in a narrow card.
+                    # Explicit narrow widths make more of it visible without
+                    # scrolling; the native scrollbar remains the fallback for
+                    # whatever still doesn't fit at any given screen width.
+                    _pivot_col_cfg = {
+                        col: st.column_config.NumberColumn(col, width="small", format="%.2f")
+                        for col in pivot_df.columns
+                    }
                     st.dataframe(
                         pivot_df.style
                         .format("{:.2f}")
                         .set_properties(subset=["S1", "S2", "S3"], **{"color": "#4ade80"})
                         .set_properties(subset=["R1", "R2", "R3"], **{"color": "#f87171"})
                         .set_properties(subset=["Points"], **{"color": "#facc15", "font-weight": "700"}),
+                        column_config=_pivot_col_cfg,
                         width="stretch")
                     st.caption("S = Hỗ trợ (xanh) · R = Kháng cự (đỏ) · Points = Điểm xoay (vàng)")
 
                     # ── Indicators & Moving averages ──────────────────
-                    ic1, ic2 = st.columns(2)
+                    # Regression note: these used to sit side by side via
+                    # st.columns(2). st.table (unlike st.dataframe) is static
+                    # HTML with no scroll fallback at all, so squeezing it into
+                    # half the card's width just clipped the "Exponential"
+                    # column outright -- same root cause as the gauge/table bug
+                    # above, same fix: stack vertically so each table always
+                    # gets the card's full width, regardless of screen size.
 
                     def _color_action(val):
                         if "mua" in str(val).lower():
@@ -3084,25 +3169,23 @@ if view == "Phân tích Cổ phiếu":
                             return "color: #ef4444; font-weight: 600"
                         return ""
 
-                    with ic1:
-                        st.markdown("**Chỉ số kỹ thuật**")
-                        df_ind = pd.DataFrame(ind_rows, columns=["Tên", "Giá trị", "Tín hiệu"])
-                        st.table(
-                            df_ind.style
-                            .format({"Giá trị": "{:.2f}"})
-                            .map(_color_action, subset=["Tín hiệu"])
-                            .set_properties(subset=["Tín hiệu"], **{"white-space": "nowrap"})
-                            .hide(axis="index"))
+                    st.markdown("**Chỉ số kỹ thuật**")
+                    df_ind = pd.DataFrame(ind_rows, columns=["Tên", "Giá trị", "Tín hiệu"])
+                    st.table(
+                        df_ind.style
+                        .format({"Giá trị": "{:.2f}"})
+                        .map(_color_action, subset=["Tín hiệu"])
+                        .set_properties(subset=["Tín hiệu"], **{"white-space": "nowrap"})
+                        .hide(axis="index"))
 
-                    with ic2:
-                        st.markdown("**Đường trung bình**")
-                        df_ma = pd.DataFrame(
-                            [(r[0], f"{r[1]:.2f} ({r[2]})", f"{r[3]:.2f} ({r[4]})") for r in ma_rows],
-                            columns=["Tên", "Simple", "Exponential"])
-                        st.table(
-                            df_ma.style
-                            .map(_color_action, subset=["Simple", "Exponential"])
-                            .hide(axis="index"))
+                    st.markdown("**Đường trung bình**")
+                    df_ma = pd.DataFrame(
+                        [(r[0], f"{r[1]:.2f} ({r[2]})", f"{r[3]:.2f} ({r[4]})") for r in ma_rows],
+                        columns=["Tên", "Simple", "Exponential"])
+                    st.table(
+                        df_ma.style
+                        .map(_color_action, subset=["Simple", "Exponential"])
+                        .hide(axis="index"))
                 else:
                     st.info("Không đủ lịch sử giá để tính chỉ báo kỹ thuật.")
 
@@ -4789,7 +4872,7 @@ if view == "Phân tích Cổ phiếu":
                         annotation_font=dict(color="#f59e0b", size=11),
                     )
                     _fig_rw.update_layout(
-                        height=230,
+                        height=_responsive_height(230),
                         margin=dict(l=10, r=110, t=12, b=10),
                         dragmode=False, showlegend=False,
                         plot_bgcolor="rgba(255,255,255,0)",
@@ -4860,9 +4943,15 @@ if view == "Phân tích Cổ phiếu":
 
         # ── Tin tức & Sự kiện ─────────────────────────────────────────
         st.markdown("---")
-        _ne_tab_news, _ne_tab_events = st.tabs(["📰 Tin tức", "📅 Sự kiện công ty"])
+        # Lazy tab (see note on Stock Screener/Macro tabs above) — segmented_control
+        # + if/else instead of st.tabs() so the inactive tab's queries + HTML-string
+        # building don't run on every rerun.
+        _ne_sel = st.segmented_control(
+            "Tin tức & Sự kiện", ["📰 Tin tức", "📅 Sự kiện công ty"], default="📰 Tin tức",
+            key="news_events_tab_sel", label_visibility="collapsed",
+        ) or "📰 Tin tức"
 
-        with _ne_tab_news:
+        if _ne_sel == "📰 Tin tức":
             _news_df = load_company_news(ticker)
             if _news_df.empty:
                 st.info("Không có tin tức gần đây.")
@@ -4945,7 +5034,7 @@ if view == "Phân tích Cổ phiếu":
                     unsafe_allow_html=True,
                 )
 
-        with _ne_tab_events:
+        else:
             _evts_df = load_company_events(ticker)
             if _evts_df.empty:
                 st.info("Không có sự kiện nào.")
@@ -5382,7 +5471,7 @@ elif view == "Sàng lọc Cổ phiếu":
                         hole=0.5, textinfo="label+value",
                         hovertemplate="%{label}: %{value} (%{percent})<extra></extra>",
                     ))
-                    fig_sig.update_layout(height=360, margin=dict(l=0, r=0, t=10, b=0),
+                    fig_sig.update_layout(height=_responsive_height(360), margin=dict(l=0, r=0, t=10, b=0),
                                           showlegend=False, dragmode=False,
                                           font=dict(color="#374151"))
                     st.plotly_chart(fig_sig, width="stretch")
@@ -5438,7 +5527,7 @@ elif view == "Sàng lọc Cổ phiếu":
                         textfont=dict(size=10, color="#374151"),
                         hovertemplate="%{x}: %{y:.1f}% upside<extra></extra>"))
                     fig_combo.update_layout(
-                        height=360,
+                        height=_responsive_height(360),
                         margin=dict(l=0, r=50, t=30, b=0),
                         barmode="stack", dragmode=False,
                         font=dict(color="#374151"),
@@ -5497,7 +5586,7 @@ elif view == "Sàng lọc Cổ phiếu":
             fig_qs.add_annotation(x=-50, y=15, text="Tránh", showarrow=False,
                                   font=dict(color="#ef4444", size=12))
             fig_qs.update_layout(
-                height=420, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+                height=_responsive_height(420), margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
                 xaxis_title=f"Avg Upside % (giới hạn {_CLIP_LO}…{_CLIP_HI}%)", yaxis_title="Quality Score",
                 hovermode="closest")
             st.plotly_chart(fig_qs, width="stretch")
@@ -5522,7 +5611,7 @@ elif view == "Sàng lọc Cổ phiếu":
             ))
             fig_hist.add_vline(x=0, line_dash="dot", line_color="#64748b", opacity=0.6)
             fig_hist.update_layout(
-                height=260, margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+                height=_responsive_height(260), margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
                 xaxis=dict(title="Avg Upside %", range=[_CLIP_LO, _CLIP_HI]),
                 yaxis_title="Số mã", bargap=0.05)
             st.plotly_chart(fig_hist, width="stretch")
@@ -5799,587 +5888,595 @@ elif view == "Sàng lọc Cổ phiếu":
 # VIEW 3 — STOCK COMPARISON
 # ═══════════════════════════════════════════════════════════════
 elif view == "So sánh Cổ phiếu":
-    st.title("So sánh Cổ phiếu")
+    # Wrapped in a fragment: multiselect/radio changes below only rerun this
+    # view, not the whole page (avoids the full-page flicker/scroll-jump a
+    # normal Streamlit rerun causes). Safe here — this view sets no session_state
+    # read by code outside itself (unlike Sector Analysis's heatmap-click popup).
+    @st.fragment
+    def _comparison_frag():
+        st.title("So sánh Cổ phiếu")
 
-    # ── Ticker selector ────────────────────────────────────────────
-    _cmp_all = load_available_tickers()
-    _cmp_default = ["HPG", "NKG", "HSG"] if all(t in _cmp_all for t in ["HPG", "NKG", "HSG"]) else _cmp_all[:3]
+        # ── Ticker selector ────────────────────────────────────────────
+        _cmp_all = load_available_tickers()
+        _cmp_default = ["HPG", "NKG", "HSG"] if all(t in _cmp_all for t in ["HPG", "NKG", "HSG"]) else _cmp_all[:3]
 
-    _sel_col, _tog_col = st.columns([3, 1])
-    with _sel_col:
-        _cmp_tickers = st.multiselect(
-            "Chọn 1–4 mã cổ phiếu để so sánh",
-            options=sorted(_cmp_all),
-            default=st.session_state.get("cmp_tickers", _cmp_default),
-            max_selections=4,
-            key="cmp_tickers",
-            placeholder="Tìm mã...",
-        )
-    with _tog_col:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        _ind_mode = st.toggle("Toàn ngành", key="ind_mode", value=False,
-                              help="So sánh tất cả công ty cùng ngành với mã đầu tiên được chọn")
+        _sel_col, _tog_col = st.columns([3, 1])
+        with _sel_col:
+            _cmp_tickers = st.multiselect(
+                "Chọn 1–4 mã cổ phiếu để so sánh",
+                options=sorted(_cmp_all),
+                default=st.session_state.get("cmp_tickers", _cmp_default),
+                max_selections=4,
+                key="cmp_tickers",
+                placeholder="Tìm mã...",
+            )
+        with _tog_col:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            _ind_mode = st.toggle("Toàn ngành", key="ind_mode", value=False,
+                                  help="So sánh tất cả công ty cùng ngành với mã đầu tiên được chọn")
 
-    _enough = len(_cmp_tickers) >= 2 or (len(_cmp_tickers) == 1 and _ind_mode)
-    if not _enough:
-        if len(_cmp_tickers) == 0:
-            st.info("Chọn ít nhất 1 mã để so sánh.")
+        _enough = len(_cmp_tickers) >= 2 or (len(_cmp_tickers) == 1 and _ind_mode)
+        if not _enough:
+            if len(_cmp_tickers) == 0:
+                st.info("Chọn ít nhất 1 mã để so sánh.")
+            else:
+                st.info("Chọn thêm mã, hoặc bật **Toàn ngành** để xem tất cả công ty cùng ngành.")
         else:
-            st.info("Chọn thêm mã, hoặc bật **Toàn ngành** để xem tất cả công ty cùng ngành.")
-    else:
-        _single_industry = (len(_cmp_tickers) == 1 and _ind_mode)
+            _single_industry = (len(_cmp_tickers) == 1 and _ind_mode)
 
-        if not _single_industry:
-            _cmp_period = st.radio(
-                "Khoảng thời gian", ["1M", "3M", "6M", "1Y", "2Y"],
-                index=3, horizontal=True, key="cmp_period",
-            )
-        _cmp_n = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "2Y": 504}.get(
-            st.session_state.get("cmp_period", "1Y"), 252
-        ) if _single_industry else {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "2Y": 504}[_cmp_period]
+            if not _single_industry:
+                _cmp_period = st.radio(
+                    "Khoảng thời gian", ["1M", "3M", "6M", "1Y", "2Y"],
+                    index=3, horizontal=True, key="cmp_period",
+                )
+            _cmp_n = {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "2Y": 504}.get(
+                st.session_state.get("cmp_period", "1Y"), 252
+            ) if _single_industry else {"1M": 21, "3M": 63, "6M": 126, "1Y": 252, "2Y": 504}[_cmp_period]
 
-        # ── Normalized price chart + return cards (skip for single-ticker industry mode) ──
-        _CMP_COLORS = ["#60a5fa", "#f59e0b", "#22c55e", "#a855f7"]
-        if not _single_industry:
-            _cmp_fig = go.Figure()
-            _cmp_returns = {}
-            st.subheader("Hiệu suất giá (chuẩn hóa về 100)")
-            for _ci, _ct in enumerate(_cmp_tickers):
-                _cpdf = load_prices(_ct)
-                if _cpdf.empty:
-                    continue
-                _cpdf = _cpdf.tail(_cmp_n).copy()
-                if _cpdf.empty:
-                    continue
-                _base = float(_cpdf["close"].iloc[0])
-                _cpdf["norm"] = _cpdf["close"] / _base * 100
-                _cpdf["dlabel"] = pd.to_datetime(_cpdf["date"]).dt.strftime("%Y-%m-%d")
-                _ret = float(_cpdf["close"].iloc[-1]) / _base - 1
-                _cmp_returns[_ct] = _ret
-                _cmp_fig.add_trace(go.Scatter(
-                    x=_cpdf["dlabel"], y=_cpdf["norm"], name=_ct,
-                    mode="lines", line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2),
-                    hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:.1f}} ({_ret:+.1%})<extra></extra>",
-                ))
-            _cmp_fig.add_hline(y=100, line_dash="dot", line_color="#64748b", opacity=0.5)
-            _cmp_fig.update_layout(
-                height=380, margin=dict(l=0, r=0, t=20, b=0), dragmode=False,
-                hovermode="x unified",
-                xaxis=dict(type="category", nticks=8, showgrid=False),
-                yaxis_title="Giá chuẩn hóa (100 = đầu kỳ)",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-            )
-            st.plotly_chart(_cmp_fig, width="stretch")
+            # ── Normalized price chart + return cards (skip for single-ticker industry mode) ──
+            _CMP_COLORS = ["#60a5fa", "#f59e0b", "#22c55e", "#a855f7"]
+            if not _single_industry:
+                _cmp_fig = go.Figure()
+                _cmp_returns = {}
+                st.subheader("Hiệu suất giá (chuẩn hóa về 100)")
+                for _ci, _ct in enumerate(_cmp_tickers):
+                    _cpdf = load_prices(_ct)
+                    if _cpdf.empty:
+                        continue
+                    _cpdf = _cpdf.tail(_cmp_n).copy()
+                    if _cpdf.empty:
+                        continue
+                    _base = float(_cpdf["close"].iloc[0])
+                    _cpdf["norm"] = _cpdf["close"] / _base * 100
+                    _cpdf["dlabel"] = pd.to_datetime(_cpdf["date"]).dt.strftime("%Y-%m-%d")
+                    _ret = float(_cpdf["close"].iloc[-1]) / _base - 1
+                    _cmp_returns[_ct] = _ret
+                    _cmp_fig.add_trace(go.Scatter(
+                        x=_cpdf["dlabel"], y=_cpdf["norm"], name=_ct,
+                        mode="lines", line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2),
+                        hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:.1f}} ({_ret:+.1%})<extra></extra>",
+                    ))
+                _cmp_fig.add_hline(y=100, line_dash="dot", line_color="#64748b", opacity=0.5)
+                _cmp_fig.update_layout(
+                    height=_responsive_height(380), margin=dict(l=0, r=0, t=20, b=0), dragmode=False,
+                    hovermode="x unified",
+                    xaxis=dict(type="category", nticks=8, showgrid=False),
+                    yaxis_title="Giá chuẩn hóa (100 = đầu kỳ)",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+                )
+                st.plotly_chart(_cmp_fig, width="stretch")
 
-            # ── Return summary cards ─────────────────────────────────
-            if _cmp_returns:
-                _ret_cols = st.columns(len(_cmp_returns))
-                for _ci, (_ct, _ret) in enumerate(_cmp_returns.items()):
-                    _cc = "#22c55e" if _ret >= 0 else "#ef4444"
-                    _ret_cols[_ci].markdown(
-                        f"<div style='text-align:center;padding:8px;background:#f8fafc;border-radius:8px;'>"
-                        f"<div style='font-size:13px;color:#6b7280;'>{_ct}</div>"
-                        f"<div style='font-size:22px;font-weight:800;color:{_cc};'>{_ret:+.1%}</div>"
-                        f"<div style='font-size:11px;color:#475569;'>{_cmp_period}</div></div>",
-                        unsafe_allow_html=True,
+                # ── Return summary cards ─────────────────────────────────
+                if _cmp_returns:
+                    _ret_cols = st.columns(len(_cmp_returns))
+                    for _ci, (_ct, _ret) in enumerate(_cmp_returns.items()):
+                        _cc = "#22c55e" if _ret >= 0 else "#ef4444"
+                        _ret_cols[_ci].markdown(
+                            f"<div style='text-align:center;padding:8px;background:#f8fafc;border-radius:8px;'>"
+                            f"<div style='font-size:13px;color:#6b7280;'>{_ct}</div>"
+                            f"<div style='font-size:22px;font-weight:800;color:{_cc};'>{_ret:+.1%}</div>"
+                            f"<div style='font-size:11px;color:#475569;'>{_cmp_period}</div></div>",
+                            unsafe_allow_html=True,
+                        )
+
+            # ── Load screen data once ────────────────────────────────
+            with st.spinner("Đang tải..."):
+                _cmp_screen = load_valuation_screen_data()
+            _price_map_cmp = load_latest_prices()
+
+            def _px(v):
+                try: return float(str(v).replace("x","").replace("%","").replace(",","").replace("—",""))
+                except: return None
+
+            # ── Industry mode: detect sector & build full ticker list ─
+            _ind_sector = None
+            _tbl_tickers = _cmp_tickers  # default: same as chart tickers
+            if _ind_mode and _cmp_tickers:
+                _base_row = _cmp_screen[_cmp_screen["Mã"] == _cmp_tickers[0]]
+                if not _base_row.empty:
+                    _ind_sector = _base_row.iloc[0]["Ngành"]
+                    _sector_df  = _cmp_screen[_cmp_screen["Ngành"] == _ind_sector].copy()
+                    # sort by market cap: price × shares (best effort, fallback to ticker order)
+                    _sect_mcap = {}
+                    with st.spinner(f"Đang tải dữ liệu ngành {_ind_sector}..."):
+                        for _st in _sector_df["Mã"].tolist():
+                            _pr2 = _price_map_cmp.get(_st)
+                            _yf2 = load_financials_y(_st)
+                            if _pr2 and not _yf2.empty and "shares_outstanding" in _yf2.columns:
+                                _sh2 = _yf2["shares_outstanding"].dropna()
+                                if not _sh2.empty:
+                                    _sect_mcap[_st] = _pr2 * float(_sh2.iloc[-1]) / 1000
+                    _tbl_tickers = sorted(
+                        _sector_df["Mã"].tolist(),
+                        key=lambda t: _sect_mcap.get(t, 0), reverse=True
                     )
 
-        # ── Load screen data once ────────────────────────────────
-        with st.spinner("Đang tải..."):
-            _cmp_screen = load_valuation_screen_data()
-        _price_map_cmp = load_latest_prices()
+            # ── Hồ sơ tổng thể (Radar) ──────────────────────────────
+            st.subheader("Hồ sơ tổng thể")
+            _RADAR_CATS = ["ROE", "Net\nMargin", "FCF\nMargin", "Quality", "Upside"]
+            _RADAR_KEYS = ["_roe_raw", "_nm_raw", "_fcfm_raw", "_qs_raw", "_avg_upside_raw"]
+            _RADAR_MAXS = [0.30, 0.25, 0.20, 100.0, 1.00]
+            _radar_fig = go.Figure()
 
-        def _px(v):
-            try: return float(str(v).replace("x","").replace("%","").replace(",","").replace("—",""))
-            except: return None
+            def _radar_label(rk, rv):
+                """Human-readable label for a raw radar metric value."""
+                if rv is None or rv <= -99:
+                    return "—"
+                if rk == "_qs_raw":
+                    return f"{rv:.0f}/100"
+                return f"{rv * 100:.1f}%"
 
-        # ── Industry mode: detect sector & build full ticker list ─
-        _ind_sector = None
-        _tbl_tickers = _cmp_tickers  # default: same as chart tickers
-        if _ind_mode and _cmp_tickers:
-            _base_row = _cmp_screen[_cmp_screen["Mã"] == _cmp_tickers[0]]
-            if not _base_row.empty:
-                _ind_sector = _base_row.iloc[0]["Ngành"]
-                _sector_df  = _cmp_screen[_cmp_screen["Ngành"] == _ind_sector].copy()
-                # sort by market cap: price × shares (best effort, fallback to ticker order)
-                _sect_mcap = {}
-                with st.spinner(f"Đang tải dữ liệu ngành {_ind_sector}..."):
-                    for _st in _sector_df["Mã"].tolist():
-                        _pr2 = _price_map_cmp.get(_st)
-                        _yf2 = load_financials_y(_st)
-                        if _pr2 and not _yf2.empty and "shares_outstanding" in _yf2.columns:
-                            _sh2 = _yf2["shares_outstanding"].dropna()
-                            if not _sh2.empty:
-                                _sect_mcap[_st] = _pr2 * float(_sh2.iloc[-1]) / 1000
-                _tbl_tickers = sorted(
-                    _sector_df["Mã"].tolist(),
-                    key=lambda t: _sect_mcap.get(t, 0), reverse=True
-                )
+            # Industry average trace (only when sector is loaded)
+            if _ind_mode and _ind_sector and len(_tbl_tickers) > 1:
+                _avg_norm: list[list[float]] = [[] for _ in _RADAR_KEYS]
+                _avg_raw:  list[list[float]] = [[] for _ in _RADAR_KEYS]
+                for _xt in _tbl_tickers:
+                    _xr = _cmp_screen[_cmp_screen["Mã"] == _xt]
+                    if _xr.empty: continue
+                    _xrow = _xr.iloc[0]
+                    for _xi, (_rk, _rm) in enumerate(zip(_RADAR_KEYS, _RADAR_MAXS)):
+                        _xv = _xrow.get(_rk)
+                        if _xv is None or (isinstance(_xv, float) and _xv <= -99): continue
+                        _xv = float(_xv)
+                        _avg_raw[_xi].append(_xv)
+                        if _rk == "_qs_raw":
+                            _avg_norm[_xi].append(max(0, min(100, _xv)))
+                        else:
+                            _avg_norm[_xi].append(max(0, min(100, _xv / _rm * 100)))
+                _avg_vals = [round(sum(b) / len(b), 1) if b else 0 for b in _avg_norm]
+                _avg_labels = [
+                    _radar_label(_rk, sum(b) / len(b) if b else None)
+                    for _rk, b in zip(_RADAR_KEYS, _avg_raw)
+                ]
+                _radar_fig.add_trace(go.Scatterpolar(
+                    r=_avg_vals + [_avg_vals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
+                    name=f"TB ngành ({len(_tbl_tickers)} CP)",
+                    fill="toself",
+                    fillcolor="rgba(249,115,22,0.12)",
+                    line=dict(color="#f97316", width=2, dash="dash"),
+                    customdata=_avg_labels + [_avg_labels[0]],
+                    hovertemplate="%{theta}: %{customdata}<extra>Trung bình ngành</extra>",
+                ))
 
-        # ── Hồ sơ tổng thể (Radar) ──────────────────────────────
-        st.subheader("Hồ sơ tổng thể")
-        _RADAR_CATS = ["ROE", "Net\nMargin", "FCF\nMargin", "Quality", "Upside"]
-        _RADAR_KEYS = ["_roe_raw", "_nm_raw", "_fcfm_raw", "_qs_raw", "_avg_upside_raw"]
-        _RADAR_MAXS = [0.30, 0.25, 0.20, 100.0, 1.00]
-        _radar_fig = go.Figure()
-
-        def _radar_label(rk, rv):
-            """Human-readable label for a raw radar metric value."""
-            if rv is None or rv <= -99:
-                return "—"
-            if rk == "_qs_raw":
-                return f"{rv:.0f}/100"
-            return f"{rv * 100:.1f}%"
-
-        # Industry average trace (only when sector is loaded)
-        if _ind_mode and _ind_sector and len(_tbl_tickers) > 1:
-            _avg_norm: list[list[float]] = [[] for _ in _RADAR_KEYS]
-            _avg_raw:  list[list[float]] = [[] for _ in _RADAR_KEYS]
-            for _xt in _tbl_tickers:
-                _xr = _cmp_screen[_cmp_screen["Mã"] == _xt]
-                if _xr.empty: continue
-                _xrow = _xr.iloc[0]
-                for _xi, (_rk, _rm) in enumerate(zip(_RADAR_KEYS, _RADAR_MAXS)):
-                    _xv = _xrow.get(_rk)
-                    if _xv is None or (isinstance(_xv, float) and _xv <= -99): continue
-                    _xv = float(_xv)
-                    _avg_raw[_xi].append(_xv)
-                    if _rk == "_qs_raw":
-                        _avg_norm[_xi].append(max(0, min(100, _xv)))
+            for _ci, _ct in enumerate(_cmp_tickers):
+                _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
+                if _row.empty: continue
+                _r = _row.iloc[0]
+                _rvals, _rlabels = [], []
+                for _rk, _rm in zip(_RADAR_KEYS, _RADAR_MAXS):
+                    _rv = _r.get(_rk)
+                    _rlabels.append(_radar_label(_rk, _rv))
+                    if _rv is None or _rv <= -99:
+                        _rvals.append(0)
+                    elif _rk == "_qs_raw":
+                        _rvals.append(max(0, min(100, _rv)))
                     else:
-                        _avg_norm[_xi].append(max(0, min(100, _xv / _rm * 100)))
-            _avg_vals = [round(sum(b) / len(b), 1) if b else 0 for b in _avg_norm]
-            _avg_labels = [
-                _radar_label(_rk, sum(b) / len(b) if b else None)
-                for _rk, b in zip(_RADAR_KEYS, _avg_raw)
-            ]
-            _radar_fig.add_trace(go.Scatterpolar(
-                r=_avg_vals + [_avg_vals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
-                name=f"TB ngành ({len(_tbl_tickers)} CP)",
-                fill="toself",
-                fillcolor="rgba(249,115,22,0.12)",
-                line=dict(color="#f97316", width=2, dash="dash"),
-                customdata=_avg_labels + [_avg_labels[0]],
-                hovertemplate="%{theta}: %{customdata}<extra>Trung bình ngành</extra>",
-            ))
-
-        for _ci, _ct in enumerate(_cmp_tickers):
-            _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
-            if _row.empty: continue
-            _r = _row.iloc[0]
-            _rvals, _rlabels = [], []
-            for _rk, _rm in zip(_RADAR_KEYS, _RADAR_MAXS):
-                _rv = _r.get(_rk)
-                _rlabels.append(_radar_label(_rk, _rv))
-                if _rv is None or _rv <= -99:
-                    _rvals.append(0)
-                elif _rk == "_qs_raw":
-                    _rvals.append(max(0, min(100, _rv)))
-                else:
-                    _rvals.append(max(0, min(100, _rv / _rm * 100)))
-            _radar_fig.add_trace(go.Scatterpolar(
-                r=_rvals + [_rvals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
-                name=_ct, fill="toself", opacity=0.65,
-                line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2.5),
-                customdata=_rlabels + [_rlabels[0]],
-                hovertemplate="%{theta}: %{customdata}<extra>" + _ct + "</extra>",
-            ))
-        _radar_fig.update_layout(
-            height=400, margin=dict(l=60, r=60, t=20, b=40), dragmode=False,
-            polar=dict(
-                bgcolor="rgba(241,245,249,0.95)",
-                radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, showline=False, ticks="", gridcolor="#e2e8f0"),
-                angularaxis=dict(gridcolor="#e2e8f0", linecolor="#64748b"),
-            ),
-            paper_bgcolor="rgba(0,0,0,0)",
-            legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
-        )
-        st.plotly_chart(_radar_fig, width="stretch")
-        st.caption(
-            "**Trục:** ROE — lợi nhuận vốn chủ | Net Margin — biên lợi nhuận ròng | "
-            "FCF Margin — biên dòng tiền tự do | Quality — điểm chất lượng tổng thể (0–100) | "
-            "Upside — tiềm năng tăng giá (trung bình DCF). "
-            "Giá trị trên radar được chuẩn hóa 0–100 theo ngưỡng tối đa; hover để xem số thực."
-        )
-        if _ind_mode and not _single_industry:
-            st.caption(f"Biểu đồ giá & radar chỉ hiển thị {len(_cmp_tickers)} mã được chọn. Bảng chỉ số bên dưới hiển thị toàn ngành.")
-        elif _single_industry:
-            st.caption(f"Hồ sơ {_cmp_tickers[0]}. Bảng chỉ số bên dưới: toàn ngành sắp xếp theo vốn hóa.")
-
-        # ── Heatmap so sánh chỉ số ──────────────────────────────
-        if _ind_mode and _ind_sector:
-            st.markdown(
-                f"<div style='background:#dbeafe;border-left:4px solid #3b82f6;"
-                f"padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
-                f"<span style='color:#1d4ed8;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase'>Ngành</span>"
-                f"<span style='color:#0f172a;font-size:15px;font-weight:600;margin-left:12px'>{_ind_sector}</span>"
-                f"<span style='color:#475569;font-size:13px;margin-left:16px'>— {len(_tbl_tickers)} công ty, sắp xếp theo vốn hóa</span>"
-                f"</div>",
-                unsafe_allow_html=True,
+                        _rvals.append(max(0, min(100, _rv / _rm * 100)))
+                _radar_fig.add_trace(go.Scatterpolar(
+                    r=_rvals + [_rvals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
+                    name=_ct, fill="toself", opacity=0.65,
+                    line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2.5),
+                    customdata=_rlabels + [_rlabels[0]],
+                    hovertemplate="%{theta}: %{customdata}<extra>" + _ct + "</extra>",
+                ))
+            _radar_fig.update_layout(
+                height=_responsive_height(400), margin=dict(l=60, r=60, t=20, b=40), dragmode=False,
+                polar=dict(
+                    bgcolor="rgba(241,245,249,0.95)",
+                    radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, showline=False, ticks="", gridcolor="#e2e8f0"),
+                    angularaxis=dict(gridcolor="#e2e8f0", linecolor="#64748b"),
+                ),
+                paper_bgcolor="rgba(0,0,0,0)",
+                legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
             )
-        st.subheader("So sánh chỉ số tài chính")
+            st.plotly_chart(_radar_fig, width="stretch")
+            st.caption(
+                "**Trục:** ROE — lợi nhuận vốn chủ | Net Margin — biên lợi nhuận ròng | "
+                "FCF Margin — biên dòng tiền tự do | Quality — điểm chất lượng tổng thể (0–100) | "
+                "Upside — tiềm năng tăng giá (trung bình DCF). "
+                "Giá trị trên radar được chuẩn hóa 0–100 theo ngưỡng tối đa; hover để xem số thực."
+            )
+            if _ind_mode and not _single_industry:
+                st.caption(f"Biểu đồ giá & radar chỉ hiển thị {len(_cmp_tickers)} mã được chọn. Bảng chỉ số bên dưới hiển thị toàn ngành.")
+            elif _single_industry:
+                st.caption(f"Hồ sơ {_cmp_tickers[0]}. Bảng chỉ số bên dưới: toàn ngành sắp xếp theo vốn hóa.")
 
-        # Collect all metric values (use _tbl_tickers = full sector in industry mode)
-        _hm_metrics: list[tuple[str, dict, bool, str]] = []  # (label, data, higher_better, fmt)
-        _mcap_d = {}
-        _pe_d, _pb_d, _roe_d, _nm_d, _fcfm_d, _de_d, _cr_d, _gm_d, _em_d = ({} for _ in range(9))
-        _metrics_ph = st.empty()
-        if len(_tbl_tickers) > 4:
-            _metrics_ph.info(f"Đang tổng hợp chỉ số {len(_tbl_tickers)} công ty...")
-        for _ct in _tbl_tickers:
-            _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
-            _pr  = _price_map_cmp.get(_ct)
-            _ydf_h = load_financials_y(_ct)
-            if not _ydf_h.empty and _pr and "shares_outstanding" in _ydf_h.columns:
-                _sh = _ydf_h["shares_outstanding"].dropna()
-                if not _sh.empty:
-                    _mcap_d[_ct] = round(_pr * float(_sh.iloc[-1]) / 1000, 1)
-            if _row.empty: continue
-            _r = _row.iloc[0]
-            _pe_d[_ct]   = _px(_r.get("P/E"))
-            _pb_d[_ct]   = _px(_r.get("P/B"))
-            _roe_d[_ct]  = round(_r["_roe_raw"]  * 100, 1) if _r.get("_roe_raw",  -999) > -99 else None
-            _nm_d[_ct]   = round(_r["_nm_raw"]   * 100, 1) if _r.get("_nm_raw",   -999) > -99 else None
-            _fcfm_d[_ct] = round(_r["_fcfm_raw"] * 100, 1) if _r.get("_fcfm_raw", -999) > -99 else None
-            _de_d[_ct]   = round(_r["_de_raw"],  2) if _r.get("_de_raw",  999) < 900 else None
-            _cr_d[_ct]   = round(_r["_cr_raw"],  2) if _r.get("_cr_raw",    0) >   0 else None
-            if not _ydf_h.empty and "revenue" in _ydf_h.columns:
-                _last_h = _ydf_h.dropna(subset=["revenue"]).tail(1)
-                if not _last_h.empty:
-                    _rev_h = float(_last_h["revenue"].iloc[0])
-                    if _rev_h > 0:
-                        _gp_h = float(_last_h["gross_profit"].fillna(0).iloc[0]) if "gross_profit" in _last_h else 0
-                        _eb_h = float(_last_h["ebit"].fillna(0).iloc[0])         if "ebit"         in _last_h else 0
-                        _gm_d[_ct] = round(_gp_h / _rev_h * 100, 1)
-                        _em_d[_ct] = round(_eb_h / _rev_h * 100, 1)
-
-        # Build upside/quality dicts
-        _upside_d, _qs_d = {}, {}
-        for _ct in _tbl_tickers:
-            _r2 = _cmp_screen[_cmp_screen["Mã"] == _ct]
-            if not _r2.empty:
-                _rv2 = _r2.iloc[0]
-                if _rv2.get("_avg_upside_raw", -9999) > -999:
-                    _upside_d[_ct] = round(_rv2["_avg_upside_raw"] * 100, 1)
-                if pd.notna(_rv2.get("_qs_raw")):
-                    _qs_d[_ct] = int(round(_rv2["_qs_raw"]))
-
-        _metrics_ph.empty()  # clear loading indicator
-
-        # (group_label, metric_label, data_dict, higher_better, fmt_fn)
-        _cmp_metric_defs = [
-            ("Thị trường",        "Vốn hóa (nghìn tỷ)", _mcap_d,  True,  lambda v: f"{v:,.0f}"),
-            ("Định giá",          "P/E",                 _pe_d,    False, lambda v: f"{v:.1f}x"),
-            ("Định giá",          "P/B",                 _pb_d,    False, lambda v: f"{v:.1f}x"),
-            ("Sinh lời",          "Gross Margin",        _gm_d,    True,  lambda v: f"{v:.1f}%"),
-            ("Sinh lời",          "EBIT Margin",         _em_d,    True,  lambda v: f"{v:.1f}%"),
-            ("Sinh lời",          "Net Margin",          _nm_d,    True,  lambda v: f"{v:.1f}%"),
-            ("Sinh lời",          "FCF Margin",          _fcfm_d,  True,  lambda v: f"{v:.1f}%"),
-            ("Sinh lời",          "ROE",                 _roe_d,   True,  lambda v: f"{v:.1f}%"),
-            ("Sức khỏe",          "D/E",                 _de_d,    False, lambda v: f"{v:.2f}x"),
-            ("Sức khỏe",          "Current Ratio",       _cr_d,    True,  lambda v: f"{v:.2f}x"),
-            ("Triển vọng",        "Avg Upside",          _upside_d,True,  lambda v: f"{v:+.1f}%"),
-            ("Triển vọng",        "Quality",             _qs_d,    True,  lambda v: f"{v:.0f}"),
-        ]
-
-        # ── Heatmap table: conditional formatting per row ────────
-        def _hx(h):
-            h = h.lstrip("#")
-            return int(h[:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-
-        # Extended palette for industry mode (up to 20 tickers)
-        _TBL_COLORS = [
-            "#60a5fa","#f59e0b","#22c55e","#a855f7",
-            "#f87171","#34d399","#fbbf24","#38bdf8",
-            "#c084fc","#fb923c","#4ade80","#e879f9",
-        ]
-        # Compact layout when many tickers
-        _many = len(_tbl_tickers) > 6
-        _cell_pad  = "6px 10px" if _many else "10px 24px"
-        _cell_fs   = "12px"     if _many else "13px"
-        _hdr_fs    = "12px"     if _many else "15px"
-        _hdr_pad   = "10px 10px" if _many else "12px 24px"
-        _min_w     = "80px"     if _many else "130px"
-
-        _tbl_rows = ""
-        _prev_grp = None
-        for _grp, _ml, _dd, _hib, _fmt in _cmp_metric_defs:
-            if _grp != _prev_grp:
-                _tbl_rows += (
-                    f"<tr><td colspan='{len(_tbl_tickers)+1}' style='"
-                    "background:#dbeafe;color:#1e3a5f;font-size:11.5px;font-weight:700;"
-                    "letter-spacing:.10em;text-transform:uppercase;"
-                    f"padding:8px 16px;border-top:2px solid #bfdbfe'>{_grp}</td></tr>"
+            # ── Heatmap so sánh chỉ số ──────────────────────────────
+            if _ind_mode and _ind_sector:
+                st.markdown(
+                    f"<div style='background:#dbeafe;border-left:4px solid #3b82f6;"
+                    f"padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
+                    f"<span style='color:#1d4ed8;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase'>Ngành</span>"
+                    f"<span style='color:#0f172a;font-size:15px;font-weight:600;margin-left:12px'>{_ind_sector}</span>"
+                    f"<span style='color:#475569;font-size:13px;margin-left:16px'>— {len(_tbl_tickers)} công ty, sắp xếp theo vốn hóa</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
                 )
-                _prev_grp = _grp
+            st.subheader("So sánh chỉ số tài chính")
 
-            _vals = [_dd.get(_ct) for _ct in _tbl_tickers]
-            _valid_pairs = [(v, i) for i, v in enumerate(_vals) if v is not None]
-            _ranks: dict = {}
-            if len(_valid_pairs) >= 2:
-                for _rk, (_, _i) in enumerate(sorted(_valid_pairs, key=lambda x: x[0], reverse=_hib)):
-                    _ranks[_i] = _rk
-            else:
-                for _, _i in _valid_pairs:
-                    _ranks[_i] = 0
+            # Collect all metric values (use _tbl_tickers = full sector in industry mode)
+            _hm_metrics: list[tuple[str, dict, bool, str]] = []  # (label, data, higher_better, fmt)
+            _mcap_d = {}
+            _pe_d, _pb_d, _roe_d, _nm_d, _fcfm_d, _de_d, _cr_d, _gm_d, _em_d = ({} for _ in range(9))
+            _metrics_ph = st.empty()
+            if len(_tbl_tickers) > 4:
+                _metrics_ph.info(f"Đang tổng hợp chỉ số {len(_tbl_tickers)} công ty...")
+            for _ct in _tbl_tickers:
+                _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
+                _pr  = _price_map_cmp.get(_ct)
+                _ydf_h = load_financials_y(_ct)
+                if not _ydf_h.empty and _pr and "shares_outstanding" in _ydf_h.columns:
+                    _sh = _ydf_h["shares_outstanding"].dropna()
+                    if not _sh.empty:
+                        _mcap_d[_ct] = round(_pr * float(_sh.iloc[-1]) / 1000, 1)
+                if _row.empty: continue
+                _r = _row.iloc[0]
+                _pe_d[_ct]   = _px(_r.get("P/E"))
+                _pb_d[_ct]   = _px(_r.get("P/B"))
+                _roe_d[_ct]  = round(_r["_roe_raw"]  * 100, 1) if _r.get("_roe_raw",  -999) > -99 else None
+                _nm_d[_ct]   = round(_r["_nm_raw"]   * 100, 1) if _r.get("_nm_raw",   -999) > -99 else None
+                _fcfm_d[_ct] = round(_r["_fcfm_raw"] * 100, 1) if _r.get("_fcfm_raw", -999) > -99 else None
+                _de_d[_ct]   = round(_r["_de_raw"],  2) if _r.get("_de_raw",  999) < 900 else None
+                _cr_d[_ct]   = round(_r["_cr_raw"],  2) if _r.get("_cr_raw",    0) >   0 else None
+                if not _ydf_h.empty and "revenue" in _ydf_h.columns:
+                    _last_h = _ydf_h.dropna(subset=["revenue"]).tail(1)
+                    if not _last_h.empty:
+                        _rev_h = float(_last_h["revenue"].iloc[0])
+                        if _rev_h > 0:
+                            _gp_h = float(_last_h["gross_profit"].fillna(0).iloc[0]) if "gross_profit" in _last_h else 0
+                            _eb_h = float(_last_h["ebit"].fillna(0).iloc[0])         if "ebit"         in _last_h else 0
+                            _gm_d[_ct] = round(_gp_h / _rev_h * 100, 1)
+                            _em_d[_ct] = round(_eb_h / _rev_h * 100, 1)
 
-            _row_idx = len(_tbl_rows.split("<tr")) - 1
-            _stripe = "background:rgba(0,0,0,0.025)" if _row_idx % 2 == 0 else ""
+            # Build upside/quality dicts
+            _upside_d, _qs_d = {}, {}
+            for _ct in _tbl_tickers:
+                _r2 = _cmp_screen[_cmp_screen["Mã"] == _ct]
+                if not _r2.empty:
+                    _rv2 = _r2.iloc[0]
+                    if _rv2.get("_avg_upside_raw", -9999) > -999:
+                        _upside_d[_ct] = round(_rv2["_avg_upside_raw"] * 100, 1)
+                    if pd.notna(_rv2.get("_qs_raw")):
+                        _qs_d[_ct] = int(round(_rv2["_qs_raw"]))
 
-            _cells = (
-                f"<td style='padding:10px 16px;color:#374151;font-size:{_cell_fs};"
-                f"white-space:nowrap'>{_ml}</td>"
-            )
-            for _ci, _ct in enumerate(_tbl_tickers):
-                _v = _dd.get(_ct)
-                _cl = _TBL_COLORS[_ci % len(_TBL_COLORS)]
-                _r, _g, _b = _hx(_cl)
-                _rk = _ranks.get(_ci, len(_tbl_tickers))
-                _is_sel = _ct in _cmp_tickers
-                _sel_bg = f"background:rgba({_r},{_g},{_b},0.09);" if _is_sel else ""
+            _metrics_ph.empty()  # clear loading indicator
 
-                if _v is None:
-                    _cells += f"<td style='text-align:right;padding:{_cell_pad};{_sel_bg}color:#374151;font-size:{_cell_fs}'>—</td>"
-                    continue
+            # (group_label, metric_label, data_dict, higher_better, fmt_fn)
+            _cmp_metric_defs = [
+                ("Thị trường",        "Vốn hóa (nghìn tỷ)", _mcap_d,  True,  lambda v: f"{v:,.0f}"),
+                ("Định giá",          "P/E",                 _pe_d,    False, lambda v: f"{v:.1f}x"),
+                ("Định giá",          "P/B",                 _pb_d,    False, lambda v: f"{v:.1f}x"),
+                ("Sinh lời",          "Gross Margin",        _gm_d,    True,  lambda v: f"{v:.1f}%"),
+                ("Sinh lời",          "EBIT Margin",         _em_d,    True,  lambda v: f"{v:.1f}%"),
+                ("Sinh lời",          "Net Margin",          _nm_d,    True,  lambda v: f"{v:.1f}%"),
+                ("Sinh lời",          "FCF Margin",          _fcfm_d,  True,  lambda v: f"{v:.1f}%"),
+                ("Sinh lời",          "ROE",                 _roe_d,   True,  lambda v: f"{v:.1f}%"),
+                ("Sức khỏe",          "D/E",                 _de_d,    False, lambda v: f"{v:.2f}x"),
+                ("Sức khỏe",          "Current Ratio",       _cr_d,    True,  lambda v: f"{v:.2f}x"),
+                ("Triển vọng",        "Avg Upside",          _upside_d,True,  lambda v: f"{v:+.1f}%"),
+                ("Triển vọng",        "Quality",             _qs_d,    True,  lambda v: f"{v:.0f}"),
+            ]
 
-                _display = _fmt(_v)
+            # ── Heatmap table: conditional formatting per row ────────
+            def _hx(h):
+                h = h.lstrip("#")
+                return int(h[:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
-                # Rank-based text style
-                if _rk == 0:
-                    _tc = _cl
-                    _fw = "700"
-                    _fs = "14px" if not _many else "12px"
-                elif _rk == 1:
-                    _tc = "#374151"
-                    _fw = "600"
-                    _fs = _cell_fs
+            # Extended palette for industry mode (up to 20 tickers)
+            _TBL_COLORS = [
+                "#60a5fa","#f59e0b","#22c55e","#a855f7",
+                "#f87171","#34d399","#fbbf24","#38bdf8",
+                "#c084fc","#fb923c","#4ade80","#e879f9",
+            ]
+            # Compact layout when many tickers
+            _many = len(_tbl_tickers) > 6
+            _cell_pad  = "6px 10px" if _many else "10px 24px"
+            _cell_fs   = "12px"     if _many else "13px"
+            _hdr_fs    = "12px"     if _many else "15px"
+            _hdr_pad   = "10px 10px" if _many else "12px 24px"
+            _min_w     = "80px"     if _many else "130px"
+
+            _tbl_rows = ""
+            _prev_grp = None
+            for _grp, _ml, _dd, _hib, _fmt in _cmp_metric_defs:
+                if _grp != _prev_grp:
+                    _tbl_rows += (
+                        f"<tr><td colspan='{len(_tbl_tickers)+1}' style='"
+                        "background:#dbeafe;color:#1e3a5f;font-size:11.5px;font-weight:700;"
+                        "letter-spacing:.10em;text-transform:uppercase;"
+                        f"padding:8px 16px;border-top:2px solid #bfdbfe'>{_grp}</td></tr>"
+                    )
+                    _prev_grp = _grp
+
+                _vals = [_dd.get(_ct) for _ct in _tbl_tickers]
+                _valid_pairs = [(v, i) for i, v in enumerate(_vals) if v is not None]
+                _ranks: dict = {}
+                if len(_valid_pairs) >= 2:
+                    for _rk, (_, _i) in enumerate(sorted(_valid_pairs, key=lambda x: x[0], reverse=_hib)):
+                        _ranks[_i] = _rk
                 else:
-                    _tc = "#64748b"
-                    _fw = "400"
-                    _fs = _cell_fs
+                    for _, _i in _valid_pairs:
+                        _ranks[_i] = 0
 
-                # Special cell backgrounds (Avg Upside overrides selection tint)
-                if _ml == "Avg Upside":
-                    if _v > 0:
-                        _cbg = "background:rgba(34,197,94,0.16);"
-                    elif _v < 0:
-                        _cbg = "background:rgba(239,68,68,0.14);"
+                _row_idx = len(_tbl_rows.split("<tr")) - 1
+                _stripe = "background:rgba(0,0,0,0.025)" if _row_idx % 2 == 0 else ""
+
+                _cells = (
+                    f"<td style='padding:10px 16px;color:#374151;font-size:{_cell_fs};"
+                    f"white-space:nowrap'>{_ml}</td>"
+                )
+                for _ci, _ct in enumerate(_tbl_tickers):
+                    _v = _dd.get(_ct)
+                    _cl = _TBL_COLORS[_ci % len(_TBL_COLORS)]
+                    _r, _g, _b = _hx(_cl)
+                    _rk = _ranks.get(_ci, len(_tbl_tickers))
+                    _is_sel = _ct in _cmp_tickers
+                    _sel_bg = f"background:rgba({_r},{_g},{_b},0.09);" if _is_sel else ""
+
+                    if _v is None:
+                        _cells += f"<td style='text-align:right;padding:{_cell_pad};{_sel_bg}color:#374151;font-size:{_cell_fs}'>—</td>"
+                        continue
+
+                    _display = _fmt(_v)
+
+                    # Rank-based text style
+                    if _rk == 0:
+                        _tc = _cl
+                        _fw = "700"
+                        _fs = "14px" if not _many else "12px"
+                    elif _rk == 1:
+                        _tc = "#374151"
+                        _fw = "600"
+                        _fs = _cell_fs
+                    else:
+                        _tc = "#64748b"
+                        _fw = "400"
+                        _fs = _cell_fs
+
+                    # Special cell backgrounds (Avg Upside overrides selection tint)
+                    if _ml == "Avg Upside":
+                        if _v > 0:
+                            _cbg = "background:rgba(34,197,94,0.16);"
+                        elif _v < 0:
+                            _cbg = "background:rgba(239,68,68,0.14);"
+                        else:
+                            _cbg = _sel_bg
                     else:
                         _cbg = _sel_bg
-                else:
-                    _cbg = _sel_bg
 
-                # Quality: inline mini data bar (0–100 scale)
-                if _ml == "Quality":
-                    _bw = max(4, min(int(_v), 100))
-                    _bar_color = f"rgba({_r},{_g},{_b},0.80)"
-                    _bar_w = "50px" if _many else "70px"
-                    _inner = (
-                        f"<div style='display:flex;align-items:center;gap:6px;justify-content:flex-end'>"
-                        f"<div style='flex:1;max-width:{_bar_w};height:5px;border-radius:3px;"
-                        f"background:#f8fafc'><div style='width:{_bw}%;height:100%;"
-                        f"border-radius:3px;background:{_bar_color}'></div></div>"
-                        f"<span style='color:{_tc};font-weight:{_fw};font-size:{_fs}'>{_display}</span>"
-                        f"</div>"
-                    )
-                    _cells += f"<td style='padding:8px {('10px' if _many else '16px')};{_cbg}'>{_inner}</td>"
-                else:
-                    _cells += (
-                        f"<td style='text-align:right;padding:{_cell_pad};{_cbg}"
-                        f"font-size:{_fs};color:{_tc};font-weight:{_fw}'>{_display}</td>"
-                    )
+                    # Quality: inline mini data bar (0–100 scale)
+                    if _ml == "Quality":
+                        _bw = max(4, min(int(_v), 100))
+                        _bar_color = f"rgba({_r},{_g},{_b},0.80)"
+                        _bar_w = "50px" if _many else "70px"
+                        _inner = (
+                            f"<div style='display:flex;align-items:center;gap:6px;justify-content:flex-end'>"
+                            f"<div style='flex:1;max-width:{_bar_w};height:5px;border-radius:3px;"
+                            f"background:#f8fafc'><div style='width:{_bw}%;height:100%;"
+                            f"border-radius:3px;background:{_bar_color}'></div></div>"
+                            f"<span style='color:{_tc};font-weight:{_fw};font-size:{_fs}'>{_display}</span>"
+                            f"</div>"
+                        )
+                        _cells += f"<td style='padding:8px {('10px' if _many else '16px')};{_cbg}'>{_inner}</td>"
+                    else:
+                        _cells += (
+                            f"<td style='text-align:right;padding:{_cell_pad};{_cbg}"
+                            f"font-size:{_fs};color:{_tc};font-weight:{_fw}'>{_display}</td>"
+                        )
 
-            _tbl_rows += f"<tr style='border-bottom:1px solid #e2e8f0;{_stripe}'>{_cells}</tr>"
+                _tbl_rows += f"<tr style='border-bottom:1px solid #e2e8f0;{_stripe}'>{_cells}</tr>"
 
-        # Column headers with top colour bar per ticker
-        _hdr = (
-            f"<th style='padding:12px 16px;text-align:left;color:#475569;"
-            f"font-size:12px;font-weight:600;border-bottom:2px solid #cbd5e1'>Chỉ số</th>"
-        )
-        for _ci, _ct in enumerate(_tbl_tickers):
-            _cl = _TBL_COLORS[_ci % len(_TBL_COLORS)]
-            _r2, _g2, _b2 = _hx(_cl)
-            _is_sel = _ct in _cmp_tickers
-            _hdr_sel = (
-                f"background:rgba({_r2},{_g2},{_b2},0.09);border-top:5px solid {_cl};"
-                if _is_sel else f"border-top:3px solid {_cl};"
+            # Column headers with top colour bar per ticker
+            _hdr = (
+                f"<th style='padding:12px 16px;text-align:left;color:#475569;"
+                f"font-size:12px;font-weight:600;border-bottom:2px solid #cbd5e1'>Chỉ số</th>"
             )
-            _hdr_label = f"<b>{_ct}</b>" if _is_sel else _ct
-            _hdr += (
-                f"<th style='padding:{_hdr_pad};text-align:right;color:{_cl};"
-                f"font-size:{_hdr_fs};font-weight:700;"
-                f"border-bottom:2px solid #cbd5e1;"
-                f"{_hdr_sel}"
-                f"min-width:{_min_w}'>{_hdr_label}</th>"
+            for _ci, _ct in enumerate(_tbl_tickers):
+                _cl = _TBL_COLORS[_ci % len(_TBL_COLORS)]
+                _r2, _g2, _b2 = _hx(_cl)
+                _is_sel = _ct in _cmp_tickers
+                _hdr_sel = (
+                    f"background:rgba({_r2},{_g2},{_b2},0.09);border-top:5px solid {_cl};"
+                    if _is_sel else f"border-top:3px solid {_cl};"
+                )
+                _hdr_label = f"<b>{_ct}</b>" if _is_sel else _ct
+                _hdr += (
+                    f"<th style='padding:{_hdr_pad};text-align:right;color:{_cl};"
+                    f"font-size:{_hdr_fs};font-weight:700;"
+                    f"border-bottom:2px solid #cbd5e1;"
+                    f"{_hdr_sel}"
+                    f"min-width:{_min_w}'>{_hdr_label}</th>"
+                )
+
+            st.markdown(
+                f"<div style='overflow-x:auto;margin-bottom:8px;border-radius:10px;"
+                f"border:1px solid #bfdbfe'>"
+                f"<table style='width:100%;border-collapse:collapse;"
+                f"background:rgba(255,255,255,0.97)'>"
+                f"<thead><tr>{_hdr}</tr></thead>"
+                f"<tbody>{_tbl_rows}</tbody>"
+                f"</table></div>",
+                unsafe_allow_html=True,
             )
 
-        st.markdown(
-            f"<div style='overflow-x:auto;margin-bottom:8px;border-radius:10px;"
-            f"border:1px solid #bfdbfe'>"
-            f"<table style='width:100%;border-collapse:collapse;"
-            f"background:rgba(255,255,255,0.97)'>"
-            f"<thead><tr>{_hdr}</tr></thead>"
-            f"<tbody>{_tbl_rows}</tbody>"
-            f"</table></div>",
-            unsafe_allow_html=True,
-        )
+            # ── Doanh thu & Lợi nhuận + YoY multi-line ─────────────
+            st.subheader("Doanh thu & Lợi nhuận ròng (5 năm)")
+            _rev_fig  = go.Figure()
+            _np_fig   = go.Figure()
+            _yoy_fig  = go.Figure()
+            _has_yoy  = False
+            for _ci, _ct in enumerate(_cmp_tickers):
+                _ydf_t = load_financials_y(_ct)
+                if _ydf_t.empty: continue
+                if "revenue" not in _ydf_t.columns: continue
+                # Load 6 rows so we get 5 YoY data points
+                _ydf_t = _ydf_t.dropna(subset=["revenue"]).tail(6).copy()
+                if _ydf_t.empty: continue
+                _ydf_t["year"] = pd.to_datetime(_ydf_t["period"]).dt.year.astype(str)
+                _cl = _CMP_COLORS[_ci % len(_CMP_COLORS)]
 
-        # ── Doanh thu & Lợi nhuận + YoY multi-line ─────────────
-        st.subheader("Doanh thu & Lợi nhuận ròng (5 năm)")
-        _rev_fig  = go.Figure()
-        _np_fig   = go.Figure()
-        _yoy_fig  = go.Figure()
-        _has_yoy  = False
-        for _ci, _ct in enumerate(_cmp_tickers):
-            _ydf_t = load_financials_y(_ct)
-            if _ydf_t.empty: continue
-            if "revenue" not in _ydf_t.columns: continue
-            # Load 6 rows so we get 5 YoY data points
-            _ydf_t = _ydf_t.dropna(subset=["revenue"]).tail(6).copy()
-            if _ydf_t.empty: continue
-            _ydf_t["year"] = pd.to_datetime(_ydf_t["period"]).dt.year.astype(str)
-            _cl = _CMP_COLORS[_ci % len(_CMP_COLORS)]
-
-            _rev_fig.add_trace(go.Scatter(
-                x=_ydf_t["year"], y=_ydf_t["revenue"].round(0), name=_ct,
-                mode="lines+markers", line=dict(color=_cl, width=2),
-                hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:,.0f}} tỷ<extra></extra>",
-            ))
-            if "net_income" in _ydf_t.columns:
-                _np_fig.add_trace(go.Scatter(
-                    x=_ydf_t["year"], y=_ydf_t["net_income"].round(0), name=_ct,
+                _rev_fig.add_trace(go.Scatter(
+                    x=_ydf_t["year"], y=_ydf_t["revenue"].round(0), name=_ct,
                     mode="lines+markers", line=dict(color=_cl, width=2),
                     hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:,.0f}} tỷ<extra></extra>",
                 ))
-
-            # YoY growth per year
-            if len(_ydf_t) >= 2:
-                _ydf_t["yoy"] = _ydf_t["revenue"].pct_change() * 100
-                _ydf_yoy = _ydf_t.dropna(subset=["yoy"])
-                if not _ydf_yoy.empty:
-                    _has_yoy = True
-                    _yoy_fig.add_trace(go.Scatter(
-                        x=_ydf_yoy["year"], y=_ydf_yoy["yoy"].round(1), name=_ct,
+                if "net_income" in _ydf_t.columns:
+                    _np_fig.add_trace(go.Scatter(
+                        x=_ydf_t["year"], y=_ydf_t["net_income"].round(0), name=_ct,
                         mode="lines+markers", line=dict(color=_cl, width=2),
-                        marker=dict(size=6),
-                        hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:+.1f}}%<extra></extra>",
+                        hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:,.0f}} tỷ<extra></extra>",
                     ))
 
-        # ── Industry average revenue / net-income / YoY lines ────
-        _AVG_COLOR = "#f97316"  # orange-500 — distinct from ticker blues
-        if _ind_mode and _ind_sector and len(_tbl_tickers) > 1:
-            _rev_by_yr:  dict[str, list] = {}
-            _np_by_yr:   dict[str, list] = {}
-            _yoy_by_yr:  dict[str, list] = {}
-            for _xt in _tbl_tickers:
-                _xdf = load_financials_y(_xt)
-                if _xdf.empty or "revenue" not in _xdf.columns: continue
-                _xdf = _xdf.dropna(subset=["revenue"]).tail(6).copy()
-                if _xdf.empty: continue
-                _xdf["_yr"] = pd.to_datetime(_xdf["period"]).dt.year.astype(str)
-                for _, _xrow in _xdf.iterrows():
-                    _yr = _xrow["_yr"]
-                    _rev_by_yr.setdefault(_yr, []).append(float(_xrow["revenue"]))
-                    if "net_income" in _xdf.columns and pd.notna(_xrow.get("net_income")):
-                        _np_by_yr.setdefault(_yr, []).append(float(_xrow["net_income"]))
-                if len(_xdf) >= 2:
-                    _xdf["_yoy"] = _xdf["revenue"].pct_change() * 100
-                    for _, _xrow in _xdf.dropna(subset=["_yoy"]).iterrows():
-                        _yoy_by_yr.setdefault(_xrow["_yr"], []).append(float(_xrow["_yoy"]))
-            _avg_trace_kw = dict(
-                mode="lines+markers",
-                line=dict(color=_AVG_COLOR, width=2, dash="dash"),
-                marker=dict(size=5, symbol="diamond", color=_AVG_COLOR),
+                # YoY growth per year
+                if len(_ydf_t) >= 2:
+                    _ydf_t["yoy"] = _ydf_t["revenue"].pct_change() * 100
+                    _ydf_yoy = _ydf_t.dropna(subset=["yoy"])
+                    if not _ydf_yoy.empty:
+                        _has_yoy = True
+                        _yoy_fig.add_trace(go.Scatter(
+                            x=_ydf_yoy["year"], y=_ydf_yoy["yoy"].round(1), name=_ct,
+                            mode="lines+markers", line=dict(color=_cl, width=2),
+                            marker=dict(size=6),
+                            hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:+.1f}}%<extra></extra>",
+                        ))
+
+            # ── Industry average revenue / net-income / YoY lines ────
+            _AVG_COLOR = "#f97316"  # orange-500 — distinct from ticker blues
+            if _ind_mode and _ind_sector and len(_tbl_tickers) > 1:
+                _rev_by_yr:  dict[str, list] = {}
+                _np_by_yr:   dict[str, list] = {}
+                _yoy_by_yr:  dict[str, list] = {}
+                for _xt in _tbl_tickers:
+                    _xdf = load_financials_y(_xt)
+                    if _xdf.empty or "revenue" not in _xdf.columns: continue
+                    _xdf = _xdf.dropna(subset=["revenue"]).tail(6).copy()
+                    if _xdf.empty: continue
+                    _xdf["_yr"] = pd.to_datetime(_xdf["period"]).dt.year.astype(str)
+                    for _, _xrow in _xdf.iterrows():
+                        _yr = _xrow["_yr"]
+                        _rev_by_yr.setdefault(_yr, []).append(float(_xrow["revenue"]))
+                        if "net_income" in _xdf.columns and pd.notna(_xrow.get("net_income")):
+                            _np_by_yr.setdefault(_yr, []).append(float(_xrow["net_income"]))
+                    if len(_xdf) >= 2:
+                        _xdf["_yoy"] = _xdf["revenue"].pct_change() * 100
+                        for _, _xrow in _xdf.dropna(subset=["_yoy"]).iterrows():
+                            _yoy_by_yr.setdefault(_xrow["_yr"], []).append(float(_xrow["_yoy"]))
+                _avg_trace_kw = dict(
+                    mode="lines+markers",
+                    line=dict(color=_AVG_COLOR, width=2, dash="dash"),
+                    marker=dict(size=5, symbol="diamond", color=_AVG_COLOR),
+                )
+                if _rev_by_yr:
+                    _avg_yrs = sorted(_rev_by_yr)
+                    _rev_fig.add_trace(go.Scatter(
+                        x=_avg_yrs,
+                        y=[round(sum(_rev_by_yr[y]) / len(_rev_by_yr[y]), 0) for y in _avg_yrs],
+                        name="TB ngành",
+                        hovertemplate="<b>TB ngành</b> %{x}: %{y:,.0f} tỷ<extra></extra>",
+                        **_avg_trace_kw,
+                    ))
+                if _np_by_yr:
+                    _avg_np_yrs = sorted(_np_by_yr)
+                    _np_fig.add_trace(go.Scatter(
+                        x=_avg_np_yrs,
+                        y=[round(sum(_np_by_yr[y]) / len(_np_by_yr[y]), 0) for y in _avg_np_yrs],
+                        name="TB ngành",
+                        hovertemplate="<b>TB ngành</b> %{x}: %{y:,.0f} tỷ<extra></extra>",
+                        **_avg_trace_kw,
+                    ))
+                if _yoy_by_yr:
+                    _avg_yoy_yrs = sorted(_yoy_by_yr)
+                    _yoy_fig.add_trace(go.Scatter(
+                        x=_avg_yoy_yrs,
+                        y=[round(sum(_yoy_by_yr[y]) / len(_yoy_by_yr[y]), 1) for y in _avg_yoy_yrs],
+                        name="TB ngành",
+                        hovertemplate="<b>TB ngành</b> %{x}: %{y:+.1f}%<extra></extra>",
+                        **_avg_trace_kw,
+                    ))
+                    _has_yoy = True
+
+            _line_layout = dict(
+                height=_responsive_height(280), dragmode=False, hovermode="x unified",
+                margin=dict(l=10, r=10, t=36, b=10),
+                xaxis=dict(type="category", showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor="#e2e8f0"),
+                legend=dict(orientation="h", yanchor="bottom", y=-0.28, xanchor="center", x=0.5),
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0)",
             )
-            if _rev_by_yr:
-                _avg_yrs = sorted(_rev_by_yr)
-                _rev_fig.add_trace(go.Scatter(
-                    x=_avg_yrs,
-                    y=[round(sum(_rev_by_yr[y]) / len(_rev_by_yr[y]), 0) for y in _avg_yrs],
-                    name="TB ngành",
-                    hovertemplate="<b>TB ngành</b> %{x}: %{y:,.0f} tỷ<extra></extra>",
-                    **_avg_trace_kw,
-                ))
-            if _np_by_yr:
-                _avg_np_yrs = sorted(_np_by_yr)
-                _np_fig.add_trace(go.Scatter(
-                    x=_avg_np_yrs,
-                    y=[round(sum(_np_by_yr[y]) / len(_np_by_yr[y]), 0) for y in _avg_np_yrs],
-                    name="TB ngành",
-                    hovertemplate="<b>TB ngành</b> %{x}: %{y:,.0f} tỷ<extra></extra>",
-                    **_avg_trace_kw,
-                ))
-            if _yoy_by_yr:
-                _avg_yoy_yrs = sorted(_yoy_by_yr)
-                _yoy_fig.add_trace(go.Scatter(
-                    x=_avg_yoy_yrs,
-                    y=[round(sum(_yoy_by_yr[y]) / len(_yoy_by_yr[y]), 1) for y in _avg_yoy_yrs],
-                    name="TB ngành",
-                    hovertemplate="<b>TB ngành</b> %{x}: %{y:+.1f}%<extra></extra>",
-                    **_avg_trace_kw,
-                ))
-                _has_yoy = True
+            _tc1, _tc2 = st.columns(2)
+            for _tfig, _ttitle, _tcol in [
+                (_rev_fig, "Doanh thu (tỷ đồng)",       _tc1),
+                (_np_fig,  "Lợi nhuận ròng (tỷ đồng)",  _tc2),
+            ]:
+                _tfig.update_layout(title=dict(text=_ttitle, font=dict(size=13)), **_line_layout)
+                with _tcol:
+                    st.plotly_chart(_tfig, width="stretch")
 
-        _line_layout = dict(
-            height=280, dragmode=False, hovermode="x unified",
-            margin=dict(l=10, r=10, t=36, b=10),
-            xaxis=dict(type="category", showgrid=False),
-            yaxis=dict(showgrid=True, gridcolor="#e2e8f0"),
-            legend=dict(orientation="h", yanchor="bottom", y=-0.28, xanchor="center", x=0.5),
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0)",
-        )
-        _tc1, _tc2 = st.columns(2)
-        for _tfig, _ttitle, _tcol in [
-            (_rev_fig, "Doanh thu (tỷ đồng)",       _tc1),
-            (_np_fig,  "Lợi nhuận ròng (tỷ đồng)",  _tc2),
-        ]:
-            _tfig.update_layout(title=dict(text=_ttitle, font=dict(size=13)), **_line_layout)
-            with _tcol:
-                st.plotly_chart(_tfig, width="stretch")
+            if _has_yoy:
+                _yoy_fig.add_hline(y=0, line_color="#cbd5e1", line_dash="dot", line_width=1)
+                _yoy_fig.update_layout(
+                    title=dict(text="Tăng trưởng doanh thu YoY (%)", font=dict(size=13)),
+                    **{**_line_layout, "height": 260,
+                       "yaxis": dict(showgrid=True, gridcolor="#e2e8f0", ticksuffix="%")},
+                )
+                st.plotly_chart(_yoy_fig, width="stretch")
 
-        if _has_yoy:
-            _yoy_fig.add_hline(y=0, line_color="#cbd5e1", line_dash="dot", line_width=1)
-            _yoy_fig.update_layout(
-                title=dict(text="Tăng trưởng doanh thu YoY (%)", font=dict(size=13)),
-                **{**_line_layout, "height": 260,
-                   "yaxis": dict(showgrid=True, gridcolor="#e2e8f0", ticksuffix="%")},
-            )
-            st.plotly_chart(_yoy_fig, width="stretch")
+            # ── Bảng so sánh chi tiết ────────────────────────────────
+            st.subheader("Bảng so sánh chi tiết")
+            _cmp_rows2 = []
+            for _ct in _cmp_tickers:
+                _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
+                if _row.empty:
+                    _cmp_rows2.append({"Mã": _ct})
+                    continue
+                _r = _row.iloc[0]
+                _cmp_rows2.append({
+                    "Mã":         _ct,
+                    "Ngành":      _r.get("Ngành", "—"),
+                    "Giá":        _r.get("Giá (VND)", "—"),
+                    "P/E":        _r.get("P/E", "—"),
+                    "P/B":        _r.get("P/B", "—"),
+                    "ROE":        _r.get("ROE", "—"),
+                    "LN ròng":    _r.get("Biên LN ròng", "—"),
+                    "FCF Margin": _r.get("FCF Margin", "—"),
+                    "D/E":        _r.get("D/E", "—"),
+                    "CR":         _r.get("Current Ratio", "—"),
+                    "Avg Upside": _r.get("Avg Upside", "—"),
+                    "Quality":    int(round(_r["_qs_raw"])) if pd.notna(_r.get("_qs_raw")) else "—",
+                })
+            if _cmp_rows2:
+                _cmp_df2 = pd.DataFrame(_cmp_rows2).set_index("Mã")
+                def _cmp_q2(v):
+                    try:
+                        q = int(v)
+                        if q >= 70:   return "background-color:#dcfce7; color:#15803d"
+                        elif q >= 50: return "background-color:#fef3c7; color:#92400e"
+                        elif q >= 30: return "background-color:#ffedd5; color:#c2410c"
+                        else:         return "background-color:#fee2e2; color:#dc2626"
+                    except: return ""
+                st.dataframe(_cmp_df2.style.map(_cmp_q2, subset=["Quality"]), width="stretch")
 
-        # ── Bảng so sánh chi tiết ────────────────────────────────
-        st.subheader("Bảng so sánh chi tiết")
-        _cmp_rows2 = []
-        for _ct in _cmp_tickers:
-            _row = _cmp_screen[_cmp_screen["Mã"] == _ct]
-            if _row.empty:
-                _cmp_rows2.append({"Mã": _ct})
-                continue
-            _r = _row.iloc[0]
-            _cmp_rows2.append({
-                "Mã":         _ct,
-                "Ngành":      _r.get("Ngành", "—"),
-                "Giá":        _r.get("Giá (VND)", "—"),
-                "P/E":        _r.get("P/E", "—"),
-                "P/B":        _r.get("P/B", "—"),
-                "ROE":        _r.get("ROE", "—"),
-                "LN ròng":    _r.get("Biên LN ròng", "—"),
-                "FCF Margin": _r.get("FCF Margin", "—"),
-                "D/E":        _r.get("D/E", "—"),
-                "CR":         _r.get("Current Ratio", "—"),
-                "Avg Upside": _r.get("Avg Upside", "—"),
-                "Quality":    int(round(_r["_qs_raw"])) if pd.notna(_r.get("_qs_raw")) else "—",
-            })
-        if _cmp_rows2:
-            _cmp_df2 = pd.DataFrame(_cmp_rows2).set_index("Mã")
-            def _cmp_q2(v):
-                try:
-                    q = int(v)
-                    if q >= 70:   return "background-color:#dcfce7; color:#15803d"
-                    elif q >= 50: return "background-color:#fef3c7; color:#92400e"
-                    elif q >= 30: return "background-color:#ffedd5; color:#c2410c"
-                    else:         return "background-color:#fee2e2; color:#dc2626"
-                except: return ""
-            st.dataframe(_cmp_df2.style.map(_cmp_q2, subset=["Quality"]), width="stretch")
+    _comparison_frag()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -6537,7 +6634,7 @@ iframe[title="heatmap_click.heatmap_click"] {
                 tiling=dict(squarifyratio=1),
             ))
             fig_hm.update_layout(
-                height=1050,
+                height=_responsive_height(1050),
                 margin=dict(l=0, r=0, t=0, b=0),
                 dragmode=False,
             )
@@ -6545,7 +6642,7 @@ iframe[title="heatmap_click.heatmap_click"] {
             import sys as _sys
             _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
             from heatmap_component import heatmap_click as _heatmap_click
-            _hm_clicked = _heatmap_click(fig_hm, height=1050, key="hm_comp_fixed")
+            _hm_clicked = _heatmap_click(fig_hm, height=_responsive_height(1050), key="hm_comp_fixed")
             if _hm_clicked and isinstance(_hm_clicked, str) and _hm_clicked.strip():
                 _val = _hm_clicked.strip()
                 if _val.startswith("TICKER:"):
@@ -6798,7 +6895,7 @@ iframe[title="heatmap_click.heatmap_click"] {
         )
         fig_sc.update_traces(textposition="top center")
         fig_sc.add_vline(x=0, line_dash="dash", line_color="#64748b", opacity=0.5)
-        fig_sc.update_layout(height=460, margin=dict(l=0, r=0, t=10, b=0), dragmode=False)
+        fig_sc.update_layout(height=_responsive_height(460), margin=dict(l=0, r=0, t=10, b=0), dragmode=False)
         st.plotly_chart(fig_sc, width="stretch")
 
 # ═══════════════════════════════════════════════════════════════
@@ -6867,7 +6964,7 @@ elif view == "Tổng quan Thị trường":
                 _fig_vi.add_hline(y=_first_vi, line_dash="dot", line_color="#cbd5e1", line_width=1,
                     annotation_text=f"1 năm trước: {_first_vi:,.0f}", annotation_position="bottom right",
                     annotation_font=dict(size=11, color="#475569"))
-                _fig_vi.update_layout(height=320, margin=dict(l=0,r=10,t=40,b=0), dragmode=False,
+                _fig_vi.update_layout(height=_responsive_height(320), margin=dict(l=0,r=10,t=40,b=0), dragmode=False,
                     hovermode="x unified", showlegend=False,
                     title=dict(text=(f"<span style='color:{_cc_vi}'>{_last_vi:,.2f}  ({_chg_vi:+.2f}%)</span>"
                                       f"<span style='color:#475569;font-size:13px;'> · </span>"
@@ -6887,7 +6984,7 @@ elif view == "Tổng quan Thị trường":
                 marker_color=["#22c55e", "#eab308", "#ef4444"],
                 text=[n_up, n_flat, n_dn], textposition="outside",
                 hovertemplate="%{x}: %{y}<extra></extra>"))
-            _fig_ad.update_layout(height=200, margin=dict(l=0,r=0,t=10,b=0),
+            _fig_ad.update_layout(height=_responsive_height(200), margin=dict(l=0,r=0,t=10,b=0),
                 dragmode=False, showlegend=False, yaxis_visible=False)
             st.plotly_chart(_fig_ad, width="stretch")
             _ratio     = n_up / max(n_dn, 1)
@@ -6937,7 +7034,7 @@ elif view == "Tổng quan Thị trường":
                     marker=dict(color=_pe_clr, size=10, line=dict(color="#0e1117", width=1.5)),
                     hovertemplate=f"Hiện tại: {_cur_pe:.1f}x<extra></extra>", showlegend=False))
                 fig_mpe.update_layout(
-                    height=300, margin=dict(l=0, r=10, t=30, b=0), dragmode=False,
+                    height=_responsive_height(300), margin=dict(l=0, r=10, t=30, b=0), dragmode=False,
                     hovermode="x unified", plot_bgcolor="rgba(255,255,255,0)", paper_bgcolor="rgba(0,0,0,0)",
                     hoverlabel=dict(bgcolor="#ffffff", font_size=12, font_color="#0f172a"),
                     title=dict(text=f"P/E hiện tại: <span style='color:{_pe_clr}'>{_cur_pe:.1f}x "
@@ -6967,7 +7064,7 @@ elif view == "Tổng quan Thị trường":
                     marker=dict(color=_pb_clr, size=10, line=dict(color="#0e1117", width=1.5)),
                     hovertemplate=f"Hiện tại: {_cur_pb:.2f}x<extra></extra>", showlegend=False))
                 fig_mpb.update_layout(
-                    height=300, margin=dict(l=0, r=10, t=30, b=0), dragmode=False,
+                    height=_responsive_height(300), margin=dict(l=0, r=10, t=30, b=0), dragmode=False,
                     hovermode="x unified", plot_bgcolor="rgba(255,255,255,0)", paper_bgcolor="rgba(0,0,0,0)",
                     hoverlabel=dict(bgcolor="#ffffff", font_size=12, font_color="#0f172a"),
                     title=dict(text=f"P/B hiện tại: <span style='color:{_pb_clr}'>{_cur_pb:.2f}x "
@@ -7007,7 +7104,7 @@ elif view == "Tổng quan Thị trường":
                                "Bán: %{customdata[1]:,.1f} tỷ<extra></extra>")))
             _fig_ff.add_hline(y=0, line_color="#cbd5e1", line_width=1)
             _fig_ff.update_layout(
-                height=300, margin=dict(l=0, r=10, t=40, b=0), dragmode=False, showlegend=False,
+                height=_responsive_height(300), margin=dict(l=0, r=10, t=40, b=0), dragmode=False, showlegend=False,
                 title=dict(text=("Mua-bán ròng nước ngoài · 15 phiên gần nhất  "
                                  f"<span style='color:{_cc_net}'>(gần nhất {_last_net:+,.0f} tỷ)</span>"),
                            font=dict(size=14)),
@@ -7119,7 +7216,7 @@ elif view == "Tổng quan Thị trường":
             pathbar=dict(visible=False),
         ))
         _fig_hm.update_layout(
-            height=430, margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
+            height=_responsive_height(430), margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0)",
         )
         st.plotly_chart(_fig_hm, width="stretch")
@@ -7165,7 +7262,7 @@ elif view == "Tổng quan Thị trường":
             fig = go.Figure(go.Bar(x=x, y=df["value"], marker_color=colors, hovertemplate=hover))
             fig.add_hline(y=0, line_color="#64748b", opacity=0.5)
             fig.update_layout(
-                title=title, height=280, margin=dict(l=0, r=0, t=40, b=0),
+                title=title, height=_responsive_height(280), margin=dict(l=0, r=0, t=40, b=0),
                 dragmode=False, showlegend=False,
                 hovermode="x",
                 hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
@@ -7218,7 +7315,7 @@ elif view == "Tổng quan Thị trường":
                     hovertemplate="%{x} · " + label + ": %{y:+.2f}" + unit + "<extra></extra>"))
             fig.add_hline(y=0, line_color="#64748b", opacity=0.5)
             fig.update_layout(
-                title=title, height=340, margin=dict(l=0, r=0, t=40, b=40),
+                title=title, height=_responsive_height(340), margin=dict(l=0, r=0, t=40, b=40),
                 dragmode=False, showlegend=len(series) > 1,
                 hovermode="x unified",
                 hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
@@ -7454,7 +7551,7 @@ elif view == "Tổng quan Thị trường":
                     x=_fx_df["period"], y=_fx_df["value"], mode="lines",
                     line=dict(color="#60a5fa", width=1.8),
                     hovertemplate="%{x|%d/%m/%Y}: %{y:,.0f} VND<extra></extra>"))
-                fig_fx.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=0),
+                fig_fx.update_layout(height=_responsive_height(320), margin=dict(l=0, r=0, t=10, b=0),
                                       dragmode=False, yaxis_title="VND",
                                       hovermode="x",
                                       hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
@@ -7508,7 +7605,7 @@ elif view == "Tổng quan Thị trường":
                         marker=dict(size=6 if _is_total else 4),
                         hovertemplate=f"{label}: %{{y:.2f}}%YTD<extra></extra>"))
                 fig_cg.update_layout(
-                    height=360, margin=dict(l=0, r=0, t=10, b=60),
+                    height=_responsive_height(360), margin=dict(l=0, r=0, t=10, b=60),
                     dragmode=False, hovermode="x unified",
                     hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
                                     font=dict(color="#0f172a", size=12)),
@@ -7552,7 +7649,7 @@ elif view == "Tổng quan Thị trường":
                         x=_dep_df["period"], y=_dep_df["value"], name="Tiền gửi 6-12T (SBV)", mode="lines+markers",
                         line=dict(color="#22c55e", width=2),
                         hovertemplate="Tiền gửi: %{y:.2f}%/năm<extra></extra>"))
-                fig_rate.update_layout(height=320, margin=dict(l=0, r=0, t=10, b=40),
+                fig_rate.update_layout(height=_responsive_height(320), margin=dict(l=0, r=0, t=10, b=40),
                                         dragmode=False, yaxis_title="%/năm",
                                         hovermode="x unified",
                                         hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
@@ -7573,7 +7670,7 @@ elif view == "Tổng quan Thị trường":
                     x=_cg_xlabels, y=_cg_df["value"], name="Tín dụng %YTD", mode="lines+markers",
                     line=dict(color="#f59e0b", width=2),
                     hovertemplate="Tín dụng: %{y:.2f}%YTD<extra></extra>"))
-                fig_cg2.update_layout(height=260, margin=dict(l=0, r=0, t=10, b=40),
+                fig_cg2.update_layout(height=_responsive_height(260), margin=dict(l=0, r=0, t=10, b=40),
                                       dragmode=False, yaxis_title="%YTD",
                                       hovermode="x",
                                       hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
