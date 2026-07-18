@@ -1626,7 +1626,7 @@ def load_market_valuation_history() -> "pd.DataFrame":
     return agg
 
 
-_INDEX_SYMBOLS = ["VNINDEX", "HNXINDEX", "UPCOMINDEX", "VN30", "HNX30"]
+_INDEX_SYMBOLS = ["VNINDEX", "HNXINDEX"]
 
 
 def _fetch_one_index_intraday(sym: str, today, week_ago) -> tuple[str, dict | None]:
