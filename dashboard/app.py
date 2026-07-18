@@ -170,6 +170,39 @@ def _responsive_height(desktop_px: int) -> int:
         return max(180, round(desktop_px * 0.80))
     return desktop_px
 
+# Design tokens — deep navy anchor (hue 256), matching the "trust" blue
+# convention that ui-ux-pro-max's design database confirms for fintech/
+# financial-dashboard products (richer/deeper than the generic corporate
+# blue-800 the app shipped with, closer to a #003366-class navy). Signal
+# colors (gain/loss green-red, warning amber) are intentionally NOT
+# tokenized — that's a financial-UX convention, not a "generic default"
+# problem. Hex literals used as raw Python values (Plotly kwargs, color-map
+# lists/tuples/dicts) are also intentionally left as literal hex, never
+# tokens: Plotly renders server/client-side independent of the page's CSS
+# cascade and cannot resolve a var() reference — only text written as
+# literal CSS (`property:value` inside an f-string) was migrated to tokens.
+st.markdown("""<style>
+:root {
+    --color-paper:          #f2f5fb;
+    --color-paper-2:        #fcfeff;
+    --color-surface-hover:  #e2e8f1;
+    --color-accent-tint:    #d3e3f9;
+    --color-rule:           #ced5df;
+    --color-rule-strong:    #afb8c4;
+    --color-muted:          #666f7c;
+    --color-neutral:        #47515e;
+    --color-ink-2:          #1b2532;
+    --color-ink:            #0a121d;
+    --color-accent-light:   #367ad1;
+    --color-accent:         #00347b;
+    --color-accent-strong:  #002057;
+    --color-accent-deep:    #00133d;
+    --color-focus:          #006ddd;
+    --radius-card: 4px;
+    --radius-pill: 999px;
+}
+</style>""", unsafe_allow_html=True)
+
 # Typography — Fira Code (headings/numbers, dashboard-appropriate monospace
 # precision) + Fira Sans (body). Picked via ui-ux-pro-max-skill's typography
 # search for "dashboard, data, analytics" mood.
@@ -177,24 +210,121 @@ st.markdown("""<style>
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 html, body, [data-testid="stApp"] {
     font-family: "Fira Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+    color: var(--color-ink);
 }
 h1, h2, h3, h4, h5, h6,
 [data-testid="stMarkdownContainer"] h1, [data-testid="stMarkdownContainer"] h2,
 [data-testid="stMarkdownContainer"] h3, [data-testid="stMarkdownContainer"] h4,
 .ch-ticker, .ch-price {
     font-family: "Fira Code", ui-monospace, "SF Mono", Consolas, monospace !important;
+    font-weight: 600;
+    letter-spacing: -0.01em;
 }
+
+/* Native widget chrome — sharpen the soft default-rounded look and anchor
+   interactive elements to the accent token instead of Streamlit's stock red. */
+[data-testid="stSidebar"] { background: var(--color-paper-2); border-right: 1px solid var(--color-rule); }
+[data-testid="stButton"] button, [data-testid="stDownloadButton"] button {
+    border-radius: var(--radius-card) !important;
+    border: 1px solid var(--color-rule-strong) !important;
+}
+[data-testid="stButton"] button[kind="primary"], [data-testid="baseButton-primary"] {
+    background: var(--color-accent) !important;
+    border-color: var(--color-accent) !important;
+}
+[data-testid="stButton"] button[kind="primary"]:hover { background: var(--color-accent-strong) !important; }
+[data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+    border-radius: var(--radius-card) !important;
+    border-color: var(--color-rule-strong) !important;
+}
+/* Requested removal of the focus outline specifically on select/search
+   boxes (the blue box around the dropdown on click/focus) -- scoped to
+   stSelectbox only, the global :focus-visible ring below still applies to
+   buttons/text inputs elsewhere. */
+[data-testid="stSelectbox"] *:focus,
+[data-testid="stSelectbox"] *:focus-visible,
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus-within {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: var(--color-rule-strong) !important;
+}
+/* The selectbox's OPEN dropdown (option list) renders in a separate portal
+   appended to <body>, not inside stSelectbox — the rule above only reaches
+   the closed box, so the popover menu was still on Streamlit's stock
+   red-tinted highlight instead of the new navy accent. */
+[data-baseweb="popover"] [data-baseweb="menu"] {
+    background: var(--color-paper-2) !important;
+    border: 1px solid var(--color-rule) !important;
+    border-radius: var(--radius-card) !important;
+}
+[data-baseweb="menu"] li[role="option"] { color: var(--color-ink) !important; }
+[data-baseweb="menu"] li[role="option"]:hover,
+[data-baseweb="menu"] li[aria-selected="true"] {
+    background: var(--color-accent-tint) !important;
+    color: var(--color-accent-strong) !important;
+}
+[data-testid="stTabs"] [aria-selected="true"] {
+    color: var(--color-accent) !important;
+    border-bottom-color: var(--color-accent) !important;
+}
+/* BaseWeb's tab-list underline "track" (the thin full-width line the active
+   indicator slides along) defaults to a light grey that reads as a stray
+   white streak against the new tinted page background. */
+[data-baseweb="tab-border"] { background-color: var(--color-rule) !important; }
+[data-baseweb="tab-highlight"] { background-color: var(--color-accent) !important; }
+[data-testid="stTabs"] [role="tablist"] { border-bottom: 1px solid var(--color-rule) !important; gap: 0 !important; }
+:focus-visible { outline: 2px solid var(--color-focus) !important; outline-offset: 1px; transition: none !important; }
 </style>""", unsafe_allow_html=True)
 
 # Kill all animations/transitions globally — prevents white flash and dialog delay
 st.markdown("""<style>
-html { background:#f8fafc!important; }
-body,[data-testid="stApp"],.main,.block-container { background-color:#f8fafc!important; }
+html { background:var(--color-paper)!important; }
+body,[data-testid="stApp"],.main,.block-container { background-color:var(--color-paper)!important; }
 [data-testid="stApp"]*{ animation-duration:0.001s!important; transition-duration:0.001s!important; }
 [data-testid="stStatusWidget"]{ visibility:hidden!important; }
 [data-testid="stDecoration"]{ display:none!important; }
+header[data-testid="stHeader"], [data-testid="stHeader"], [data-testid="stToolbar"],
+.stApp > header, [data-testid="stAppViewContainer"] > header {
+    background: var(--color-paper) !important;
+    background-color: var(--color-paper) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    box-shadow: none !important;
+    border-bottom: none !important;
+}
+[data-testid="stHeader"] * { background: transparent !important; }
+/* streamlit_js_eval's viewport-detector component (called once at the top of
+   every script run, before any page content) renders in its own sandboxed
+   iframe with a blank white document — our :root tokens live on the parent
+   page and can never reach inside that iframe's DOM. Its own "auto height"
+   hack (`setFrameHeight(document.documentElement.clientHeight)`) measures the
+   iframe's own viewport rather than its (empty) content, so it never
+   collapses to 0 on its own — collapse it here from the parent page instead. */
+iframe[title*="js_eval"] {
+    height: 0 !important; min-height: 0 !important; max-height: 0 !important;
+    border: none !important; display: block !important;
+}
 [data-testid="stModal"],[data-testid="stModalContent"],[data-testid="stModalOverlay"]{
     animation:none!important; transition:none!important;
+}
+
+/* Tablet gap (641-900px, e.g. iPad portrait / small laptop windows) — the
+   phone rules below only fire at <=640px, so the dense multi-cell rows
+   (ticker header, TTM scorecard, DuPont breakdown) had no wrap fallback in
+   this range and could crowd/overflow. Unlike the phone rules, this does
+   NOT touch font-size or force full single-column stacking (that would
+   waste the extra width a tablet actually has) — just lets cells wrap to
+   2-per-row instead of forcing everything onto one cramped line. The more
+   specific <=640px rules below still win at phone widths since they're
+   declared after this block. Matches the existing _TABLET_BREAKPOINT=900
+   already used for chart-height scaling further up in this file. */
+@media (max-width: 900px) {
+    .ch-row { flex-wrap: wrap !important; gap: 12px !important; }
+    .ttm-row { flex-wrap: wrap !important; }
+    .ttm-cell { flex: 1 1 50% !important; min-width: 50% !important; box-sizing: border-box !important; }
+    .dp-row { flex-wrap: wrap !important; justify-content: center !important; }
+    .dp-card { flex: 1 1 50% !important; min-width: 50% !important; }
 }
 
 /* Mobile responsiveness — the stock header below is built as inline-styled
@@ -237,8 +367,8 @@ body,[data-testid="stApp"],.main,.block-container { background-color:#f8fafc!imp
 .mobile-sidebar-hint { display:none; }
 @media (max-width: 640px) {
     .mobile-sidebar-hint {
-        display:block!important; background:#dbeafe; color:#1d4ed8;
-        font-size:13px; font-weight:600; padding:8px 14px; border-radius:8px;
+        display:block!important; background:var(--color-accent-tint); color:var(--color-accent-strong);
+        font-size:13px; font-weight:600; padding:8px 14px; border-radius:4px;
         margin-bottom:10px;
     }
 }
@@ -1880,7 +2010,7 @@ def _mc(label, value, accent=False):
     vc = "#3b82f6" if accent else "#1e3a8a"
     return (
         f'<div style="min-width:0;">'
-        f'<div style="font-size:16px;color:#64748b;white-space:nowrap;">{label}</div>'
+        f'<div style="font-size:16px;color:var(--color-muted);white-space:nowrap;">{label}</div>'
         f'<div style="font-size:20px;font-weight:600;color:{vc};white-space:nowrap;">{value}</div>'
         f'</div>'
     )
@@ -1945,10 +2075,10 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
     )
     _live_badge = (
         f'<span style="font-size:13px;background:#fee2e2;color:#dc2626;padding:3px 10px;'
-        f'border-radius:8px;font-weight:600;">{_live_dot}LIVE · {_live_as_of}</span>'
+        f'border-radius:4px;font-weight:600;">{_live_dot}LIVE · {_live_as_of}</span>'
         if _live_as_of else
-        f'<span style="font-size:13px;background:#f1f5f9;color:#475569;padding:3px 10px;'
-        f'border-radius:8px;font-weight:600;">EOD</span>'
+        f'<span style="font-size:13px;background:var(--color-surface-hover);color:var(--color-neutral);padding:3px 10px;'
+        f'border-radius:4px;font-weight:600;">EOD</span>'
     )
 
     return (
@@ -1956,29 +2086,29 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
 
         # LEFT — ticker + name
         f'<div class="ch-left" style="min-width:230px;padding-right:28px;">'
-        f'<div class="ch-ticker" style="font-size:33px;font-weight:800;color:#1e3a8a;line-height:1.2;">'
+        f'<div class="ch-ticker" style="font-size:33px;font-weight:800;color:var(--color-ink);line-height:1.2;">'
         f'{ticker}'
-        f'<span style="font-size:16px;background:#dbeafe;color:#1e40af;padding:3px 10px;'
+        f'<span style="font-size:16px;background:var(--color-accent-tint);color:var(--color-accent-strong);padding:3px 10px;'
         f'border-radius:6px;margin-left:9px;vertical-align:middle;">{co_exch}</span>'
         f'</div>'
-        f'<div style="font-size:18px;color:#64748b;margin-top:8px;">{co_name}</div>'
+        f'<div style="font-size:18px;color:var(--color-muted);margin-top:8px;">{co_name}</div>'
         f'</div>'
 
         # CENTER — price + change + day range
         f'<div class="ch-center" style="min-width:300px;padding-right:28px;">'
         f'<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">'
-        f'<span class="ch-price" style="font-size:45px;font-weight:800;color:#1e3a8a;">{current_price:,.0f}</span>'
+        f'<span class="ch-price" style="font-size:45px;font-weight:800;color:var(--color-ink);">{current_price:,.0f}</span>'
         f'<span style="font-size:22px;color:{_cc};font-weight:600;">{_chg_disp}</span>'
         f'<span style="font-size:18px;background:{_cbg};color:{_cc};padding:3px 12px;'
-        f'border-radius:8px;font-weight:600;">{_arrow}{abs(_chg_pct):.2f}%</span>'
+        f'border-radius:4px;font-weight:600;">{_arrow}{abs(_chg_pct):.2f}%</span>'
         f'{_live_badge}'
         f'</div>'
         f'<div style="margin-top:10px;width:100%;">'
-        f'<div style="display:flex;justify-content:space-between;font-size:16px;color:#64748b;margin-bottom:5px;">'
-        f'<span>Low &nbsp;<b style="color:#1e3a8a;">{_low_d:,.0f}</b></span>'
-        f'<span>High <b style="color:#1e3a8a;">{_high_d:,.0f}</b></span>'
+        f'<div style="display:flex;justify-content:space-between;font-size:16px;color:var(--color-muted);margin-bottom:5px;">'
+        f'<span>Low &nbsp;<b style="color:var(--color-ink);">{_low_d:,.0f}</b></span>'
+        f'<span>High <b style="color:var(--color-ink);">{_high_d:,.0f}</b></span>'
         f'</div>'
-        f'<div style="position:relative;height:4px;background:#dbeafe;border-radius:2px;margin-bottom:10px;">'
+        f'<div style="position:relative;height:4px;background:var(--color-accent-tint);border-radius:2px;margin-bottom:10px;">'
         f'<div style="position:absolute;left:0;top:0;height:100%;width:{_rng_pct}%;'
         f'background:{_cc};border-radius:2px;opacity:0.7;"></div>'
         f'<div style="position:absolute;left:{_rng_pct}%;top:50%;transform:translate(-50%,-50%);'
@@ -2025,6 +2155,19 @@ VIEWS = [
     "Phân tích Ngành",
     "Tổng quan Thị trường",
 ]
+# Deep-linking: seed the initial view/ticker from the URL on first load only.
+# Only fires when "view_selector" has never been set for this session, so it
+# can never fight in-app navigation (sidebar clicks, popup buttons below) on
+# any later rerun — session_state is always the source of truth once the app
+# is actually running.
+if "view_selector" not in st.session_state:
+    _qp_view = st.query_params.get("view")
+    if _qp_view in VIEWS:
+        st.session_state["view_selector"] = _qp_view
+    _qp_ticker = st.query_params.get("ticker")
+    if _qp_ticker:
+        st.session_state["ticker_input"] = _qp_ticker.strip().upper()
+
 # Handle navigation from popup buttons (must be before radio renders)
 if st.session_state.get("hm_navigate_to"):
     _pre_nav = st.session_state.pop("hm_navigate_to")
@@ -2037,6 +2180,9 @@ def _on_view_change():
     st.session_state["hm_popup_sector"] = None
 
 view = st.sidebar.radio("View", VIEWS, key="view_selector", on_change=_on_view_change)
+# Keep the URL in sync so the current view (and, once selected below, ticker)
+# can be shared/bookmarked/reloaded back to the same place.
+st.query_params["view"] = view
 
 # ── Startup signal alerts for pinned (watchlist) tickers ─────────────────────
 if not st.session_state.get("_signal_alerts_shown"):
@@ -2118,12 +2264,12 @@ if st.session_state.get("hm_popup_ticker"):
             _left, _right = st.columns([4, 1.5])
             with _left:
                 st.markdown(
-                    f"<div style='font-size:11px;color:#6b7280;margin-bottom:2px;'>"
-                    f"O&nbsp;<b style='color:#0f172a'>{_gopen:,.0f}</b>&nbsp;"
+                    f"<div style='font-size:11px;color:var(--color-muted);margin-bottom:2px;'>"
+                    f"O&nbsp;<b style='color:var(--color-ink)'>{_gopen:,.0f}</b>&nbsp;"
                     f"H&nbsp;<b style='color:#22c55e'>{_ghigh:,.0f}</b>&nbsp;"
                     f"L&nbsp;<b style='color:#ef4444'>{_glow:,.0f}</b>&nbsp;"
                     f"C&nbsp;<b style='color:{_gcc}'>{_gcur:,.0f}</b>&nbsp;"
-                    f"Vol&nbsp;<b style='color:#0f172a'>{_gvol/1e6:.2f}M</b><br>"
+                    f"Vol&nbsp;<b style='color:var(--color-ink)'>{_gvol/1e6:.2f}M</b><br>"
                     f"MA10&nbsp;<b style='color:#2563eb'>{_gmini['ma10'].dropna().iloc[-1]:,.0f}</b>&nbsp;"
                     f"MA50&nbsp;<b style='color:#c2410c'>{_gmini['ma50'].dropna().iloc[-1]:,.0f}</b></div>",
                     unsafe_allow_html=True)
@@ -2138,7 +2284,7 @@ if st.session_state.get("hm_popup_ticker"):
                 st.plotly_chart(_gfig, width="stretch")
             with _right:
                 def _gs(label,value,color="#0f172a"):
-                    return (f"<div style='display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #e2e8f0;font-size:13px;'><span style='color:#6b7280'>{label}</span><span style='color:{color};font-weight:600'>{value}</span></div>")
+                    return (f"<div style='display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #e2e8f0;font-size:13px;'><span style='color:var(--color-muted)'>{label}</span><span style='color:{color};font-weight:600'>{value}</span></div>")
                 _gmcap = f"{_gcur*_gsh/1e12:,.1f} tn" if _gsh else "—"
                 _gpe = f"{_gtd['pe']:.1f}×" if _gtd is not None and pd.notna(_gtd.get("pe")) else "—"
                 _gpb = f"{_gtd['pb']:.2f}×" if _gtd is not None and pd.notna(_gtd.get("pb")) else "—"
@@ -2182,6 +2328,7 @@ if view == "Phân tích Cổ phiếu":
     else:
         _default_idx = 0
     ticker = st.sidebar.selectbox("Mã", _available, index=_default_idx, key="ticker_selector")
+    st.query_params["ticker"] = ticker
 
     # ── Parallel prefetch: all slow vnstock API calls fire simultaneously ──
     # Each function is @st.cache_data; the threads warm the cache so that every
@@ -2635,8 +2782,8 @@ if view == "Phân tích Cổ phiếu":
                   st.write("")
                   with st.container(border=True):
                     st.markdown(
-                        f'<div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:8px;">'
-                        f'So sánh cùng ngành <span style="color:#6b7280;font-size:13px;font-weight:400;">'
+                        f'<div style="font-size:17px;font-weight:700;color:var(--color-ink);margin-bottom:8px;">'
+                        f'So sánh cùng ngành <span style="color:var(--color-muted);font-size:13px;font-weight:400;">'
                         f'· {_co_sect}</span></div>', unsafe_allow_html=True)
 
                     def _pmed(col):
@@ -2693,8 +2840,8 @@ if view == "Phân tích Cổ phiếu":
             st.write("")
             with st.container(border=True):
                 st.markdown(
-                    '<div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:8px;">'
-                    'Giao dịch Nước ngoài & Tự doanh <span style="color:#6b7280;font-size:13px;'
+                    '<div style="font-size:17px;font-weight:700;color:var(--color-ink);margin-bottom:8px;">'
+                    'Giao dịch Nước ngoài & Tự doanh <span style="color:var(--color-muted);font-size:13px;'
                     'font-weight:400;">· 20 phiên gần nhất</span></div>', unsafe_allow_html=True)
 
                 _ffp_sel = st.segmented_control(
@@ -2857,8 +3004,8 @@ if view == "Phân tích Cổ phiếu":
 
             if current_price:
                 st.markdown(
-                    f"<div style='font-size:12.5px;color:#6b7280;margin:-6px 0 10px;'>"
-                    f"Giá thị trường hiện tại: <b style='color:#0f172a;'>{current_price:,.0f} ₫</b></div>",
+                    f"<div style='font-size:12.5px;color:var(--color-muted);margin:-6px 0 10px;'>"
+                    f"Giá thị trường hiện tại: <b style='color:var(--color-ink);'>{current_price:,.0f} ₫</b></div>",
                     unsafe_allow_html=True)
 
             def _val_card(label, price_val, hint):
@@ -2866,14 +3013,14 @@ if view == "Phân tích Cổ phiếu":
                 clr = "#4ade80" if u >= 0 else "#f87171"
                 arrow = "▲" if u >= 0 else "▼"
                 return (
-                    f'<div title="{hint}" style="background:#ffffff;border:1px solid #334155;'
-                    f'border-radius:8px;padding:12px 14px;">'
-                    f'<div style="font-size:12px;color:#6b7280;margin-bottom:6px;'
+                    f'<div title="{hint}" style="background:var(--color-paper-2);border:1px solid #334155;'
+                    f'border-radius:4px;padding:12px 14px;">'
+                    f'<div style="font-size:12px;color:var(--color-muted);margin-bottom:6px;'
                     f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>'
-                    f'<div style="font-size:21px;font-weight:800;color:#0f172a;letter-spacing:.3px;">'
-                    f'{price_val:,.0f} <span style="font-size:13px;font-weight:600;color:#6b7280;">₫</span></div>'
+                    f'<div style="font-size:21px;font-weight:800;color:var(--color-ink);letter-spacing:.3px;">'
+                    f'{price_val:,.0f} <span style="font-size:13px;font-weight:600;color:var(--color-muted);">₫</span></div>'
                     f'<div style="font-size:12px;font-weight:700;color:{clr};margin-top:4px;">'
-                    f'{arrow} {u:+.1f}% <span style="color:#475569;font-weight:400;">so với thị trường</span></div>'
+                    f'{arrow} {u:+.1f}% <span style="color:var(--color-neutral);font-weight:400;">so với thị trường</span></div>'
                     f'</div>')
 
             _cards_html = "".join(_val_card(label, v[key], hint) for key, label, hint in _valid_methods)
@@ -2902,23 +3049,23 @@ if view == "Phân tích Cổ phiếu":
                 arr_med = "▲" if u_med >= 0 else "▼"
                 st.markdown(
                     f'<div style="margin-top:10px;background:linear-gradient(135deg,#dbeafe,#eff6ff);'
-                    f'border:1px solid #3b82f6;border-radius:8px;padding:14px 16px;">'
+                    f'border:1px solid #3b82f6;border-radius:4px;padding:14px 16px;">'
                     # Row 1: trimmed mean (primary)
                     f'<div style="display:flex;justify-content:space-between;align-items:center;">'
                     f'<div>'
-                    f'<div style="font-size:11px;color:#1d4ed8;font-weight:700;letter-spacing:.4px;">'
+                    f'<div style="font-size:11px;color:var(--color-accent-strong);font-weight:700;letter-spacing:.4px;">'
                     f'{_trim_label}</div>'
-                    f'<div style="font-size:27px;font-weight:800;color:#0f172a;margin-top:2px;">'
-                    f'{avg_val:,.0f} <span style="font-size:14px;font-weight:600;color:#6b7280;">₫</span></div>'
+                    f'<div style="font-size:27px;font-weight:800;color:var(--color-ink);margin-top:2px;">'
+                    f'{avg_val:,.0f} <span style="font-size:14px;font-weight:600;color:var(--color-muted);">₫</span></div>'
                     f'</div>'
                     f'<div style="text-align:right;">'
                     f'<div style="font-size:17px;font-weight:800;color:{clr_avg};">{arr_avg} {u_avg:+.1f}%</div>'
-                    f'<div style="font-size:11px;color:#6b7280;">so với giá thị trường</div>'
+                    f'<div style="font-size:11px;color:var(--color-muted);">so với giá thị trường</div>'
                     f'</div></div>'
                     # Row 2: median (reference)
                     f'<div style="display:flex;justify-content:space-between;align-items:center;'
                     f'margin-top:10px;padding-top:10px;border-top:1px solid #334155;">'
-                    f'<div style="font-size:12px;color:#64748b;">Trung vị (Median)</div>'
+                    f'<div style="font-size:12px;color:var(--color-muted);">Trung vị (Median)</div>'
                     f'<div style="font-size:13px;font-weight:700;color:{clr_med};">'
                     f'{med_val:,.0f} ₫ &nbsp; {arr_med} {u_med:+.1f}%</div>'
                     f'</div>'
@@ -2949,8 +3096,8 @@ if view == "Phân tích Cổ phiếu":
                     </style>
                 ''', unsafe_allow_html=True)
                 st.markdown(
-                    '<div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:8px;">'
-                    'Phân tích kỹ thuật <span style="color:#6b7280;font-size:13px;'
+                    '<div style="font-size:17px;font-weight:700;color:var(--color-ink);margin-bottom:8px;">'
+                    'Phân tích kỹ thuật <span style="color:var(--color-muted);font-size:13px;'
                     'font-weight:400;">· 1 ngày</span></div>', unsafe_allow_html=True)
 
                 _ta = prices_df.copy().reset_index(drop=True)
@@ -3106,13 +3253,13 @@ if view == "Phân tích Cổ phiếu":
                         st.plotly_chart(fig_gauge, width="stretch")
 
                     st.markdown(
-                        '<div style="background:#ffffff;border-left:4px solid #3b82f6;'
+                        '<div style="background:var(--color-paper-2);border-left:4px solid #3b82f6;'
                         'border-radius:6px;padding:10px 14px;margin-top:8px;font-size:12.5px;'
-                        'color:#64748b;line-height:1.7;">'
-                        '💡 <b style="color:#475569;">TỔNG HỢP</b> = tổng hợp tất cả tín hiệu '
+                        'color:var(--color-muted);line-height:1.7;">'
+                        '💡 <b style="color:var(--color-neutral);">TỔNG HỢP</b> = tổng hợp tất cả tín hiệu '
                         'Mua/Bán từ 7 chỉ số kỹ thuật và các đường trung bình '
                         '(Simple &amp; Exponential) bên dưới.<br>'
-                        '📊 <b style="color:#475569;">Điểm gauge</b> chạy từ -1 (Bán mạnh) đến '
+                        '📊 <b style="color:var(--color-neutral);">Điểm gauge</b> chạy từ -1 (Bán mạnh) đến '
                         '+1 (Mua mạnh) = (Số tín hiệu Mua − Số tín hiệu Bán) / Tổng số tín hiệu. '
                         '0 = cân bằng giữa Mua và Bán.'
                         '</div>',
@@ -4539,12 +4686,12 @@ if view == "Phân tích Cổ phiếu":
                 def _tip_html(t: dict) -> str:
                     return (
                         '<div class="ttm-tooltip">'
-                        f'<div style="font-size:10px;color:#475569;margin-bottom:4px;font-style:italic;">{_esc(t["f"])}</div>'
-                        f'<div style="font-size:12px;color:#475569;margin-bottom:10px;line-height:1.45;">{_esc(t["d"])}</div>'
-                        '<div style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:#475569;">'
-                        f'<span><span style="color:#16a34a;margin-right:6px;font-size:9px;">&#9679;</span>Tốt: {_esc(t["g"])}</span>'
-                        f'<span><span style="color:#d97706;margin-right:6px;font-size:9px;">&#9679;</span>Cảnh báo: {_esc(t["w"])}</span>'
-                        f'<span><span style="color:#dc2626;margin-right:6px;font-size:9px;">&#9679;</span>Nguy hiểm: {_esc(t["b"])}</span>'
+                        f'<div style="font-size:11px;color:var(--color-neutral);margin-bottom:4px;font-style:italic;">{_esc(t["f"])}</div>'
+                        f'<div style="font-size:12px;color:var(--color-neutral);margin-bottom:10px;line-height:1.45;">{_esc(t["d"])}</div>'
+                        '<div style="display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--color-neutral);">'
+                        f'<span><span style="color:#16a34a;margin-right:6px;font-size:11px;">&#9679;</span>Tốt: {_esc(t["g"])}</span>'
+                        f'<span><span style="color:#d97706;margin-right:6px;font-size:11px;">&#9679;</span>Cảnh báo: {_esc(t["w"])}</span>'
+                        f'<span><span style="color:#dc2626;margin-right:6px;font-size:11px;">&#9679;</span>Nguy hiểm: {_esc(t["b"])}</span>'
                         '</div>'
                         '<div class="ttm-tt-arrow"></div>'
                         '</div>'
@@ -4559,18 +4706,18 @@ if view == "Phân tích Cổ phiếu":
                     cells += (
                         f'<div class="ttm-cell" style="flex:1;text-align:center;padding:16px 10px;{sep}position:relative;">'
                         f'{tooltip}'
-                        f'<div class="ttm-label" style="font-size:11px;color:#64748b;margin-bottom:6px;'
+                        f'<div class="ttm-label" style="font-size:11px;color:var(--color-muted);margin-bottom:6px;'
                         f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>'
                         f'<div class="ttm-value" style="font-size:22px;font-weight:700;color:{color};letter-spacing:-0.5px;'
                         f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{value}</div>'
                         f'</div>'
                     )
                 return (
-                    f'<div style="border:1px solid rgba(148,163,184,0.3);border-radius:10px;'
+                    f'<div style="border:1px solid rgba(148,163,184,0.3);border-radius:4px;'
                     f'margin-bottom:10px;">'
                     f'<div style="background:rgba(148,163,184,0.08);padding:6px 14px;'
-                    f'font-size:10px;font-weight:700;letter-spacing:1.4px;color:#64748b;'
-                    f'border-radius:9px 9px 0 0;">'
+                    f'font-size:10px;font-weight:700;letter-spacing:1.4px;color:var(--color-muted);'
+                    f'border-radius:4px 9px 0 0;">'
                     f'{title}</div>'
                     f'<div class="ttm-row" style="display:flex;overflow:visible;">{cells}</div>'
                     f'</div>'
@@ -4585,9 +4732,9 @@ if view == "Phân tích Cổ phiếu":
                 "bottom:calc(100% + 10px);"
                 "left:50%;"
                 "transform:translateX(-50%);"
-                "background:#ffffff;"
+                "background:var(--color-paper-2);"
                 "border:1px solid rgba(148,163,184,0.15);"
-                "border-radius:8px;"
+                "border-radius:4px;"
                 "padding:12px 14px;"
                 "width:230px;"
                 "z-index:9999;"
@@ -4682,7 +4829,7 @@ if view == "Phân tích Cổ phiếu":
             )
             _LEGEND = (
                 '<div style="display:flex;gap:18px;justify-content:flex-end;'
-                'padding:2px 4px 8px;font-size:11px;color:#64748b;">'
+                'padding:2px 4px 8px;font-size:11px;color:var(--color-muted);">'
                 '<span style="display:flex;align-items:center;gap:5px;">'
                 '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;'
                 'background:#16a34a;flex-shrink:0;"></span>Tốt</span>'
@@ -4710,22 +4857,22 @@ if view == "Phân tích Cổ phiếu":
 
                 def _dp_card(label, value, color, hint):
                     return (
-                        '<div class="dp-card" style="background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,0.07);border-radius:10px;padding:14px 10px 12px;'
+                        '<div class="dp-card" style="background:var(--color-paper-2);border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,0.07);border-radius:4px;padding:14px 10px 12px;'
                         'flex:1;min-width:0;text-align:center;">'
-                        f'<div style="font-size:11px;color:#64748b;margin-bottom:6px;'
+                        f'<div style="font-size:11px;color:var(--color-muted);margin-bottom:6px;'
                         f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{label}</div>'
                         f'<div class="dp-value" style="font-size:22px;font-weight:700;color:{color};letter-spacing:-0.5px;">{value}</div>'
-                        f'<div style="font-size:10px;color:#475569;margin-top:4px;">{hint}</div>'
+                        f'<div style="font-size:10px;color:var(--color-neutral);margin-top:4px;">{hint}</div>'
                         '</div>'
                     )
 
                 def _dp_op(sym):
-                    return f'<div class="dp-op" style="font-size:18px;color:#475569;align-self:center;padding:0 2px;">{sym}</div>'
+                    return f'<div class="dp-op" style="font-size:18px;color:var(--color-neutral);align-self:center;padding:0 2px;">{sym}</div>'
 
                 _dp_html = (
                     '<div style="margin-top:4px;">'
                     '<div style="font-weight:600;font-size:25px;margin-bottom:10px;">'
-                    'Phân tích DuPont — ROE tách thành 3 nguồn gốc</div>'
+                    'DuPont</div>'
                     '<div class="dp-row" style="display:flex;align-items:center;gap:2px;">'
                     + _dp_card("Biên LN ròng", f"{dp_margin*100:.1f}%", _margin_c, "LN ròng / Doanh thu")
                     + _dp_op("×")
@@ -4757,14 +4904,14 @@ if view == "Phân tích Cổ phiếu":
                 st.markdown(_badges_html, unsafe_allow_html=True)
 
                 _dp_notes_html = (
-                    '<div style="font-size:15px;color:#475569;line-height:1.8;margin-bottom:8px;">'
+                    '<div style="font-size:15px;color:var(--color-neutral);line-height:1.8;margin-bottom:8px;">'
                     f'<div>• {_dp["margin_note"]}</div>'
                     f'<div>• {_dp["turnover_note"]}</div>'
                     f'<div>• {_dp["leverage_note"]}</div>'
                     '</div>'
                 )
                 st.markdown(_dp_notes_html, unsafe_allow_html=True)
-                st.markdown(f'<div style="font-size:16px;font-weight:600;color:#475569;">{_dp["comment"]}</div>',
+                st.markdown(f'<div style="font-size:16px;font-weight:600;color:var(--color-neutral);">{_dp["comment"]}</div>',
                             unsafe_allow_html=True)
 
             # ── ROIC vs WACC — multi-period average ─────────────────
@@ -4830,12 +4977,12 @@ if view == "Phân tích Cổ phiếu":
 
                 def _rw_card(label, value, color, hint):
                     return (
-                        '<div class="dp-card" style="background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,0.07);border-radius:10px;padding:14px 10px 12px;'
+                        '<div class="dp-card" style="background:var(--color-paper-2);border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,0.07);border-radius:4px;padding:14px 10px 12px;'
                         'flex:1;min-width:0;text-align:center;">'
-                        f'<div style="font-size:11px;color:#64748b;margin-bottom:6px;">{label}</div>'
+                        f'<div style="font-size:11px;color:var(--color-muted);margin-bottom:6px;">{label}</div>'
                         f'<div class="dp-value" style="font-size:22px;font-weight:700;color:{color};'
                         f'letter-spacing:-0.5px;">{value}</div>'
-                        f'<div style="font-size:10px;color:#475569;margin-top:4px;">{hint}</div>'
+                        f'<div style="font-size:10px;color:var(--color-neutral);margin-top:4px;">{hint}</div>'
                         '</div>'
                     )
 
@@ -4855,7 +5002,7 @@ if view == "Phân tích Cổ phiếu":
                     unsafe_allow_html=True,
                 )
                 st.markdown(
-                    f'<div style="font-size:15px;color:#475569;line-height:1.7;'
+                    f'<div style="font-size:15px;color:var(--color-neutral);line-height:1.7;'
                     f'border-left:3px solid {_rw_color};padding:4px 0 4px 12px;margin-bottom:10px;">'
                     f'{_rw_verdict}</div>',
                     unsafe_allow_html=True,
@@ -4902,8 +5049,8 @@ if view == "Phân tích Cổ phiếu":
                         annotation_font=dict(color="#f59e0b", size=11),
                     )
                     _fig_rw.update_layout(
-                        height=_responsive_height(230),
-                        margin=dict(l=10, r=110, t=12, b=10),
+                        height=_responsive_height(280),
+                        margin=dict(l=10, r=115, t=26, b=28),
                         dragmode=False, showlegend=False,
                         plot_bgcolor="rgba(255,255,255,0)",
                         paper_bgcolor="rgba(0,0,0,0)",
@@ -4911,12 +5058,24 @@ if view == "Phân tích Cổ phiếu":
                             ticksuffix="%", title="",
                             gridcolor="#e2e8f0",
                             zeroline=False,
-                            range=[_wacc_pct - 2, _ymax],
+                            # Was hardcoded to _wacc_pct - 2 (only ~2pp of
+                            # headroom below the WACC line), which crammed the
+                            # dashed line + its label right against the x-axis.
+                            # _ymin already computes a sensible 6pp of padding
+                            # below WACC but was never actually used here.
+                            range=[_ymin, _ymax],
                             tickfont=dict(size=11),
                         ),
                         xaxis=dict(
                             title="", tickfont=dict(size=13),
                             type="category",
+                            # Category axes place the first/last point exactly
+                            # on the plot boundary with no inherent padding, so
+                            # size=10 markers get half-clipped at both edges.
+                            # Fractional padding (not a fixed px value) so this
+                            # keeps working regardless of how many years a
+                            # given ticker has data for.
+                            range=[-0.4, len(_years_lbl) - 1 + 0.4],
                         ),
                         font=dict(color="#374151"),
                     )
@@ -4965,7 +5124,7 @@ if view == "Phân tích Cổ phiếu":
                 _ff_up = (_ff_avg - current_price) / current_price * 100
                 _ff_cc = "#22c55e" if _ff_up >= 0 else "#ef4444"
                 st.markdown(
-                    f"<div style='font-size:13px;color:#6b7280;'>"
+                    f"<div style='font-size:13px;color:var(--color-muted);'>"
                     f"{len(_ff)} phương pháp · Giá trị nội tại trung bình "
                     f"<b style='color:{_ff_cc}'>{_ff_avg:,.0f} VND ({_ff_up:+.1f}% so với thị trường)</b> · "
                     f"Xanh = cao hơn giá thị trường (tín hiệu định giá thấp)</div>",
@@ -5044,7 +5203,7 @@ if view == "Phân tích Cổ phiếu":
                         if _blbl else ""
                     )
                     _title_el = (
-                        f"<a href='{_link}' target='_blank' style='color:#475569;text-decoration:none;'>{_title}</a>"
+                        f"<a href='{_link}' target='_blank' style='color:var(--color-neutral);text-decoration:none;'>{_title}</a>"
                         if _link else f"{_title}"
                     )
                     _date_tip = f" title='{_abs}'" if _abs and _rel != _abs else ""
@@ -5052,9 +5211,9 @@ if view == "Phân tích Cổ phiếu":
                         f"<div class='ni' style='border-left-color:{_border}' "
                         f"onmouseover=\"this.style.background='#1a2235'\" "
                         f"onmouseout=\"this.style.background='transparent'\">"
-                        f"<div style='font-size:14px;line-height:1.5;color:#475569;'>"
+                        f"<div style='font-size:14px;line-height:1.5;color:var(--color-neutral);'>"
                         f"{_badge_html}{_title_el}</div>"
-                        f"<div style='font-size:11px;color:#475569;margin-top:3px;'{_date_tip}>{_rel}</div>"
+                        f"<div style='font-size:11px;color:var(--color-neutral);margin-top:3px;'{_date_tip}>{_rel}</div>"
                         f"</div>"
                     )
                 st.markdown(
@@ -5087,20 +5246,20 @@ if view == "Phân tích Cổ phiếu":
 
                 _ev_css = (
                     "<style>"
-                    ".ev{background:#ffffff;border-radius:8px;border:1px solid #e2e8f0;"
+                    ".ev{background:var(--color-paper-2);border-radius:4px;border:1px solid #e2e8f0;"
                     "border-left:4px solid #cbd5e1;"
                     "padding:10px 14px;margin-bottom:8px;transition:background .15s;}"
-                    ".ev:hover{background:#f8fafc;}"
+                    ".ev:hover{background:var(--color-paper);}"
                     ".ev-hdr{display:flex;align-items:center;gap:8px;margin-bottom:5px;}"
                     ".ev-badge{font-size:10px;font-weight:700;letter-spacing:.6px;padding:2px 8px;"
                     "border-radius:4px;text-transform:uppercase;white-space:nowrap;}"
-                    ".ev-date{font-size:11px;color:#475569;margin-left:auto;white-space:nowrap;}"
+                    ".ev-date{font-size:11px;color:var(--color-neutral);margin-left:auto;white-space:nowrap;}"
                     ".ev-title{font-size:13.5px;font-weight:500;color:#1e293b;line-height:1.45;}"
-                    ".ev-detail{font-size:12px;color:#475569;margin-top:6px;line-height:1.7;display:flex;"
+                    ".ev-detail{font-size:12px;color:var(--color-neutral);margin-top:6px;line-height:1.7;display:flex;"
                     "flex-wrap:wrap;align-items:center;gap:6px;}"
                     ".pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;"
-                    "border-radius:10px;line-height:1.4;}"
-                    ".sep{color:#cbd5e1;}"
+                    "border-radius:4px;line-height:1.4;}"
+                    ".sep{color:var(--color-rule-strong);}"
                     "</style>"
                 )
 
@@ -5124,9 +5283,9 @@ if view == "Phân tích Cổ phiếu":
                         _rd  = _ev_date(_ev.get("record_date"))
                         _pay = _ev_date(_ev.get("payout_date"))
                         if _xd:
-                            _detail_parts.append(f"<span class='sep'>|</span> GDKHQ <b style='color:#475569'>{_xd}</b>")
+                            _detail_parts.append(f"<span class='sep'>|</span> GDKHQ <b style='color:var(--color-neutral)'>{_xd}</b>")
                         if _rd:
-                            _detail_parts.append(f"<span class='sep'>|</span> Chốt DS <b style='color:#475569'>{_rd}</b>")
+                            _detail_parts.append(f"<span class='sep'>|</span> Chốt DS <b style='color:var(--color-neutral)'>{_rd}</b>")
                         if _pay:
                             _detail_parts.append(f"<span class='sep'>|</span> Thanh toán <b style='color:#d97706'>{_pay}</b>")
                     elif _cat == "MAJOR_SHAREHOLDER_TRADING":
@@ -5141,16 +5300,16 @@ if view == "Phân tích Cổ phiếu":
                                 f"<span class='pill' style='background:{_pill_bg};color:{_pill_fg}'>{_action}</span>"
                             )
                         if _sd and _ed:
-                            _detail_parts.append(f"<span style='color:#475569'>{_sd} – {_ed}</span>")
+                            _detail_parts.append(f"<span style='color:var(--color-neutral)'>{_sd} – {_ed}</span>")
                         elif _sd:
-                            _detail_parts.append(f"<span style='color:#475569'>Từ {_sd}</span>")
+                            _detail_parts.append(f"<span style='color:var(--color-neutral)'>Từ {_sd}</span>")
                     elif _cat in ("STOCK_ISSUANCE", "BONUS_SHARE"):
                         _ratio = _ev.get("exercise_ratio")
                         _issue = _ev_date(_ev.get("issue_date") or _ev.get("start_date"))
                         if pd.notna(_ratio) and _ratio:
                             _detail_parts.append(f"Tỷ lệ <b style='color:#c4b5fd'>{_ratio}</b>")
                         if _issue:
-                            _detail_parts.append(f"<span class='sep'>|</span> Ngày <b style='color:#475569'>{_issue}</b>")
+                            _detail_parts.append(f"<span class='sep'>|</span> Ngày <b style='color:var(--color-neutral)'>{_issue}</b>")
 
                     _detail_html = (
                         f"<div class='ev-detail'>{''.join(_detail_parts)}</div>"
@@ -5375,11 +5534,11 @@ elif view == "Sàng lọc Cổ phiếu":
                 _bg, _fg = _QC_COLORS[_sig]
                 _slug = _sig.replace(" ", "-")  # matches Streamlit's own key->class sanitization
                 if _sig in _qc_active:
-                    _rule = f"background:{_fg} !important; color:#ffffff !important; border:2px solid {_fg} !important;"
+                    _rule = f"background:{_fg} !important; color:var(--color-paper-2) !important; border:2px solid {_fg} !important;"
                 else:
                     _rule = f"background:{_bg} !important; color:{_fg} !important; border:1.5px solid {_fg} !important;"
                 _qc_css_rules.append(
-                    f'.st-key-qc_btn_{_slug} button {{ {_rule} height:56px; border-radius:8px !important; '
+                    f'.st-key-qc_btn_{_slug} button {{ {_rule} height:56px; border-radius:4px !important; '
                     f'white-space:pre-line !important; line-height:1.25 !important; font-weight:600 !important; }}'
                 )
             st.markdown(f"<style>{''.join(_qc_css_rules)}</style>", unsafe_allow_html=True)
@@ -5398,7 +5557,7 @@ elif view == "Sàng lọc Cổ phiếu":
             st.markdown("""
     <style>
     div[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
-        background-color: #1e40af !important;
+        background-color:var(--color-accent-strong) !important;
         color: #bfdbfe !important;
     }
     div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
@@ -5479,7 +5638,7 @@ elif view == "Sàng lọc Cổ phiếu":
                     "Strong Buy":  "background-color:#bbf7d0; color:#14532d; font-weight:700",
                     "Buy":         "background-color:#dcfce7; color:#166534; font-weight:600",
                     "Watch":       "background-color:#fef3c7; color:#92400e; font-weight:600",
-                    "Neutral":     "background-color:#f1f5f9; color:#475569",
+                    "Neutral":     "background-color:var(--color-surface-hover); color:var(--color-neutral)",
                     "Reduce":      "background-color:#fef2f2; color:#b91c1c",
                     "Sell":        "background-color:#fee2e2; color:#991b1b; font-weight:600",
                     "Strong Sell": "background-color:#fecaca; color:#7f1d1d; font-weight:700",
@@ -5520,11 +5679,11 @@ elif view == "Sàng lọc Cổ phiếu":
             # (hover/focus) so no information is actually lost.
             st.markdown("""
     <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px;padding:8px 0 4px 0;justify-content:flex-start;align-items:center;">
-      <span style="color:#475569;font-size:11px;">Trung bình 10 phương pháp định giá so với giá thị trường · Quality Score 0–100 (ROE, margin, FCF, thanh khoản) · bấm Tín hiệu để sắp xếp</span>
+      <span style="color:var(--color-neutral);font-size:11px;">Trung bình 10 phương pháp định giá so với giá thị trường · Quality Score 0–100 (ROE, margin, FCF, thanh khoản) · bấm Tín hiệu để sắp xếp</span>
       <span style="background:#bbf7d0;color:#14532d;padding:3px 10px;border-radius:4px;font-weight:700;min-width:74px;text-align:center;" title="Upside ≥+20% &amp; quality ≥60">Strong Buy</span>
       <span style="background:#dcfce7;color:#166534;padding:3px 10px;border-radius:4px;font-weight:600;min-width:74px;text-align:center;" title="Upside ≥+10% &amp; quality ≥45">Buy</span>
       <span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:4px;font-weight:600;min-width:74px;text-align:center;" title="Upside ≥0%">Watch</span>
-      <span style="background:#f1f5f9;color:#475569;padding:3px 10px;border-radius:4px;font-weight:600;border:1px solid #e2e8f0;min-width:74px;text-align:center;" title="-10% đến 0%">Neutral</span>
+      <span style="background:var(--color-surface-hover);color:var(--color-neutral);padding:3px 10px;border-radius:4px;font-weight:600;border:1px solid #e2e8f0;min-width:74px;text-align:center;" title="-10% đến 0%">Neutral</span>
       <span style="background:#fef2f2;color:#b91c1c;padding:3px 10px;border-radius:4px;font-weight:600;min-width:74px;text-align:center;" title="-30% đến -10%">Reduce</span>
       <span style="background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:4px;font-weight:600;min-width:74px;text-align:center;" title="-50% đến -30%">Sell</span>
       <span style="background:#fecaca;color:#7f1d1d;padding:3px 10px;border-radius:4px;font-weight:700;min-width:74px;text-align:center;" title="&lt;-50%">Strong Sell</span>
@@ -5570,7 +5729,7 @@ elif view == "Sàng lọc Cổ phiếu":
                     f"<div style='text-align:center;padding:6px;border-radius:6px;"
                     f"background:rgba(255,255,255,0.03);border-top:3px solid {_clr};'>"
                     f"<div style='font-size:24px;font-weight:800;color:{_clr};'>{_cnt}</div>"
-                    f"<div style='font-size:11px;color:#6b7280;'>{_sig}</div></div>",
+                    f"<div style='font-size:11px;color:var(--color-muted);'>{_sig}</div></div>",
                     unsafe_allow_html=True)
 
             # ── Top Picks — best Strong Buy / Buy by Quality ────────
@@ -5583,14 +5742,14 @@ elif view == "Sàng lọc Cổ phiếu":
                 for _col, (_, _r) in zip(_pk_cols, _picks.iterrows()):
                     _clr = _sig_colors_map[_r["_signal_clean"]]
                     _col.markdown(
-                        f"<div style='text-align:center;padding:10px 6px;border-radius:8px;"
+                        f"<div style='text-align:center;padding:10px 6px;border-radius:4px;"
                         f"background:rgba(255,255,255,0.03);border:1px solid {_clr}44;'>"
-                        f"<div style='font-size:16px;font-weight:800;color:#0f172a;'>{_r['Mã']}</div>"
-                        f"<div style='font-size:11px;color:#6b7280;margin-bottom:4px;'>{_r['Ngành']}</div>"
+                        f"<div style='font-size:16px;font-weight:800;color:var(--color-ink);'>{_r['Mã']}</div>"
+                        f"<div style='font-size:11px;color:var(--color-muted);margin-bottom:4px;'>{_r['Ngành']}</div>"
                         f"<div style='font-size:13px;color:{_clr};font-weight:700;'>+{_r['_avg_upside_raw']*100:.0f}%</div>"
-                        f"<div style='font-size:11px;color:#6b7280;'>Upside</div>"
-                        f"<div style='font-size:13px;color:#0f172a;margin-top:4px;'>Q{int(round(_r['_qs_raw']))}</div>"
-                        f"<div style='font-size:11px;color:#6b7280;'>Quality</div>"
+                        f"<div style='font-size:11px;color:var(--color-muted);'>Upside</div>"
+                        f"<div style='font-size:13px;color:var(--color-ink);margin-top:4px;'>Q{int(round(_r['_qs_raw']))}</div>"
+                        f"<div style='font-size:11px;color:var(--color-muted);'>Quality</div>"
                         f"</div>", unsafe_allow_html=True)
 
             st.write("")
@@ -5851,7 +6010,7 @@ elif view == "Sàng lọc Cổ phiếu":
                     _ret = float(_r.get("mean_return", 0))
                     _cnt = int(_r.get("count", 0))
                     _col.markdown(
-                        f"<div style='background:{_bg};border-radius:8px;padding:10px 8px;text-align:center;'>"
+                        f"<div style='background:{_bg};border-radius:4px;padding:10px 8px;text-align:center;'>"
                         f"<div style='color:{_fg};font-size:12px;font-weight:700;'>{_r['signal']}</div>"
                         f"<div style='color:{_fg};font-size:20px;font-weight:800;margin:4px 0;'>"
                         f"{'%+.1f' % _ret}%</div>"
@@ -5954,7 +6113,7 @@ elif view == "Sàng lọc Cổ phiếu":
                     return {"Strong Buy":"background-color:#bbf7d0;color:#14532d;font-weight:700",
                             "Buy":"background-color:#dcfce7;color:#166534;font-weight:600",
                             "Watch":"background-color:#fef3c7;color:#92400e",
-                            "Neutral":"background-color:#f1f5f9;color:#475569",
+                            "Neutral":"background-color:var(--color-surface-hover);color:var(--color-neutral)",
                             "Reduce":"background-color:#fef2f2;color:#b91c1c",
                             "Sell":"background-color:#fee2e2;color:#991b1b;font-weight:600",
                             "Strong Sell":"background-color:#fecaca;color:#7f1d1d;font-weight:700",
@@ -6047,7 +6206,7 @@ elif view == "Sàng lọc Cổ phiếu":
                     return {"Strong Buy":"background-color:#bbf7d0;color:#14532d;font-weight:700",
                             "Buy":"background-color:#dcfce7;color:#166534;font-weight:600",
                             "Watch":"background-color:#fef3c7;color:#92400e",
-                            "Neutral":"background-color:#f1f5f9;color:#475569",
+                            "Neutral":"background-color:var(--color-surface-hover);color:var(--color-neutral)",
                             "Reduce":"background-color:#fef2f2;color:#b91c1c",
                             "Sell":"background-color:#fee2e2;color:#991b1b;font-weight:600",
                             "Strong Sell":"background-color:#fecaca;color:#7f1d1d;font-weight:700",
@@ -6136,6 +6295,9 @@ elif view == "So sánh Cổ phiếu":
 
             # ── Normalized price chart + return cards (skip for single-ticker industry mode) ──
             _CMP_COLORS = ["#60a5fa", "#f59e0b", "#22c55e", "#a855f7"]
+            # Cycled alongside _CMP_COLORS so overlapping series stay distinguishable
+            # by line style too, not color alone (colorblind users; 4+ similar hues).
+            _LINE_DASH_CYCLE = ["solid", "dash", "dot", "dashdot"]
             if not _single_industry:
                 _cmp_fig = go.Figure()
                 _cmp_returns = {}
@@ -6154,7 +6316,13 @@ elif view == "So sánh Cổ phiếu":
                     _cmp_returns[_ct] = _ret
                     _cmp_fig.add_trace(go.Scatter(
                         x=_cpdf["dlabel"], y=_cpdf["norm"], name=_ct,
-                        mode="lines", line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2),
+                        mode="lines", line=dict(
+                            color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2,
+                            # Color alone doesn't reliably distinguish 4+ overlapping
+                            # series (colorblind users, or just visually similar hues)
+                            # -- cycle a line-style pattern alongside color.
+                            dash=_LINE_DASH_CYCLE[_ci % len(_LINE_DASH_CYCLE)],
+                        ),
                         hovertemplate=f"<b>{_ct}</b> %{{x}}: %{{y:.1f}} ({_ret:+.1%})<extra></extra>",
                     ))
                 _cmp_fig.add_hline(y=100, line_dash="dot", line_color="#64748b", opacity=0.5)
@@ -6173,10 +6341,10 @@ elif view == "So sánh Cổ phiếu":
                     for _ci, (_ct, _ret) in enumerate(_cmp_returns.items()):
                         _cc = "#22c55e" if _ret >= 0 else "#ef4444"
                         _ret_cols[_ci].markdown(
-                            f"<div style='text-align:center;padding:8px;background:#f8fafc;border-radius:8px;'>"
-                            f"<div style='font-size:13px;color:#6b7280;'>{_ct}</div>"
+                            f"<div style='text-align:center;padding:8px;background:var(--color-paper);border-radius:4px;'>"
+                            f"<div style='font-size:13px;color:var(--color-muted);'>{_ct}</div>"
                             f"<div style='font-size:22px;font-weight:800;color:{_cc};'>{_ret:+.1%}</div>"
-                            f"<div style='font-size:11px;color:#475569;'>{_cmp_period}</div></div>",
+                            f"<div style='font-size:11px;color:var(--color-neutral);'>{_cmp_period}</div></div>",
                             unsafe_allow_html=True,
                         )
 
@@ -6276,7 +6444,10 @@ elif view == "So sánh Cổ phiếu":
                 _radar_fig.add_trace(go.Scatterpolar(
                     r=_rvals + [_rvals[0]], theta=_RADAR_CATS + [_RADAR_CATS[0]],
                     name=_ct, fill="toself", opacity=0.65,
-                    line=dict(color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2.5),
+                    line=dict(
+                        color=_CMP_COLORS[_ci % len(_CMP_COLORS)], width=2.5,
+                        dash=_LINE_DASH_CYCLE[_ci % len(_LINE_DASH_CYCLE)],
+                    ),
                     customdata=_rlabels + [_rlabels[0]],
                     hovertemplate="%{theta}: %{customdata}<extra>" + _ct + "</extra>",
                 ))
@@ -6305,11 +6476,11 @@ elif view == "So sánh Cổ phiếu":
             # ── Heatmap so sánh chỉ số ──────────────────────────────
             if _ind_mode and _ind_sector:
                 st.markdown(
-                    f"<div style='background:#dbeafe;border-left:4px solid #3b82f6;"
+                    f"<div style='background:var(--color-accent-tint);border-left:4px solid #3b82f6;"
                     f"padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
-                    f"<span style='color:#1d4ed8;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase'>Ngành</span>"
-                    f"<span style='color:#0f172a;font-size:15px;font-weight:600;margin-left:12px'>{_ind_sector}</span>"
-                    f"<span style='color:#475569;font-size:13px;margin-left:16px'>— {len(_tbl_tickers)} công ty, sắp xếp theo vốn hóa</span>"
+                    f"<span style='color:var(--color-accent-strong);font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase'>Ngành</span>"
+                    f"<span style='color:var(--color-ink);font-size:15px;font-weight:600;margin-left:12px'>{_ind_sector}</span>"
+                    f"<span style='color:var(--color-neutral);font-size:13px;margin-left:16px'>— {len(_tbl_tickers)} công ty, sắp xếp theo vốn hóa</span>"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
@@ -6403,7 +6574,7 @@ elif view == "So sánh Cổ phiếu":
                 if _grp != _prev_grp:
                     _tbl_rows += (
                         f"<tr><td colspan='{len(_tbl_tickers)+1}' style='"
-                        "background:#dbeafe;color:#1e3a5f;font-size:11.5px;font-weight:700;"
+                        "background:var(--color-accent-tint);color:#1e3a5f;font-size:11.5px;font-weight:700;"
                         "letter-spacing:.10em;text-transform:uppercase;"
                         f"padding:8px 16px;border-top:2px solid #bfdbfe'>{_grp}</td></tr>"
                     )
@@ -6423,7 +6594,7 @@ elif view == "So sánh Cổ phiếu":
                 _stripe = "background:rgba(0,0,0,0.025)" if _row_idx % 2 == 0 else ""
 
                 _cells = (
-                    f"<td style='padding:10px 16px;color:#374151;font-size:{_cell_fs};"
+                    f"<td style='padding:10px 16px;color:var(--color-ink-2);font-size:{_cell_fs};"
                     f"white-space:nowrap'>{_ml}</td>"
                 )
                 for _ci, _ct in enumerate(_tbl_tickers):
@@ -6435,7 +6606,7 @@ elif view == "So sánh Cổ phiếu":
                     _sel_bg = f"background:rgba({_r},{_g},{_b},0.09);" if _is_sel else ""
 
                     if _v is None:
-                        _cells += f"<td style='text-align:right;padding:{_cell_pad};{_sel_bg}color:#374151;font-size:{_cell_fs}'>—</td>"
+                        _cells += f"<td style='text-align:right;padding:{_cell_pad};{_sel_bg}color:var(--color-ink-2);font-size:{_cell_fs}'>—</td>"
                         continue
 
                     _display = _fmt(_v)
@@ -6473,7 +6644,7 @@ elif view == "So sánh Cổ phiếu":
                         _inner = (
                             f"<div style='display:flex;align-items:center;gap:6px;justify-content:flex-end'>"
                             f"<div style='flex:1;max-width:{_bar_w};height:5px;border-radius:3px;"
-                            f"background:#f8fafc'><div style='width:{_bw}%;height:100%;"
+                            f"background:var(--color-paper)'><div style='width:{_bw}%;height:100%;"
                             f"border-radius:3px;background:{_bar_color}'></div></div>"
                             f"<span style='color:{_tc};font-weight:{_fw};font-size:{_fs}'>{_display}</span>"
                             f"</div>"
@@ -6489,7 +6660,7 @@ elif view == "So sánh Cổ phiếu":
 
             # Column headers with top colour bar per ticker
             _hdr = (
-                f"<th style='padding:12px 16px;text-align:left;color:#475569;"
+                f"<th style='padding:12px 16px;text-align:left;color:var(--color-neutral);"
                 f"font-size:12px;font-weight:600;border-bottom:2px solid #cbd5e1'>Chỉ số</th>"
             )
             for _ci, _ct in enumerate(_tbl_tickers):
@@ -6510,7 +6681,7 @@ elif view == "So sánh Cổ phiếu":
                 )
 
             st.markdown(
-                f"<div style='overflow-x:auto;margin-bottom:8px;border-radius:10px;"
+                f"<div style='overflow-x:auto;margin-bottom:8px;border-radius:4px;"
                 f"border:1px solid #bfdbfe'>"
                 f"<table style='width:100%;border-collapse:collapse;"
                 f"background:rgba(255,255,255,0.97)'>"
@@ -6726,7 +6897,7 @@ elif view == "Phân tích Ngành":
         # Hide iframe white flash
         st.markdown("""<style>
 iframe[title="heatmap_click.heatmap_click"] {
-    background: #f8fafc !important;
+    background:var(--color-paper) !important;
     border: none !important;
 }
 </style>""", unsafe_allow_html=True)
@@ -6890,7 +7061,7 @@ iframe[title="heatmap_click.heatmap_click"] {
             )
             st.markdown(
                 f'<div style="display:flex;align-items:center;gap:8px;font-size:12px;'
-                f'color:#6b7280;padding:4px 0 12px 0;">'
+                f'color:var(--color-muted);padding:4px 0 12px 0;">'
                 f'<span>{_metric_label}:</span>{_swatch_html}'
                 f'<span style="margin-left:8px;">· Cell size = relative market cap within sector</span>'
                 f'</div>',
@@ -7168,7 +7339,7 @@ elif view == "Tổng quan Thị trường":
                 _fig_vi.update_layout(height=_responsive_height(320), margin=dict(l=0,r=10,t=40,b=0), dragmode=False,
                     hovermode="x unified", showlegend=False,
                     title=dict(text=(f"<span style='color:{_cc_vi}'>{_last_vi:,.2f}  ({_chg_vi:+.2f}%)</span>"
-                                      f"<span style='color:#475569;font-size:13px;'> · </span>"
+                                      f"<span style='color:var(--color-neutral);font-size:13px;'> · </span>"
                                       f"<span style='color:{_yr_cc_vi};font-size:13px;'>{_yr_chg_vi:+.1f}% trong 1 năm</span>"),
                                font=dict(size=16)),
                     xaxis=dict(type="category", nticks=8, showgrid=False, rangeslider=dict(visible=False)),
@@ -7195,8 +7366,8 @@ elif view == "Tổng quan Thị trường":
             _rc        = "#22c55e" if _ratio >= 1.5 else "#b45309" if _ratio >= 0.8 else "#ef4444"
             st.markdown(
                 f"<div style='text-align:center;font-size:26px;font-weight:700;color:{_rc}'>{_ratio:.2f}"
-                f"<span style='font-size:13px;color:#6b7280'> Tỷ lệ Tăng/Giảm</span></div>"
-                f"<div style='text-align:center;font-size:12px;color:#6b7280'>"
+                f"<span style='font-size:13px;color:var(--color-muted)'> Tỷ lệ Tăng/Giảm</span></div>"
+                f"<div style='text-align:center;font-size:12px;color:var(--color-muted)'>"
                 f"<span style='color:#22c55e'>▲{n_up}</span>  "
                 f"<span style='color:#b45309'>—{n_flat}</span>  "
                 f"<span style='color:#ef4444'>▼{n_dn}</span>  "
