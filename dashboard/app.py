@@ -170,6 +170,22 @@ def _responsive_height(desktop_px: int) -> int:
         return max(180, round(desktop_px * 0.80))
     return desktop_px
 
+# Typography — Fira Code (headings/numbers, dashboard-appropriate monospace
+# precision) + Fira Sans (body). Picked via ui-ux-pro-max-skill's typography
+# search for "dashboard, data, analytics" mood.
+st.markdown("""<style>
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+html, body, [data-testid="stApp"] {
+    font-family: "Fira Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}
+h1, h2, h3, h4, h5, h6,
+[data-testid="stMarkdownContainer"] h1, [data-testid="stMarkdownContainer"] h2,
+[data-testid="stMarkdownContainer"] h3, [data-testid="stMarkdownContainer"] h4,
+.ch-ticker, .ch-price {
+    font-family: "Fira Code", ui-monospace, "SF Mono", Consolas, monospace !important;
+}
+</style>""", unsafe_allow_html=True)
+
 # Kill all animations/transitions globally — prevents white flash and dialog delay
 st.markdown("""<style>
 html { background:#f8fafc!important; }
@@ -1919,9 +1935,17 @@ def _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, n
     _rng_pct  = round((current_price - _low_d) / (_high_d - _low_d) * 100) if _high_d > _low_d else 50
     _rng_pct  = max(2, min(98, _rng_pct))  # keep dot inside bar
 
+    # SVG dot instead of the 🔴 emoji — a real status indicator this code
+    # controls directly, unlike st.toast(icon=...)/page_icon which are
+    # Streamlit APIs that specifically expect emoji as their input.
+    _live_dot = (
+        '<svg width="8" height="8" viewBox="0 0 8 8" style="vertical-align:1px;'
+        'margin-right:2px;" aria-hidden="true"><circle cx="4" cy="4" r="4" '
+        'fill="#dc2626"/></svg>'
+    )
     _live_badge = (
         f'<span style="font-size:13px;background:#fee2e2;color:#dc2626;padding:3px 10px;'
-        f'border-radius:8px;font-weight:600;">🔴 LIVE · {_live_as_of}</span>'
+        f'border-radius:8px;font-weight:600;">{_live_dot}LIVE · {_live_as_of}</span>'
         if _live_as_of else
         f'<span style="font-size:13px;background:#f1f5f9;color:#475569;padding:3px 10px;'
         f'border-radius:8px;font-weight:600;">EOD</span>'
@@ -2100,11 +2124,11 @@ if st.session_state.get("hm_popup_ticker"):
                     f"L&nbsp;<b style='color:#ef4444'>{_glow:,.0f}</b>&nbsp;"
                     f"C&nbsp;<b style='color:{_gcc}'>{_gcur:,.0f}</b>&nbsp;"
                     f"Vol&nbsp;<b style='color:#0f172a'>{_gvol/1e6:.2f}M</b><br>"
-                    f"MA10&nbsp;<b style='color:#60a5fa'>{_gmini['ma10'].dropna().iloc[-1]:,.0f}</b>&nbsp;"
-                    f"MA50&nbsp;<b style='color:#fb923c'>{_gmini['ma50'].dropna().iloc[-1]:,.0f}</b></div>",
+                    f"MA10&nbsp;<b style='color:#2563eb'>{_gmini['ma10'].dropna().iloc[-1]:,.0f}</b>&nbsp;"
+                    f"MA50&nbsp;<b style='color:#c2410c'>{_gmini['ma50'].dropna().iloc[-1]:,.0f}</b></div>",
                     unsafe_allow_html=True)
                 _gfig = go.Figure()
-                _gfig.add_trace(go.Candlestick(x=_gmini["dlabel"],open=_gmini["open"]*1000,high=_gmini["high"]*1000,low=_gmini["low"]*1000,close=_gmini["close"]*1000,increasing_line_color="#22c55e",decreasing_line_color="#ef4444",showlegend=False,hoverinfo="skip",yaxis="y"))
+                _gfig.add_trace(go.Candlestick(x=_gmini["dlabel"],open=_gmini["open"]*1000,high=_gmini["high"]*1000,low=_gmini["low"]*1000,close=_gmini["close"]*1000,increasing_line_color="#22c55e",increasing_fillcolor="#22c55e",decreasing_line_color="#ef4444",decreasing_fillcolor="rgba(0,0,0,0)",showlegend=False,hoverinfo="skip",yaxis="y"))
                 _gfig.add_trace(go.Scatter(x=_gmini["dlabel"],y=_gmini["ma10"],yaxis="y",mode="lines",line=dict(color="#60a5fa",width=1.2),showlegend=False,name="MA10",hovertemplate="MA10 %{y:,.0f}<extra></extra>"))
                 _gfig.add_trace(go.Scatter(x=_gmini["dlabel"],y=_gmini["ma50"],yaxis="y",mode="lines",line=dict(color="#fb923c",width=1.2),showlegend=False,name="MA50",hovertemplate="MA50 %{y:,.0f}<extra></extra>"))
                 _gmini["vol_m"] = _gmini["volume"]/1e6
@@ -2460,8 +2484,14 @@ if view == "Phân tích Cổ phiếu":
                 open=df1y["open_vnd"], high=df1y["high_vnd"],
                 low=df1y["low_vnd"],  close=df1y["close_vnd"],
                 name="Giá", yaxis="y",
+                # Filled vs hollow body (not just color) distinguishes bullish/
+                # bearish for colorblind users, per ui-ux-pro-max-skill's
+                # candlestick accessibility guidance. Keeps the app's existing
+                # green/red semantic colors (used everywhere else — price
+                # badges, arrows) rather than swapping in the skill's generic
+                # teal/red swatch, which would read as inconsistent here.
                 increasing_line_color="#22c55e", increasing_fillcolor="#22c55e",
-                decreasing_line_color="#ef4444", decreasing_fillcolor="#ef4444",
+                decreasing_line_color="#ef4444", decreasing_fillcolor="rgba(0,0,0,0)",
                 showlegend=False,
                 hoverinfo="none",
             ))
@@ -5155,10 +5185,13 @@ elif view == "Sàng lọc Cổ phiếu":
     # st.tabs() runs both tabs' bodies on every rerun even when only one is
     # visible (no native lazy tabs in Streamlit) — use segmented_control + if/else
     # instead so only the active tab's (expensive) code actually executes.
+    # :material/...: is Streamlit's own built-in icon syntax (Material Symbols)
+    # -- a real icon font, not an emoji standing in for one.
     _ss_sel = st.segmented_control(
-        "Tab", ["📋 Lọc cổ phiếu", "⭐ Theo dõi"], default="📋 Lọc cổ phiếu",
+        "Tab", [":material/filter_alt: Lọc cổ phiếu", ":material/star: Theo dõi"],
+        default=":material/filter_alt: Lọc cổ phiếu",
         key="ss_tab_sel", label_visibility="collapsed",
-    ) or "📋 Lọc cổ phiếu"
+    ) or ":material/filter_alt: Lọc cổ phiếu"
 
     # Prefetch price + sector shared maps in parallel so all 4 view functions share them.
     # load_valuation_screen_data, load_sector_ticker_data, load_sector_data, load_watchlist_data
@@ -5219,8 +5252,19 @@ elif view == "Sàng lọc Cổ phiếu":
         _WJ2 = "⁠"
         _ALL_SIGNALS_V2 = [_WJ2*1+"Strong Buy", _WJ2*2+"Buy", _WJ2*3+"Watch",
                            _WJ2*4+"Neutral", _WJ2*5+"Reduce", _WJ2*6+"Sell", _WJ2*7+"Strong Sell"]
+        # The quick-filter tiles (below) can't write st.session_state["f_signals_multiselect"]
+        # directly from their click handler -- that key already belongs to the
+        # multiselect widget instantiated right here, and Streamlit raises
+        # StreamlitAPIException if you assign to a widget's key after it has
+        # rendered in the same run. Tiles instead stash their pick under a
+        # plain (non-widget) key and call st.rerun(); this block consumes
+        # that pending value and seeds the real widget key *before* the
+        # multiselect below is instantiated in the new run, which is allowed.
+        if "_qc_pending_signal" in st.session_state:
+            st.session_state["f_signals_multiselect"] = st.session_state.pop("_qc_pending_signal")
         f_signals = st.sidebar.multiselect(
-            "Lọc theo Tín hiệu", _ALL_SIGNALS_V2, default=[], placeholder="Tất cả tín hiệu")
+            "Lọc theo Tín hiệu", _ALL_SIGNALS_V2, default=[], placeholder="Tất cả tín hiệu",
+            key="f_signals_multiselect")
 
         st.session_state.update({
             "f_sectors": f_sectors, "f_min_upside": f_min_upside,
@@ -5238,8 +5282,8 @@ elif view == "Sàng lọc Cổ phiếu":
                 else:
                     st.success("Tất cả mã đã có đầy đủ dữ liệu!")
 
-    if _ss_sel == "📋 Lọc cổ phiếu":
-        st.title("📋 Lọc cổ phiếu")
+    if _ss_sel == ":material/filter_alt: Lọc cổ phiếu":
+        st.title("Lọc cổ phiếu")
 
         if screen_df.empty:
             st.warning("Chưa có dữ liệu định giá. Chạy: `python -m collectors.compute_valuations`")
@@ -5275,6 +5319,79 @@ elif view == "Sàng lọc Cổ phiếu":
                 f"Hiển thị {n_filtered} / {n_total} mã"
                 + (" (đã áp dụng bộ lọc)" if n_filtered < n_total else "")
             )
+
+            # ── Quick-filter signal counters — moved above the table so a
+            # first-time visitor sees the category breakdown before a wall of
+            # rows, and made clickable so picking one narrows the table
+            # directly instead of requiring the sidebar multiselect. Counts
+            # are computed on `filtered` (sector/ROE/PE/etc. already applied,
+            # signal NOT yet applied) so every tile always shows its full
+            # count regardless of which signal is currently selected. ──
+            _qc_signals = [classify_signal(u, q) for u, q in
+                           zip(filtered["_avg_upside_raw"], filtered["_qs_raw"])]
+            _qc_counts = pd.Series(_qc_signals).value_counts().to_dict()
+            # Regression note: this palette previously had Strong Buy LIGHTER
+            # than Buy (a visual-weight inversion of the actual ranking) --
+            # fixed to a proper diverging green -> red scale for the actual
+            # Buy/Sell camps. Watch is intentionally NOT on that green-red
+            # axis: it was pale green before, which read as "part of the Buy
+            # camp" even though it isn't a buy signal. Watch now gets its own
+            # amber/yellow tier (matches the Quality-score amber tier used
+            # elsewhere) so the chart reads as three distinct camps -- Mua
+            # (green), Theo dõi (yellow), Bán/Hạn chế (red/gray) -- not a
+            # single gradient. Same palette reused everywhere this signal is
+            # colored (table, donut, watchlist) for consistency.
+            _QC_COLORS = {
+                "Strong Buy":  ("#bbf7d0", "#14532d"),
+                "Buy":         ("#dcfce7", "#166534"),
+                "Watch":       ("#fef3c7", "#92400e"),
+                "Neutral":     ("#f1f5f9", "#475569"),
+                "Reduce":      ("#fef2f2", "#b91c1c"),
+                "Sell":        ("#fee2e2", "#991b1b"),
+                "Strong Sell": ("#fecaca", "#7f1d1d"),
+            }
+            _qc_active = {s.lstrip("⁠") for s in f_signals}
+            _QC_ORDER = ["Strong Buy", "Buy", "Watch", "Neutral", "Reduce", "Sell", "Strong Sell"]
+            # Regression note: this used to be a colored HTML <div> (the count)
+            # stacked above a separate plain "Lọc" button -- two elements doing
+            # the job of one, and the button added no information the colored
+            # card didn't already imply was clickable. Now it's a single
+            # st.button per tile (real click target, no HTML/button seam),
+            # CSS-styled per signal via its Streamlit-generated st-key-* class.
+            # Regression note (round 3): white-card + colored-outline read as
+            # washed-out/pale even with a solid dark border, because a card
+            # with no color fill at all has very little visual weight next to
+            # a big bold number -- the eye registers "mostly white" before it
+            # registers "colored border". Fixed with a proper two-tier chip
+            # system (same tonal/filled split Material 3 uses for filter
+            # chips): inactive = tonal (the tier's own light `_bg` tint as
+            # fill, dark `_fg` text/border -- same formula as the legend
+            # chips, so every tile is unmistakably colored even unselected);
+            # active = filled (solid `_fg` as the fill, white text) so the
+            # selected tier reads as a clear step up in weight, not just a
+            # thicker line.
+            _qc_css_rules = []
+            for _sig in _QC_ORDER:
+                _bg, _fg = _QC_COLORS[_sig]
+                _slug = _sig.replace(" ", "-")  # matches Streamlit's own key->class sanitization
+                if _sig in _qc_active:
+                    _rule = f"background:{_fg} !important; color:#ffffff !important; border:2px solid {_fg} !important;"
+                else:
+                    _rule = f"background:{_bg} !important; color:{_fg} !important; border:1.5px solid {_fg} !important;"
+                _qc_css_rules.append(
+                    f'.st-key-qc_btn_{_slug} button {{ {_rule} height:56px; border-radius:8px !important; '
+                    f'white-space:pre-line !important; line-height:1.25 !important; font-weight:600 !important; }}'
+                )
+            st.markdown(f"<style>{''.join(_qc_css_rules)}</style>", unsafe_allow_html=True)
+            _qc_cols = st.columns(7)
+            for _qc_col, _qc_sig in zip(_qc_cols, _QC_ORDER):
+                _qc_n = _qc_counts.get(_qc_sig, 0)
+                with _qc_col:
+                    if st.button(f"{_qc_n}\n{_qc_sig}", key=f"qc_btn_{_qc_sig}", use_container_width=True):
+                        st.session_state["_qc_pending_signal"] = (
+                            [] if _qc_sig in _qc_active else [_SIG_LABELS[_qc_sig]]
+                        )
+                        st.rerun()
 
             # ── Ticker multiselect — just above table ───────────────
             # Use ALL tickers from the full dataset (not filtered) so nothing is hidden
@@ -5327,36 +5444,45 @@ elif view == "Sàng lọc Cổ phiếu":
             elif sort_col == "Tín hiệu (Strong Sell trước)":
                 display = display.sort_values("_sig_rank", ascending=True)
 
-            # ── CSV export ─────────────────────────────────────────
-            csv_bytes = display[["Mã"] + ordered].to_csv(index=False).encode("utf-8-sig")
-            xlsx_bytes = build_excel_export(filtered)
-            _dl1, _dl2, _ = st.columns([2, 2, 6])
-            _dl1.download_button("Tải CSV", data=csv_bytes,
-                file_name="valuation_screen.csv", mime="text/csv", use_container_width=True)
-            _dl2.download_button("Tải Excel", data=xlsx_bytes,
-                file_name="valuation_screen.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True)
-            if False:
-                st.download_button(
-                label="Download CSV",
-                data=csv_bytes,
-                file_name="valuation_screen.csv",
-                mime="text/csv",
-            )
+            # ── Ticker search + quick sector filter — a narrow, local filter
+            # on top of the sidebar's (which stays the source of truth for
+            # the main `filtered`/chart data below) — same pattern as the
+            # Quality-vs-Upside chart's own sector picker. (CSV/Excel export
+            # buttons that used to share this row were removed.)
+            _search_col, _sector_col, _ = st.columns([3, 3, 4])
+            with _search_col:
+                # Multiselect (not a plain text box) so the user can search-
+                # and-pick several specific tickers at once -- Streamlit's
+                # multiselect already types-to-filter its option list, so
+                # this keeps the "just start typing" feel while adding the
+                # ability to hold more than one ticker at a time.
+                _all_tickers = sorted(display["Mã"].dropna().unique().tolist())
+                _ticker_pick = st.multiselect(
+                    "Tìm mã", _all_tickers, placeholder="Tìm mã, VD: DSN, NCT",
+                    key="qc_ticker_search", label_visibility="collapsed")
+            with _sector_col:
+                _quick_sectors = sorted(display["Ngành"].dropna().unique().tolist())
+                _sector_pick = st.selectbox(
+                    "Ngành", ["Tất cả ngành"] + _quick_sectors,
+                    key="qc_sector_quick", label_visibility="collapsed")
+
+            if _ticker_pick:
+                display = display[display["Mã"].isin(_ticker_pick)]
+            if _sector_pick != "Tất cả ngành":
+                display = display[display["Ngành"] == _sector_pick]
 
             # ── Table ──────────────────────────────────────────────
             def _signal_color(val):
                 # strip invisible prefix for lookup
                 _v = val.lstrip("⁠") if val else val
                 return {
-                    "Strong Buy":  "background-color:#dcfce7; color:#15803d; font-weight:700",
-                    "Buy":         "background-color:#bbf7d0; color:#166534; font-weight:600",
+                    "Strong Buy":  "background-color:#bbf7d0; color:#14532d; font-weight:700",
+                    "Buy":         "background-color:#dcfce7; color:#166534; font-weight:600",
                     "Watch":       "background-color:#fef3c7; color:#92400e; font-weight:600",
                     "Neutral":     "background-color:#f1f5f9; color:#475569",
-                    "Reduce":      "background-color:#ffedd5; color:#c2410c",
-                    "Sell":        "background-color:#fee2e2; color:#dc2626; font-weight:600",
-                    "Strong Sell": "background-color:#fecaca; color:#991b1b; font-weight:700",
+                    "Reduce":      "background-color:#fef2f2; color:#b91c1c",
+                    "Sell":        "background-color:#fee2e2; color:#991b1b; font-weight:600",
+                    "Strong Sell": "background-color:#fecaca; color:#7f1d1d; font-weight:700",
                 }.get(_v, "")
 
             def _quality_color(val):
@@ -5375,19 +5501,33 @@ elif view == "Sàng lọc Cổ phiếu":
                 .map(_signal_color, subset=["Tín hiệu"])
                 .map(_quality_color, subset=["Quality"])
             )
-            st.dataframe(styled, width="stretch")
+            # Height caps at ~15-16 rows (gives a sticky header for free --
+            # st.dataframe pins its header within a constrained-height
+            # viewport -- and keeps first paint from being a multi-hundred-
+            # row wall) but *shrinks* for small result sets instead of
+            # always reserving the full 600px: filtering down to 1-2 tickers
+            # (search/quick-filter) used to leave a mostly-empty grid.
+            _ROW_H, _HEADER_H = 35, 38
+            _table_h = min(600, _HEADER_H + max(len(display), 1) * _ROW_H + 3)
+            st.dataframe(styled, width="stretch", height=_responsive_height(_table_h))
 
             # ── Colored legend below table ─────────────────────────
+            # Regression note: full threshold text per chip ("Strong Buy:
+            # upside >=+20% & quality >=60" vs "Watch: upside >=0%") made chip
+            # widths vary so much the wrapped row read as a ragged staircase
+            # instead of a designed legend. Shortened labels even out the
+            # rhythm; the full definition still lives in the title= tooltip
+            # (hover/focus) so no information is actually lost.
             st.markdown("""
-    <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;padding:8px 0 4px 0;justify-content:flex-end;">
-      <span style="color:#475569;font-size:11px;align-self:center;">Trung bình 10 phương pháp định giá so với giá thị trường · Quality Score 0–100 (ROE, margin, FCF, thanh khoản) · bấm Tín hiệu để sắp xếp ·</span>
-      <span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Buy: upside ≥+20% &amp; quality ≥60</span>
-      <span style="background:#bbf7d0;color:#166534;padding:2px 8px;border-radius:4px;font-weight:600;">Buy: upside ≥+10% &amp; quality ≥45</span>
-      <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;">Watch: upside ≥0%</span>
-      <span style="background:#f1f5f9;color:#475569;padding:2px 8px;border-radius:4px;border:1px solid #e2e8f0;">Neutral: -10% đến 0%</span>
-      <span style="background:#ffedd5;color:#c2410c;padding:2px 8px;border-radius:4px;">Reduce: -30% đến -10%</span>
-      <span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:4px;font-weight:600;">Sell: -50% đến -30%</span>
-      <span style="background:#fecaca;color:#991b1b;padding:2px 8px;border-radius:4px;font-weight:700;">Strong Sell: &lt;-50%</span>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:12px;padding:8px 0 4px 0;justify-content:flex-start;align-items:center;">
+      <span style="color:#475569;font-size:11px;">Trung bình 10 phương pháp định giá so với giá thị trường · Quality Score 0–100 (ROE, margin, FCF, thanh khoản) · bấm Tín hiệu để sắp xếp</span>
+      <span style="background:#bbf7d0;color:#14532d;padding:3px 10px;border-radius:4px;font-weight:700;min-width:74px;text-align:center;" title="Upside ≥+20% &amp; quality ≥60">Strong Buy</span>
+      <span style="background:#dcfce7;color:#166534;padding:3px 10px;border-radius:4px;font-weight:600;min-width:74px;text-align:center;" title="Upside ≥+10% &amp; quality ≥45">Buy</span>
+      <span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:4px;font-weight:600;min-width:74px;text-align:center;" title="Upside ≥0%">Watch</span>
+      <span style="background:#f1f5f9;color:#475569;padding:3px 10px;border-radius:4px;font-weight:600;border:1px solid #e2e8f0;min-width:74px;text-align:center;" title="-10% đến 0%">Neutral</span>
+      <span style="background:#fef2f2;color:#b91c1c;padding:3px 10px;border-radius:4px;font-weight:600;min-width:74px;text-align:center;" title="-30% đến -10%">Reduce</span>
+      <span style="background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:4px;font-weight:600;min-width:74px;text-align:center;" title="-50% đến -30%">Sell</span>
+      <span style="background:#fecaca;color:#7f1d1d;padding:3px 10px;border-radius:4px;font-weight:700;min-width:74px;text-align:center;" title="&lt;-50%">Strong Sell</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -5411,10 +5551,15 @@ elif view == "Sàng lọc Cổ phiếu":
 
             # ── Signal count KPI cards ──────────────────────────────
             _sig_order = ["Strong Buy", "Buy", "Watch", "Neutral", "Reduce", "Sell", "Strong Sell"]
+            # Same diverging-scale fix as the table/tile colors: solid marker
+            # variants for the donut/scatter charts, matched to the same
+            # deep-green -> pale-green -> gray -> pale-red -> deep-red order.
+            # Watch uses solid amber (not a green tint) so it doesn't read as
+            # part of the Buy camp -- see _QC_COLORS note above.
             _sig_colors_map = {
-                "Strong Buy": "#15803d", "Buy": "#4ade80", "Watch": "#eab308",
-                "Neutral": "#94a3b8", "Reduce": "#fb923c", "Sell": "#ef4444",
-                "Strong Sell": "#b91c1c",
+                "Strong Buy": "#166534", "Buy": "#22c55e", "Watch": "#f59e0b",
+                "Neutral": "#94a3b8", "Reduce": "#fca5a5", "Sell": "#ef4444",
+                "Strong Sell": "#7f1d1d",
             }
             _counts = _an["_signal_clean"].value_counts().to_dict()
             _kpi_cols = st.columns(7)
@@ -5513,27 +5658,69 @@ elif view == "Sàng lọc Cổ phiếu":
                         x=_sec_comb.index, y=_sec_comb["buy"],
                         name="Buy", marker_color="#4ade80", yaxis="y",
                         hovertemplate="%{x}: %{y} Buy<extra></extra>"))
+                    # Regression note: permanent per-point % text labels
+                    # collided badly with ~25 densely-packed categories --
+                    # wherever neighboring sectors had close upside values
+                    # (adjacent x + near-equal y, e.g. the "+129%"/"+126%" and
+                    # "-16%/-16%/-16%" clusters) the labels landed on the same
+                    # pixels. Alternating top/bottom position wasn't enough:
+                    # on a steep stretch of the curve, a "bottom" label for
+                    # one point can still land at the same screen height as a
+                    # "top" label for its neighbor. Root fix: drop the always-
+                    # on text and rely on the unified hover tooltip (already
+                    # added above) for the exact value -- at this category
+                    # density, a permanent label per point can't be laid out
+                    # without collisions no matter the heuristic, but hover
+                    # has no such constraint since only one tooltip shows at
+                    # a time.
                     fig_combo.add_trace(go.Scatter(
                         x=_sec_comb.index,
                         y=_sec_comb["upside"],
                         name="Upside trung vị %",
-                        mode="lines+markers+text",
+                        mode="lines+markers",
                         yaxis="y2",
                         line=dict(color="#3b82f6", width=2, dash="solid"),
                         marker=dict(size=9, color=_mk_clrs,
                                     line=dict(width=1.5, color="#1d4ed8")),
-                        text=[f"{v:+.0f}%" for v in _sec_comb["upside"]],
-                        textposition="top center",
-                        textfont=dict(size=10, color="#374151"),
                         hovertemplate="%{x}: %{y:.1f}% upside<extra></extra>"))
                     fig_combo.update_layout(
-                        height=_responsive_height(360),
-                        margin=dict(l=0, r=50, t=30, b=0),
+                        # Regression note: bottom margin was 0 with ~25 long
+                        # Vietnamese sector names at tickangle=-30 -- rotated
+                        # labels had zero room to fan out and stacked on top
+                        # of each other. Fixed the vertical-room part with a
+                        # taller chart + real bottom margin, but tickangle=-45
+                        # only fixed *vertical* crowding -- a 45-degree label's
+                        # on-screen bounding box still fans out horizontally
+                        # by roughly its own text width, so with ~26 categories
+                        # packed into one chart, a long neighbor (e.g. "Dịch vụ
+                        # lưu trú, ăn uống, giải trí") still visually overlapped
+                        # the adjacent tick's label even though each <text>
+                        # node itself was never truncated (confirmed via the
+                        # actual SVG bounding boxes: full string present,
+                        # just drawn on top of the neighbor). tickangle=-90
+                        # (fully vertical) removes that horizontal fan-out
+                        # entirely -- a vertical label's screen width is just
+                        # the font's line height, not the string length, so
+                        # neighbors can no longer intrude on each other no
+                        # matter how long the sector name is. Costs vertical
+                        # room instead, which automargin + a taller bottom
+                        # margin absorb.
+                        height=_responsive_height(560),
+                        margin=dict(l=0, r=50, t=30, b=220),
                         barmode="stack", dragmode=False,
                         font=dict(color="#374151"),
-                        legend=dict(orientation="h", y=-0.20, x=0,
+                        legend=dict(orientation="h", y=-0.55, x=0,
                                     font=dict(size=11)),
-                        xaxis=dict(gridcolor="#e2e8f0", tickangle=-30),
+                        # Each trace already carries its own hovertemplate
+                        # (Strong Buy count / Buy count / Upside %) -- the
+                        # only piece missing was telling Plotly to combine
+                        # all three into one tooltip per sector instead of
+                        # showing only whichever single trace is nearest
+                        # the cursor (the "closest" default).
+                        hovermode="x unified",
+                        hoverlabel=dict(bgcolor="white", font=dict(color="#374151", size=12)),
+                        xaxis=dict(gridcolor="#e2e8f0", tickangle=-90, automargin=True,
+                                    tickfont=dict(size=11)),
                         yaxis=dict(
                             title="Số mã",
                             dtick=1, tick0=0,
@@ -5554,11 +5741,53 @@ elif view == "Sàng lọc Cổ phiếu":
                 else:
                     st.info("Không đủ dữ liệu ngành.")
 
-            # ── Chart 3: Quality vs Upside scatter ──────────────────
-            st.subheader("Quality vs Avg Upside (tất cả mã đã lọc)")
+            # ── Charts 3+4: distribution overview, then quality/upside drill-down ──
+            # Narrative order: histogram first (macro read — "is the market
+            # cheap or expensive right now overall?"), scatter second (once
+            # you know the market's cheap, scroll down to find which specific
+            # tickers combine that cheapness with high quality). Both share
+            # the same sector-filtered frame below.
+            _qs_sector_opts = ["Tất cả ngành"] + sorted(_an["Ngành"].dropna().unique().tolist())
+            _qs_sector_sel = st.selectbox(
+                "Lọc theo ngành", _qs_sector_opts, key="qs_sector_filter")
+            _sector_suffix = "" if _qs_sector_sel == "Tất cả ngành" else f" — {_qs_sector_sel}"
             _sc = _an.dropna(subset=["_qs_raw", "_avg_upside_raw"]).copy()
+            if _qs_sector_sel != "Tất cả ngành":
+                _sc = _sc[_sc["Ngành"] == _qs_sector_sel]
             _sc["_upside_pct"] = _sc["_avg_upside_raw"] * 100
             _CLIP_LO, _CLIP_HI = -100, 150
+
+            # ── Chart 3 (was 4): Upside distribution histogram — macro view first ──
+            st.subheader("Phân bố Avg Upside" + _sector_suffix)
+            _n_offrange = int(((_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)).sum())
+            _bin_size = 10
+            _bin_edges = np.arange(_CLIP_LO, _CLIP_HI + _bin_size, _bin_size)
+            _counts, _ = np.histogram(_sc["_upside_pct"], bins=_bin_edges)
+            _bin_centers = (_bin_edges[:-1] + _bin_edges[1:]) / 2
+            # Red = expensive (negative upside) -> Green = cheap (positive upside)
+            _bin_colors = ["#ef4444" if c < 0 else "#22c55e" for c in _bin_centers]
+            fig_hist = go.Figure(go.Bar(
+                x=_bin_centers, y=_counts, marker_color=_bin_colors, width=_bin_size * 0.9,
+                customdata=np.stack([_bin_edges[:-1], _bin_edges[1:]], axis=-1),
+                hovertemplate="%{customdata[0]:.0f}% to %{customdata[1]:.0f}%: %{y} tickers<extra></extra>",
+            ))
+            fig_hist.add_vline(x=0, line_dash="dot", line_color="#64748b", opacity=0.6)
+            fig_hist.update_layout(
+                height=_responsive_height(260), margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
+                xaxis=dict(title="Avg Upside %", range=[_CLIP_LO, _CLIP_HI]),
+                yaxis_title="Số mã", bargap=0.05)
+            st.plotly_chart(fig_hist, width="stretch")
+            _offrange_note = (f" - {_n_offrange} mã có upside ngoài khoảng "
+                              f"{_CLIP_LO}%...{_CLIP_HI}% không hiển thị" if _n_offrange else "")
+            st.caption(
+                "Mỗi cột = số mã có mức upside trong khoảng đó. "
+                "🟢 Xanh (bên phải vạch 0) = đang bị định giá thấp, có thể tăng giá. "
+                "🔴 Đỏ (bên trái vạch 0) = đang đắt hơn giá trị ước tính, có thể giảm giá."
+                f"{_offrange_note}")
+
+            # ── Chart 4 (was 3): Quality vs Upside scatter — drill down after ──
+            st.subheader("Quality vs Avg Upside" + (
+                " (tất cả mã đã lọc)" if _qs_sector_sel == "Tất cả ngành" else _sector_suffix))
             _n_clipped = int(((_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)).sum())
             _sc["_upside_clip"] = _sc["_upside_pct"].clip(_CLIP_LO, _CLIP_HI)
             # Jitter points sitting exactly on the clip edge so they don't form a solid wall
@@ -5595,34 +5824,6 @@ elif view == "Sàng lọc Cổ phiếu":
             st.caption("Góc trên-phải = định giá thấp + chất lượng cao (cơ hội tốt nhất). "
                        f"Màu chấm = tín hiệu.{_clip_note}")
 
-            # ── Chart 4: Upside distribution histogram ──────────────
-            st.subheader("Phân bố Avg Upside")
-            _n_offrange = int(((_sc["_upside_pct"] < _CLIP_LO) | (_sc["_upside_pct"] > _CLIP_HI)).sum())
-            _bin_size = 10
-            _bin_edges = np.arange(_CLIP_LO, _CLIP_HI + _bin_size, _bin_size)
-            _counts, _ = np.histogram(_sc["_upside_pct"], bins=_bin_edges)
-            _bin_centers = (_bin_edges[:-1] + _bin_edges[1:]) / 2
-            # Red = expensive (negative upside) -> Green = cheap (positive upside)
-            _bin_colors = ["#ef4444" if c < 0 else "#22c55e" for c in _bin_centers]
-            fig_hist = go.Figure(go.Bar(
-                x=_bin_centers, y=_counts, marker_color=_bin_colors, width=_bin_size * 0.9,
-                customdata=np.stack([_bin_edges[:-1], _bin_edges[1:]], axis=-1),
-                hovertemplate="%{customdata[0]:.0f}% to %{customdata[1]:.0f}%: %{y} tickers<extra></extra>",
-            ))
-            fig_hist.add_vline(x=0, line_dash="dot", line_color="#64748b", opacity=0.6)
-            fig_hist.update_layout(
-                height=_responsive_height(260), margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
-                xaxis=dict(title="Avg Upside %", range=[_CLIP_LO, _CLIP_HI]),
-                yaxis_title="Số mã", bargap=0.05)
-            st.plotly_chart(fig_hist, width="stretch")
-            _offrange_note = (f" - {_n_offrange} mã có upside ngoài khoảng "
-                              f"{_CLIP_LO}%...{_CLIP_HI}% không hiển thị" if _n_offrange else "")
-            st.caption(
-                "Mỗi cột = số mã có mức upside trong khoảng đó. "
-                "🟢 Xanh (bên phải vạch 0) = đang bị định giá thấp, có thể tăng giá. "
-                "🔴 Đỏ (bên trái vạch 0) = đang đắt hơn giá trị ước tính, có thể giảm giá."
-                f"{_offrange_note}")
-
             # ── Backtest: historical signal → 1-year forward return ──
             import os as _os_bt
             _bt_path = _os_bt.path.join(_os_bt.path.dirname(_os_bt.path.dirname(__file__)), "backtest_summary.csv")
@@ -5636,13 +5837,13 @@ elif view == "Sàng lọc Cổ phiếu":
 
                 _bt_cols = st.columns(len(_bt))
                 _bt_bgs = {
-                    "Strong Buy": ("#dcfce7", "#15803d"),
-                    "Buy":        ("#bbf7d0", "#166534"),
+                    "Strong Buy": ("#bbf7d0", "#14532d"),
+                    "Buy":        ("#dcfce7", "#166534"),
                     "Watch":      ("#fef3c7", "#92400e"),
                     "Neutral":    ("#f1f5f9", "#475569"),
-                    "Reduce":     ("#ffedd5", "#c2410c"),
-                    "Sell":       ("#fee2e2", "#dc2626"),
-                    "Strong Sell":("#fecaca", "#991b1b"),
+                    "Reduce":     ("#fef2f2", "#b91c1c"),
+                    "Sell":       ("#fee2e2", "#991b1b"),
+                    "Strong Sell":("#fecaca", "#7f1d1d"),
                 }
                 for _col, (_, _r) in zip(_bt_cols, _bt.iterrows()):
                     _bg, _fg = _bt_bgs.get(_r["signal"], ("#f1f5f9", "#475569"))
@@ -5750,13 +5951,13 @@ elif view == "Sàng lọc Cổ phiếu":
 
                 def _sc_sig_col(val):
                     _v = val.lstrip("⁠") if val else val
-                    return {"Strong Buy":"background-color:#dcfce7;color:#15803d;font-weight:700",
-                            "Buy":"background-color:#bbf7d0;color:#166534;font-weight:600",
+                    return {"Strong Buy":"background-color:#bbf7d0;color:#14532d;font-weight:700",
+                            "Buy":"background-color:#dcfce7;color:#166534;font-weight:600",
                             "Watch":"background-color:#fef3c7;color:#92400e",
                             "Neutral":"background-color:#f1f5f9;color:#475569",
-                            "Reduce":"background-color:#ffedd5;color:#c2410c",
-                            "Sell":"background-color:#fee2e2;color:#dc2626;font-weight:600",
-                            "Strong Sell":"background-color:#fecaca;color:#991b1b;font-weight:700",
+                            "Reduce":"background-color:#fef2f2;color:#b91c1c",
+                            "Sell":"background-color:#fee2e2;color:#991b1b;font-weight:600",
+                            "Strong Sell":"background-color:#fecaca;color:#7f1d1d;font-weight:700",
                             }.get(_v, "")
 
                 def _sc_q_col(val):
@@ -5843,13 +6044,13 @@ elif view == "Sàng lọc Cổ phiếu":
                 # Color Signal + Quality
                 def _saved_sig_color(val):
                     _v = val.lstrip("⁠") if val else val
-                    return {"Strong Buy":"background-color:#dcfce7;color:#15803d;font-weight:700",
-                            "Buy":"background-color:#bbf7d0;color:#166534;font-weight:600",
+                    return {"Strong Buy":"background-color:#bbf7d0;color:#14532d;font-weight:700",
+                            "Buy":"background-color:#dcfce7;color:#166534;font-weight:600",
                             "Watch":"background-color:#fef3c7;color:#92400e",
                             "Neutral":"background-color:#f1f5f9;color:#475569",
-                            "Reduce":"background-color:#ffedd5;color:#c2410c",
-                            "Sell":"background-color:#fee2e2;color:#dc2626;font-weight:600",
-                            "Strong Sell":"background-color:#fecaca;color:#991b1b;font-weight:700",
+                            "Reduce":"background-color:#fef2f2;color:#b91c1c",
+                            "Sell":"background-color:#fee2e2;color:#991b1b;font-weight:600",
+                            "Strong Sell":"background-color:#fecaca;color:#7f1d1d;font-weight:700",
                             }.get(_v, "")
 
                 def _saved_q_color(val):
@@ -6988,13 +7189,16 @@ elif view == "Tổng quan Thị trường":
                 dragmode=False, showlegend=False, yaxis_visible=False)
             st.plotly_chart(_fig_ad, width="stretch")
             _ratio     = n_up / max(n_dn, 1)
-            _rc        = "#22c55e" if _ratio >= 1.5 else "#eab308" if _ratio >= 0.8 else "#ef4444"
+            # #eab308 (yellow-500) previously used here fails 4.5:1 contrast on
+            # the light background; #b45309 (amber-700) matches the existing
+            # "unchanged/neutral" amber convention used in the stock header.
+            _rc        = "#22c55e" if _ratio >= 1.5 else "#b45309" if _ratio >= 0.8 else "#ef4444"
             st.markdown(
                 f"<div style='text-align:center;font-size:26px;font-weight:700;color:{_rc}'>{_ratio:.2f}"
                 f"<span style='font-size:13px;color:#6b7280'> Tỷ lệ Tăng/Giảm</span></div>"
                 f"<div style='text-align:center;font-size:12px;color:#6b7280'>"
                 f"<span style='color:#22c55e'>▲{n_up}</span>  "
-                f"<span style='color:#eab308'>—{n_flat}</span>  "
+                f"<span style='color:#b45309'>—{n_flat}</span>  "
                 f"<span style='color:#ef4444'>▼{n_dn}</span>  "
                 f"trong {total} mã</div>", unsafe_allow_html=True)
 
