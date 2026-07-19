@@ -2768,7 +2768,7 @@ if view == "Phân tích Cổ phiếu":
                 font=dict(color="#374151"),
                 showlegend=True,
                 legend=dict(
-                    orientation="h", yanchor="top", y=-0.18,
+                    orientation="h", yanchor="top", y=-0.06,
                     xanchor="left", x=0, font=dict(size=11, color="#374151"),
                     itemclick="toggle", itemdoubleclick="toggleothers",
                 ),
@@ -2776,20 +2776,14 @@ if view == "Phân tích Cổ phiếu":
                 xaxis=dict(
                     type="category", showgrid=False,
                     rangeslider=dict(visible=False),
-                    # Neither a fixed nticks/tickangle (looked right on
-                    # exactly one screen width, wrong elsewhere) nor Plotly's
-                    # own "auto" for a *category* axis (kept way more labels
-                    # than fit even narrow-phone width, since date-interval
-                    # auto-thinning is a `type="date"` feature this category
-                    # axis doesn't get) worked. nticks=8 is the desktop value
-                    # this always had; -90deg makes each label need only
-                    # ~1 character-width horizontally instead of a whole
-                    # date string, so 8 of them fit without touching even on
-                    # a narrow phone. automargin lets Plotly reserve however
-                    # much height that actually needs instead of the fixed
-                    # b=0 margin guessing wrong.
-                    nticks=6, tickangle=-90, tickfont=dict(size=10),
-                    automargin=True,
+                    # Gave up trying to fit date tick labels at every screen
+                    # width (fixed count/angle, then Plotly "auto", then
+                    # vertical + automargin -- something always looked
+                    # cramped somewhere). hovermode="x unified" already shows
+                    # the date on hover/tap, so the axis labels were mostly
+                    # redundant anyway -- just hide them and sidestep the
+                    # whole responsive-tick-density problem.
+                    showticklabels=False,
                     # remove blank padding on left/right edges
                     range=[-0.5, len(df1y) - 0.5],
                     showspikes=True, spikemode="across",
