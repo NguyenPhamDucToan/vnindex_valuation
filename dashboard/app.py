@@ -102,7 +102,6 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import streamlit as st
-from streamlit_js_eval import streamlit_js_eval
 from sqlalchemy import select, func as sqlfunc
 
 from models.database import get_session
@@ -134,41 +133,72 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-# Viewport width detection (for responsive chart heights)
+# Chart heights
 # ─────────────────────────────────────────────
-# Streamlit has no native way to know the browser viewport size in Python;
-# streamlit_js_eval bridges window.innerWidth back into session_state. On
-# the very first render (before the JS round-trip completes) this returns
-# None, so callers must fall back to a desktop-sized default.
-# streamlit_js_eval owns st.session_state["viewport_w"] itself (the `key`
-# param registers it as a component widget) -- writing to that same key
-# ourselves raises StreamlitAPIException, so the resolved value is cached
-# under a different key instead.
-_viewport_w = streamlit_js_eval(js_expressions="window.innerWidth", key="viewport_w")
-if _viewport_w is not None:
-    st.session_state["_viewport_w_resolved"] = _viewport_w
-
-# Breakpoints match the mobile/tablet/desktop non-negotiables used elsewhere
-# in this project's design tooling (375 / 768 / 1024 / 1440px).
-_MOBILE_BREAKPOINT = 480
-_TABLET_BREAKPOINT = 900
-
-
+# Used to derive server-side viewport-aware chart heights via streamlit_js_eval
+# (window.innerWidth bridged back through a custom component). That component
+# always returns None on the very first script run -- before its JS has had a
+# chance to round-trip -- and then reports the real value moments later,
+# which Streamlit treats as a widget value change and reruns the whole
+# script to reflect. Since this component ran at the very top of the file,
+# every single page load paid for that as a full extra rerun ("loads twice").
+#
+# Replaced with a CSS-only equivalent: each figure still renders at its
+# original desktop_px height by default (untouched, zero regression risk on
+# desktop), and _responsive_chart() wraps the actual st.plotly_chart() call
+# in a uniquely-keyed container carrying a scoped <style> block that
+# overrides that ONE chart's rendered height at the same 480/900px
+# breakpoints and 0.62/0.80 scale factors the old JS version used. Plotly's
+# `config={"responsive": True}` (Streamlit's own default) makes the figure
+# redraw to match its container whenever that container's size changes, so
+# forcing the container smaller via CSS is enough -- no JS round-trip, no
+# extra rerun, and every chart still gets its own bespoke per-breakpoint
+# height instead of one shared size for all charts.
 def _responsive_height(desktop_px: int) -> int:
-    """Scale a chart's Plotly height down for narrower viewports.
-
-    Plotly's own width-responsiveness (via `width="stretch"`) doesn't touch
-    height, so a chart tuned for a 1440px desktop looks disproportionately
-    tall/cramped on a narrow phone screen unless height scales down too.
-    """
-    w = st.session_state.get("_viewport_w_resolved")
-    if w is None:
-        return desktop_px  # first paint, before JS reports back — assume desktop
-    if w < _MOBILE_BREAKPOINT:
-        return max(160, round(desktop_px * 0.62))
-    if w < _TABLET_BREAKPOINT:
-        return max(180, round(desktop_px * 0.80))
     return desktop_px
+
+_rc_counter = 0
+
+def _responsive_chart(fig, desktop_px: int, **kwargs):
+    """Render a Plotly figure whose height shrinks at the mobile/tablet
+    breakpoints via CSS on its own container, instead of a server-side JS
+    viewport round-trip. `desktop_px` should match whatever height the
+    figure's own layout was already given (that value is still what renders
+    on desktop/first paint; this only adds smaller-screen overrides)."""
+    global _rc_counter
+    _rc_counter += 1
+    _key = f"rc{_rc_counter}"
+    _mobile_px = max(160, round(desktop_px * 0.62))
+    _tablet_px = max(180, round(desktop_px * 0.80))
+    st.markdown(
+        f"<style>"
+        f"@media (max-width:480px){{ .st-key-{_key} [data-testid='stPlotlyChart']{{height:{_mobile_px}px!important;}} }}"
+        f"@media (min-width:481px) and (max-width:900px){{ .st-key-{_key} [data-testid='stPlotlyChart']{{height:{_tablet_px}px!important;}} }}"
+        f"</style>",
+        unsafe_allow_html=True,
+    )
+    _config = {"responsive": True, **kwargs.pop("config", {})}
+    with st.container(key=_key):
+        st.plotly_chart(fig, config=_config, **kwargs)
+
+
+def _responsive_dataframe(data, desktop_px: int, **kwargs):
+    """Same CSS-breakpoint trick as _responsive_chart(), for st.dataframe's
+    height (a plain container height, no Plotly redraw semantics involved)."""
+    global _rc_counter
+    _rc_counter += 1
+    _key = f"rc{_rc_counter}"
+    _mobile_px = max(160, round(desktop_px * 0.62))
+    _tablet_px = max(180, round(desktop_px * 0.80))
+    st.markdown(
+        f"<style>"
+        f"@media (max-width:480px){{ .st-key-{_key} [data-testid='stDataFrame']{{height:{_mobile_px}px!important;}} }}"
+        f"@media (min-width:481px) and (max-width:900px){{ .st-key-{_key} [data-testid='stDataFrame']{{height:{_tablet_px}px!important;}} }}"
+        f"</style>",
+        unsafe_allow_html=True,
+    )
+    with st.container(key=_key):
+        st.dataframe(data, height=desktop_px, **kwargs)
 
 # Design tokens — deep navy anchor (hue 256), matching the "trust" blue
 # convention that ui-ux-pro-max's design database confirms for fintech/
@@ -240,11 +270,16 @@ h1, h2, h3, h4, h5, h6,
 }
 /* Requested removal of the focus outline specifically on select/search
    boxes (the blue box around the dropdown on click/focus) -- scoped to
-   stSelectbox only, the global :focus-visible ring below still applies to
-   buttons/text inputs elsewhere. */
+   stSelectbox + stMultiSelect (multiselect is a separate Streamlit widget/
+   testid from selectbox, used for the ticker-picker search boxes on other
+   tabs -- e.g. So sánh Cổ phiếu, Phân tích Ngành), the global :focus-visible
+   ring below still applies to buttons/text inputs elsewhere. */
 [data-testid="stSelectbox"] *:focus,
 [data-testid="stSelectbox"] *:focus-visible,
-[data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus-within {
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus-within,
+[data-testid="stMultiSelect"] *:focus,
+[data-testid="stMultiSelect"] *:focus-visible,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div:focus-within {
     outline: none !important;
     box-shadow: none !important;
     border-color: var(--color-rule-strong) !important;
@@ -294,17 +329,6 @@ header[data-testid="stHeader"], [data-testid="stHeader"], [data-testid="stToolba
     border-bottom: none !important;
 }
 [data-testid="stHeader"] * { background: transparent !important; }
-/* streamlit_js_eval's viewport-detector component (called once at the top of
-   every script run, before any page content) renders in its own sandboxed
-   iframe with a blank white document — our :root tokens live on the parent
-   page and can never reach inside that iframe's DOM. Its own "auto height"
-   hack (`setFrameHeight(document.documentElement.clientHeight)`) measures the
-   iframe's own viewport rather than its (empty) content, so it never
-   collapses to 0 on its own — collapse it here from the parent page instead. */
-iframe[title*="js_eval"] {
-    height: 0 !important; min-height: 0 !important; max-height: 0 !important;
-    border: none !important; display: block !important;
-}
 [data-testid="stModal"],[data-testid="stModalContent"],[data-testid="stModalOverlay"]{
     animation:none!important; transition:none!important;
 }
@@ -1941,7 +1965,7 @@ def _render_index_ticker_bar():
             hoverlabel=dict(bgcolor="#ffffff", font_size=11, font_color="#0f172a",
                             bordercolor="#e2e8f0"))
         with _col:
-            st.plotly_chart(_fig_i, width="stretch", config={"displayModeBar": False})
+            _responsive_chart(_fig_i, 175, width="stretch", config={"displayModeBar": False})
     st.caption("Xanh = đang tăng so với hôm trước · Đỏ = đang giảm")
     st.divider()
 
@@ -2281,7 +2305,7 @@ if st.session_state.get("hm_popup_ticker"):
                 _gfig.add_trace(go.Bar(x=_gmini["dlabel"],y=_gmini["volume"],marker_color=_gmini["vc"].tolist(),yaxis="y2",showlegend=False,hoverinfo="skip"))
                 _gfig.add_trace(go.Scatter(x=_gmini["dlabel"],y=_gmini["close"]*1000,yaxis="y",mode="markers",marker=dict(color="rgba(0,0,0,0)",size=1),showlegend=False,name="Vol",customdata=_gmini["vol_m"],hovertemplate="Vol %{customdata:.2f}M<extra></extra>"))
                 _gfig.update_layout(height=_responsive_height(360),margin=dict(l=0,r=0,t=0,b=0),dragmode=False,hovermode="x unified",font=dict(color="#374151"),xaxis=dict(type="category",rangeslider=dict(visible=False),nticks=6,showgrid=False),yaxis=dict(domain=[0.25,1.0],showgrid=True,gridcolor="#e2e8f0"),yaxis2=dict(domain=[0.0,0.22],showgrid=False),paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(255,255,255,0)")
-                st.plotly_chart(_gfig, width="stretch")
+                _responsive_chart(_gfig, 360, width="stretch")
             with _right:
                 def _gs(label,value,color="#0f172a"):
                     return (f"<div style='display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #e2e8f0;font-size:13px;'><span style='color:var(--color-muted)'>{label}</span><span style='color:{color};font-weight:600'>{value}</span></div>")
@@ -2447,7 +2471,7 @@ if view == "Phân tích Cổ phiếu":
                     xaxis=dict(title="Tỷ lệ sở hữu (%)", ticksuffix="%"),
                     yaxis=dict(tickfont=dict(size=12), automargin=True),
                 )
-                st.plotly_chart(_fig_sh, width="stretch")
+                _responsive_chart(_fig_sh, 400, width="stretch")
 
             with _pie_col:
                 st.caption("Cơ cấu theo nhóm")
@@ -2472,7 +2496,7 @@ if view == "Phân tích Cổ phiếu":
                     height=_responsive_height(400), margin=dict(l=10, r=10, t=10, b=10),
                     dragmode=False, showlegend=False,
                 )
-                st.plotly_chart(_fig_pie, width="stretch")
+                _responsive_chart(_fig_pie, 400, width="stretch")
 
             # ── Officers ─────────────────────────────────────────
             if not _off_df.empty:
@@ -2772,7 +2796,7 @@ if view == "Phân tích Cổ phiếu":
                     showgrid=False, anchor="x",
                 ),
             )
-            st.plotly_chart(fig_price, width="stretch")
+            _responsive_chart(fig_price, 480, width="stretch")
 
             # ── Peer Comparison vs Sector (fills space below chart) ──
             if ttm and _co_sect and _co_sect != "—":
@@ -2833,7 +2857,7 @@ if view == "Phân tích Cổ phiếu":
                             height=_responsive_height(340), margin=dict(l=0, r=0, t=6, b=0), dragmode=False,
                             xaxis_title="P/E (×)", yaxis_title="ROE (%)",
                             showlegend=False, hovermode="closest")
-                        st.plotly_chart(fig_pc, width="stretch")
+                        _responsive_chart(fig_pc, 340, width="stretch")
                         st.caption(f"★ {ticker} · Góc dưới-phải = rẻ & sinh lời tốt (P/E thấp, ROE cao)")
 
             # ── Foreign & Proprietary Trading — last 20 sessions (this ticker) ──
@@ -2901,7 +2925,7 @@ if view == "Phân tích Cổ phiếu":
                         fig_nn.update_yaxes(title_text="GTNN ròng (tỷ)", showgrid=True,
                                              gridcolor="#e2e8f0", zeroline=False, secondary_y=False)
                         fig_nn.update_yaxes(title_text="Giá (nghìn VND)", showgrid=False, secondary_y=True)
-                        st.plotly_chart(fig_nn, width="stretch")
+                        _responsive_chart(fig_nn, 280, width="stretch")
                         st.caption("GTNN = giá trị giao dịch ròng của nhà đầu tư nước ngoài.")
                     else:
                         st.info("Dữ liệu giao dịch nước ngoài hiện không có sẵn.")
@@ -3032,15 +3056,29 @@ if view == "Phân tích Cổ phiếu":
             if valid_prices and current_price:
                 import statistics as _stats
                 _sorted = sorted(valid_prices)
-                # Trimmed mean: drop 1 highest + 1 lowest when ≥ 4 methods available
-                if len(_sorted) >= 4:
-                    _trimmed = _sorted[1:-1]
-                    _trim_label = f"TRIMMED MEAN ({len(_sorted)}→{len(_trimmed)} PP, bỏ cao/thấp nhất)"
+                med_val = _stats.median(_sorted)
+                # Winsorized mean, clipped at median ± 1.5×MAD (median absolute
+                # deviation): outlier methods are capped to the threshold
+                # instead of being dropped outright, so every method still
+                # contributes some signal — unlike a trimmed mean, which
+                # always deletes exactly N values regardless of how many are
+                # actually extreme, and which discards a fixed method's
+                # estimate entirely rather than just limiting its pull.
+                # 1.5×MAD scales with each ticker's own spread automatically
+                # (no hand-tuned % band needed) and degrades gracefully at
+                # small N — MAD=0 (methods agree, or too few to disperse)
+                # just skips clipping instead of a hard N<4 cliff to a plain
+                # mean.
+                _mad = _stats.median([abs(x - med_val) for x in _sorted])
+                if _mad > 0:
+                    _lo, _hi = med_val - 1.5 * _mad, med_val + 1.5 * _mad
+                    _winsorized = [min(max(x, _lo), _hi) for x in _sorted]
+                    _n_clipped = sum(1 for x in _sorted if x < _lo or x > _hi)
                 else:
-                    _trimmed = _sorted
-                    _trim_label = f"TRUNG BÌNH {len(_sorted)} PHƯƠNG PHÁP"
-                avg_val  = sum(_trimmed) / len(_trimmed)
-                med_val  = _stats.median(_sorted)
+                    _winsorized = _sorted
+                    _n_clipped = 0
+                avg_val = sum(_winsorized) / len(_winsorized)
+                _trim_label = f"WINSORIZED MEAN ({len(_sorted)} PP, kẹp {_n_clipped} giá trị lệch xa)"
                 u_avg = (avg_val - current_price) / current_price * 100
                 u_med = (med_val - current_price) / current_price * 100
                 clr_avg = "#4ade80" if u_avg >= 0 else "#f87171"
@@ -3250,7 +3288,7 @@ if view == "Phân tích Cổ phiếu":
                     # own row instead of sharing one with the table.
                     _gg1, _gg2, _gg3 = st.columns([1, 2, 1])
                     with _gg2:
-                        st.plotly_chart(fig_gauge, width="stretch")
+                        _responsive_chart(fig_gauge, 150, width="stretch")
 
                     st.markdown(
                         '<div style="background:var(--color-paper-2);border-left:4px solid #3b82f6;'
@@ -5079,7 +5117,7 @@ if view == "Phân tích Cổ phiếu":
                         ),
                         font=dict(color="#374151"),
                     )
-                    st.plotly_chart(_fig_rw, width="stretch")
+                    _responsive_chart(_fig_rw, 280, width="stretch")
 
 
         # ── Valuation Football Field ───────────────────────────────
@@ -5668,7 +5706,7 @@ elif view == "Sàng lọc Cổ phiếu":
             # (search/quick-filter) used to leave a mostly-empty grid.
             _ROW_H, _HEADER_H = 35, 38
             _table_h = min(600, _HEADER_H + max(len(display), 1) * _ROW_H + 3)
-            st.dataframe(styled, width="stretch", height=_responsive_height(_table_h))
+            _responsive_dataframe(styled, _table_h, width="stretch")
 
             # ── Colored legend below table ─────────────────────────
             # Regression note: full threshold text per chip ("Strong Buy:
@@ -5778,7 +5816,7 @@ elif view == "Sàng lọc Cổ phiếu":
                     fig_sig.update_layout(height=_responsive_height(360), margin=dict(l=0, r=0, t=10, b=0),
                                           showlegend=False, dragmode=False,
                                           font=dict(color="#374151"))
-                    st.plotly_chart(fig_sig, width="stretch")
+                    _responsive_chart(fig_sig, 360, width="stretch")
 
             # ── Chart 2: Combo — cột Mua/StrongBuy + đường Upside ────
             with _c2:
@@ -5894,7 +5932,7 @@ elif view == "Sàng lọc Cổ phiếu":
                             zeroline=True, zerolinecolor="#e2e8f0",
                         ),
                     )
-                    st.plotly_chart(fig_combo, width="stretch")
+                    _responsive_chart(fig_combo, 560, width="stretch")
                     st.caption("Cột = số mã được khuyến nghị Mua/Strong Buy · "
                                "Chấm + đường = trung vị Upside của ngành (trục phải)")
                 else:
@@ -5935,7 +5973,7 @@ elif view == "Sàng lọc Cổ phiếu":
                 height=_responsive_height(260), margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
                 xaxis=dict(title="Avg Upside %", range=[_CLIP_LO, _CLIP_HI]),
                 yaxis_title="Số mã", bargap=0.05)
-            st.plotly_chart(fig_hist, width="stretch")
+            _responsive_chart(fig_hist, 260, width="stretch")
             _offrange_note = (f" - {_n_offrange} mã có upside ngoài khoảng "
                               f"{_CLIP_LO}%...{_CLIP_HI}% không hiển thị" if _n_offrange else "")
             st.caption(
@@ -5977,7 +6015,7 @@ elif view == "Sàng lọc Cổ phiếu":
                 height=_responsive_height(420), margin=dict(l=0, r=0, t=10, b=0), dragmode=False,
                 xaxis_title=f"Avg Upside % (giới hạn {_CLIP_LO}…{_CLIP_HI}%)", yaxis_title="Quality Score",
                 hovermode="closest")
-            st.plotly_chart(fig_qs, width="stretch")
+            _responsive_chart(fig_qs, 420, width="stretch")
             _clip_note = (f" · {_n_clipped} mã ngoài biểu đồ (upside ngoài khoảng "
                            f"{_CLIP_LO}%…{_CLIP_HI}%, đã dịch nhẹ ra mép)" if _n_clipped else "")
             st.caption("Góc trên-phải = định giá thấp + chất lượng cao (cơ hội tốt nhất). "
@@ -6333,7 +6371,7 @@ elif view == "So sánh Cổ phiếu":
                     yaxis_title="Giá chuẩn hóa (100 = đầu kỳ)",
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
                 )
-                st.plotly_chart(_cmp_fig, width="stretch")
+                _responsive_chart(_cmp_fig, 380, width="stretch")
 
                 # ── Return summary cards ─────────────────────────────────
                 if _cmp_returns:
@@ -6461,7 +6499,7 @@ elif view == "So sánh Cổ phiếu":
                 paper_bgcolor="rgba(0,0,0,0)",
                 legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
             )
-            st.plotly_chart(_radar_fig, width="stretch")
+            _responsive_chart(_radar_fig, 400, width="stretch")
             st.caption(
                 "**Trục:** ROE — lợi nhuận vốn chủ | Net Margin — biên lợi nhuận ròng | "
                 "FCF Margin — biên dòng tiền tự do | Quality — điểm chất lượng tổng thể (0–100) | "
@@ -6802,7 +6840,7 @@ elif view == "So sánh Cổ phiếu":
             ]:
                 _tfig.update_layout(title=dict(text=_ttitle, font=dict(size=13)), **_line_layout)
                 with _tcol:
-                    st.plotly_chart(_tfig, width="stretch")
+                    _responsive_chart(_tfig, 280, width="stretch")
 
             if _has_yoy:
                 _yoy_fig.add_hline(y=0, line_color="#cbd5e1", line_dash="dot", line_width=1)
@@ -7011,6 +7049,14 @@ iframe[title="heatmap_click.heatmap_click"] {
                 dragmode=False,
             )
             # Heatmap — proper component (JS blocks drill-down, returns ticker in one rerun)
+            # Deliberately NOT switched to _responsive_chart(): this is a custom
+            # Streamlit component (its own iframe + index.html/JS), not a plain
+            # st.plotly_chart() div. The CSS-container-resize trick relies on
+            # Plotly's `responsive: true` redrawing when its DIRECT container
+            # changes size, which requires cooperation from that component's own
+            # JS (listening for its iframe being resized) that I haven't
+            # audited — safer to leave this one chart at a fixed height than
+            # guess at behavior I can't verify without a live browser.
             import sys as _sys
             _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
             from heatmap_component import heatmap_click as _heatmap_click
@@ -7268,7 +7314,7 @@ iframe[title="heatmap_click.heatmap_click"] {
         fig_sc.update_traces(textposition="top center")
         fig_sc.add_vline(x=0, line_dash="dash", line_color="#64748b", opacity=0.5)
         fig_sc.update_layout(height=_responsive_height(460), margin=dict(l=0, r=0, t=10, b=0), dragmode=False)
-        st.plotly_chart(fig_sc, width="stretch")
+        _responsive_chart(fig_sc, 460, width="stretch")
 
 # ═══════════════════════════════════════════════════════════════
 # VIEW 6 — MARKET OVERVIEW
@@ -7345,7 +7391,7 @@ elif view == "Tổng quan Thị trường":
                     xaxis=dict(type="category", nticks=8, showgrid=False, rangeslider=dict(visible=False)),
                     yaxis=dict(showgrid=True, gridcolor="#e2e8f0",
                                range=[_vi_ymin, _vi_ymax]))
-                st.plotly_chart(_fig_vi, width="stretch")
+                _responsive_chart(_fig_vi, 320, width="stretch")
             else:
                 st.info("Không có dữ liệu VN-Index.")
 
@@ -7358,7 +7404,7 @@ elif view == "Tổng quan Thị trường":
                 hovertemplate="%{x}: %{y}<extra></extra>"))
             _fig_ad.update_layout(height=_responsive_height(200), margin=dict(l=0,r=0,t=10,b=0),
                 dragmode=False, showlegend=False, yaxis_visible=False)
-            st.plotly_chart(_fig_ad, width="stretch")
+            _responsive_chart(_fig_ad, 200, width="stretch")
             _ratio     = n_up / max(n_dn, 1)
             # #eab308 (yellow-500) previously used here fails 4.5:1 contrast on
             # the light background; #b45309 (amber-700) matches the existing
@@ -7418,7 +7464,7 @@ elif view == "Tổng quan Thị trường":
                     xaxis=dict(type="category", nticks=8, showgrid=False),
                     yaxis=dict(title="P/E (x)", showgrid=True, gridcolor="rgba(255,255,255,0.05)",
                                zeroline=False, range=[_pe_ymin, _pe_ymax]))
-                st.plotly_chart(fig_mpe, width="stretch")
+                _responsive_chart(fig_mpe, 300, width="stretch")
 
             with _vc2:
                 _pb_diff = (_cur_pb / _avg_pb - 1) * 100 if _avg_pb else 0
@@ -7448,7 +7494,7 @@ elif view == "Tổng quan Thị trường":
                     xaxis=dict(type="category", nticks=8, showgrid=False),
                     yaxis=dict(title="P/B (x)", showgrid=True, gridcolor="rgba(255,255,255,0.05)",
                                zeroline=False, range=[_pb_ymin, _pb_ymax]))
-                st.plotly_chart(fig_mpb, width="stretch")
+                _responsive_chart(fig_mpb, 300, width="stretch")
 
             st.caption(
                 "P/E, P/B = trung vị (median) của toàn bộ mã có dữ liệu mỗi quý. "
@@ -7486,7 +7532,7 @@ elif view == "Tổng quan Thị trường":
                 xaxis=dict(type="category", showgrid=False),
                 yaxis=dict(title="Giá trị ròng (tỷ VND)", showgrid=True, gridcolor="#e2e8f0",
                            zeroline=False))
-            st.plotly_chart(_fig_ff, width="stretch")
+            _responsive_chart(_fig_ff, 300, width="stretch")
             st.caption(
                 f"Mua ròng = xanh, bán ròng = đỏ. Lũy kế 15 phiên: "
                 f"<span style='color:{_cc_sum};font-weight:600'>{_net_15:+,.0f} tỷ VND</span>. "
@@ -7594,7 +7640,7 @@ elif view == "Tổng quan Thị trường":
             height=_responsive_height(430), margin=dict(l=0, r=0, t=0, b=0), dragmode=False,
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0)",
         )
-        st.plotly_chart(_fig_hm, width="stretch")
+        _responsive_chart(_fig_hm, 430, width="stretch")
         _hm_up   = int((_hm_df["chg_pct"] > 0).sum())
         _hm_dn   = int((_hm_df["chg_pct"] < 0).sum())
         _hm_flat = int((_hm_df["chg_pct"] == 0).sum())
@@ -7644,7 +7690,7 @@ elif view == "Tổng quan Thị trường":
                                 font=dict(color="#0f172a", size=12)),
                 xaxis=dict(type="category", nticks=12),
                 yaxis_title=unit)
-            st.plotly_chart(fig, width="stretch")
+            _responsive_chart(fig, 280, width="stretch")
             latest = pd.to_datetime(df["period"].max())
             st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {latest:%m/%Y}")
 
@@ -7698,7 +7744,7 @@ elif view == "Tổng quan Thị trường":
                 legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0),
                 xaxis=dict(type="category", nticks=10),
                 yaxis_title=unit)
-            st.plotly_chart(fig, width="stretch")
+            _responsive_chart(fig, 340, width="stretch")
             latest = max(df["period"].max() for df in series.values())
             st.caption(f"Nguồn: Tổng cục Thống kê (nso.gov.vn) · Cập nhật đến {pd.to_datetime(latest):%m/%Y}")
 
@@ -7931,7 +7977,7 @@ elif view == "Tổng quan Thị trường":
                                       hovermode="x",
                                       hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
                                                       font=dict(color="#0f172a", size=12)))
-                st.plotly_chart(fig_fx, width="stretch")
+                _responsive_chart(fig_fx, 320, width="stretch")
                 st.caption(f"Nguồn: vnstock (MSN, USD/VND) · Cập nhật đến {_fx_df['period'].iloc[-1]:%d/%m/%Y}")
             else:
                 st.info("Chưa có dữ liệu tỷ giá.")
@@ -7987,7 +8033,7 @@ elif view == "Tổng quan Thị trường":
                     yaxis_title="%YTD",
                     xaxis=dict(type="category"),
                     legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0))
-                st.plotly_chart(fig_cg, width="stretch")
+                _responsive_chart(fig_cg, 360, width="stretch")
 
         elif _vm_sel == "Tiêu dùng":
             cons_rows = [
@@ -8031,7 +8077,7 @@ elif view == "Tổng quan Thị trường":
                                                         font=dict(color="#0f172a", size=12)),
                                         legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="left", x=0))
                 fig_rate.update_xaxes(tickformat="%m/%Y", dtick="M1")
-                st.plotly_chart(fig_rate, width="stretch")
+                _responsive_chart(fig_rate, 320, width="stretch")
 
             # ── Tăng trưởng tín dụng (context cho lãi suất) ───────────────
             _cg_df = load_macro_indicator("credit_growth_total")
@@ -8051,4 +8097,4 @@ elif view == "Tổng quan Thị trường":
                                       hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
                                                       font=dict(color="#0f172a", size=12)),
                                       xaxis=dict(type="category"))
-                st.plotly_chart(fig_cg2, width="stretch")
+                _responsive_chart(fig_cg2, 260, width="stretch")
