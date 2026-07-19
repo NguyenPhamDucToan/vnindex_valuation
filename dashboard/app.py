@@ -228,8 +228,12 @@ st.markdown("""<style>
     --color-accent-strong:  #002057;
     --color-accent-deep:    #00133d;
     --color-focus:          #006ddd;
+    --color-hairline:       #e2e8f0;
+    --color-on-accent:      #bfdbfe;
+    --color-on-accent-muted:#93c5fd;
     --radius-card: 4px;
     --radius-pill: 999px;
+    --z-tooltip: 50;
 }
 </style>""", unsafe_allow_html=True)
 
@@ -4853,7 +4857,7 @@ if view == "Phân tích Cổ phiếu":
                 "border-radius:4px;"
                 "padding:12px 14px;"
                 "width:230px;"
-                "z-index:9999;"
+                "z-index:var(--z-tooltip);"
                 "box-shadow:0 6px 24px rgba(0,0,0,0.5);"
                 "pointer-events:none;"
                 "text-align:left;"
@@ -4864,7 +4868,7 @@ if view == "Phân tích Cổ phiếu":
                 "left:50%;"
                 "transform:translateX(-50%);"
                 "border:7px solid transparent;"
-                "border-top-color:#1e293b;"
+                "border-top-color:var(--color-ink-2);"
                 "}"
                 ".ttm-cell:hover .ttm-tooltip{display:block;}"
                 "</style>"
@@ -5292,16 +5296,22 @@ if view == "Phân tích Cổ phiếu":
                         return "Thông báo", "#1c2f3c", "#94a3b8"
                     return None, None, None
 
-                # Recency → left border color
-                def _border_color(pub):
+                # Recency → left border color. Genuinely fresh items get an
+                # urgency color (red/orange/blue); anything older falls back
+                # to the row's own category color (passed in as `fallback`)
+                # instead of one flat gray — a stripe that's the same shade
+                # on every row reads as decoration, not a signal, so once
+                # recency stops varying (most of a typical feed is >7 days
+                # old) the stripe should carry category instead.
+                def _border_color(pub, fallback):
                     try:
                         diff = (_today - pd.to_datetime(pub).date()).days
                         if diff == 0: return "#ef4444"   # red  — today
                         if diff <= 3: return "#f97316"   # orange — 1–3 days
                         if diff <= 7: return "#3b82f6"   # blue — this week
-                        return "#374151"                 # gray — older
+                        return fallback                  # category color — older
                     except Exception:
-                        return "#374151"
+                        return fallback
 
                 _news_html = ""
                 for _, _row in _news_df.iterrows():
@@ -5309,8 +5319,8 @@ if view == "Phân tích Cổ phiếu":
                     _link   = _row.get("news_source_link") or ""
                     _rel    = _rel_date(_row.get("public_date"))
                     _abs    = pd.to_datetime(_row.get("public_date")).strftime("%d/%m/%Y") if pd.notna(_row.get("public_date")) else ""
-                    _border = _border_color(_row.get("public_date"))
                     _blbl, _bbg, _bfg = _news_badge(_title)
+                    _border = _border_color(_row.get("public_date"), _bfg or "#374151")
 
                     _badge_html = (
                         f"<span style='background:{_bbg};color:{_bfg};font-size:10px;"
@@ -5324,9 +5334,7 @@ if view == "Phân tích Cổ phiếu":
                     )
                     _date_tip = f" title='{_abs}'" if _abs and _rel != _abs else ""
                     _news_html += (
-                        f"<div class='ni' style='border-left-color:{_border}' "
-                        f"onmouseover=\"this.style.background='#1a2235'\" "
-                        f"onmouseout=\"this.style.background='transparent'\">"
+                        f"<div class='ni' style='border-left-color:{_border}'>"
                         f"<div style='font-size:14px;line-height:1.5;color:var(--color-neutral);'>"
                         f"{_badge_html}{_title_el}</div>"
                         f"<div style='font-size:11px;color:var(--color-neutral);margin-top:3px;'{_date_tip}>{_rel}</div>"
@@ -5334,8 +5342,9 @@ if view == "Phân tích Cổ phiếu":
                     )
                 st.markdown(
                     "<style>.ni{padding:9px 12px 9px 14px;border-left:3px solid #374151;"
-                    "border-bottom:1px solid #e2e8f0;margin-bottom:2px;"
-                    "transition:background .1s;}</style>" + _news_html,
+                    "border-bottom:1px solid var(--color-hairline);margin-bottom:2px;"
+                    "transition:background .1s;}"
+                    ".ni:hover{background:var(--color-surface-hover);}</style>" + _news_html,
                     unsafe_allow_html=True,
                 )
 
@@ -5362,15 +5371,15 @@ if view == "Phân tích Cổ phiếu":
 
                 _ev_css = (
                     "<style>"
-                    ".ev{background:var(--color-paper-2);border-radius:4px;border:1px solid #e2e8f0;"
-                    "border-left:4px solid #cbd5e1;"
+                    ".ev{background:var(--color-paper-2);border-radius:4px;border:1px solid var(--color-hairline);"
+                    "border-left:4px solid var(--color-rule);"
                     "padding:10px 14px;margin-bottom:8px;transition:background .15s;}"
                     ".ev:hover{background:var(--color-paper);}"
                     ".ev-hdr{display:flex;align-items:center;gap:8px;margin-bottom:5px;}"
                     ".ev-badge{font-size:10px;font-weight:700;letter-spacing:.6px;padding:2px 8px;"
                     "border-radius:4px;text-transform:uppercase;white-space:nowrap;}"
                     ".ev-date{font-size:11px;color:var(--color-neutral);margin-left:auto;white-space:nowrap;}"
-                    ".ev-title{font-size:13.5px;font-weight:500;color:#1e293b;line-height:1.45;}"
+                    ".ev-title{font-size:13.5px;font-weight:500;color:var(--color-ink-2);line-height:1.45;}"
                     ".ev-detail{font-size:12px;color:var(--color-neutral);margin-top:6px;line-height:1.7;display:flex;"
                     "flex-wrap:wrap;align-items:center;gap:6px;}"
                     ".pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;"
@@ -5674,10 +5683,10 @@ elif view == "Sàng lọc Cổ phiếu":
     <style>
     div[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
         background-color:var(--color-accent-strong) !important;
-        color: #bfdbfe !important;
+        color: var(--color-on-accent) !important;
     }
     div[data-testid="stMultiSelect"] span[data-baseweb="tag"] svg {
-        color: #93c5fd !important;
+        color: var(--color-on-accent-muted) !important;
     }
     </style>""", unsafe_allow_html=True)
             # ── Build display table ────────────────────────────────
