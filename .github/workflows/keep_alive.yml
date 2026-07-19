@@ -1,0 +1,41 @@
+name: Keep Streamlit app awake
+
+# Streamlit Community Cloud puts an app to sleep after a stretch with no
+# traffic; the next visitor then pays a cold-boot (~9-19s) while the process
+# restarts. This workflow sends a lightweight request to the app URL on a
+# schedule so the inactivity timer keeps resetting and the app stays warm
+# (~2s loads). It does NOT make the app faster — it only avoids the sleep.
+#
+# IMPORTANT — this only works once the Streamlit app is set to PUBLIC. While
+# viewer authentication is on, the request is bounced to a login page at
+# Streamlit's edge and never reaches (or wakes) the app container.
+#
+# QUOTA NOTE — this repo is private, so every run counts against the 2000
+# free GitHub Actions minutes/month (each job is billed rounded up to 1 min).
+# 30-minute cadence ≈ 1440 min/month, which together with the daily refresh
+# and macro workflows stays under the cap. A free external uptime monitor
+# (e.g. UptimeRobot, 5-min interval) does the same thing without touching
+# this quota and is the better tool once the app is public — treat this
+# workflow as the in-repo fallback.
+
+on:
+  schedule:
+    # Every 30 minutes (quota-conscious for a private repo). GitHub may delay
+    # scheduled runs under load; fine for a keep-alive.
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping the app
+        run: |
+          URL="https://vnindex-valuation.streamlit.app/"
+          echo "Pinging $URL"
+          # A 200/3xx from the app root registers as traffic and resets the
+          # sleep timer. If the app is still login-walled this returns a 303
+          # to /-/login and the keep-alive is ineffective — make the app
+          # public for this to work.
+          curl -sS --max-time 60 -o /dev/null -w "HTTP %{http_code}\n" "$URL"
