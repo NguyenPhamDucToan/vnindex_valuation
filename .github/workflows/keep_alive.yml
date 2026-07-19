@@ -6,17 +6,20 @@ name: Keep Streamlit app awake
 # schedule so the inactivity timer keeps resetting and the app stays warm
 # (~2s loads). It does NOT make the app faster — it only avoids the sleep.
 #
-# IMPORTANT — this only works once the Streamlit app is set to PUBLIC. While
-# viewer authentication is on, the request is bounced to a login page at
-# Streamlit's edge and never reaches (or wakes) the app container.
+# The app is public, but Streamlit Community Cloud still runs an anonymous
+# session bootstrap: a bare request 303-redirects to /-/auth/app and loops
+# unless the caller carries cookies through the redirect chain like a real
+# browser. So the ping below uses a cookie jar + browser User-Agent +
+# --location; that reaches the actual app (HTTP 200) and registers as real
+# traffic. A plain `curl URL` just bounces at the auth handshake and does NOT
+# wake the container.
 #
 # QUOTA NOTE — this repo is private, so every run counts against the 2000
 # free GitHub Actions minutes/month (each job is billed rounded up to 1 min).
 # 30-minute cadence ≈ 1440 min/month, which together with the daily refresh
 # and macro workflows stays under the cap. A free external uptime monitor
 # (e.g. UptimeRobot, 5-min interval) does the same thing without touching
-# this quota and is the better tool once the app is public — treat this
-# workflow as the in-repo fallback.
+# this quota — a reasonable alternative if Actions minutes get tight.
 
 on:
   schedule:
@@ -34,8 +37,15 @@ jobs:
         run: |
           URL="https://vnindex-valuation.streamlit.app/"
           echo "Pinging $URL"
-          # A 200/3xx from the app root registers as traffic and resets the
-          # sleep timer. If the app is still login-walled this returns a 303
-          # to /-/login and the keep-alive is ineffective — make the app
-          # public for this to work.
-          curl -sS --max-time 60 -o /dev/null -w "HTTP %{http_code}\n" "$URL"
+          # Cookie jar + browser UA + follow-redirects so the anonymous
+          # session handshake completes and we actually reach the app
+          # (HTTP 200), which resets Streamlit's sleep timer. A bare curl
+          # loops on the /-/auth/app redirect and wouldn't wake it.
+          CODE=$(curl -sS --max-time 90 \
+            -c cookies.txt -b cookies.txt -L --max-redirs 10 \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            -o /dev/null -w "%{http_code}" "$URL")
+          echo "HTTP $CODE"
+          # Don't fail the workflow on a transient non-200 — a keep-alive that
+          # errors loudly on one bad ping just creates noise.
+          if [ "$CODE" = "200" ]; then echo "app is awake"; else echo "unexpected status (transient?)"; fi
