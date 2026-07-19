@@ -441,6 +441,16 @@ from collections import deque as _deque
 
 _vnstock_lock = _threading.Lock()
 _vnstock_call_times: "_deque[float]" = _deque()
+# REVERTED from 18 back to 12 -- raising it was tried and measured worse, not
+# better. vnstock's VCI Guest tier hard-caps at ~20 req/min, and a single
+# cold ticker-view load alone burns 8-10+ of that from its own parallel
+# prefetch; switching between 2-3 tickers in quick succession (a realistic
+# session, not just this benchmark) easily exceeds even the old 12/min
+# budget too. Pushing our own throttle to 18 didn't fix that -- it just made
+# it more likely we'd actually hit vnstock's real server-side limit instead
+# of our own, and that penalty (an 8-40s forced wait-and-retry per the
+# server's own response, confirmed in logs) is far worse than our throttle's
+# gentle self-imposed pacing. 12 leaves real margin below the real ceiling.
 _VNSTOCK_MAX_PER_MIN = 12
 
 
@@ -1360,6 +1370,32 @@ def load_ttm(ticker: str) -> dict | None:
     return compute_ttm(ticker)
 
 
+@st.cache_resource(ttl=86400)
+def _finance_client(ticker: str):
+    """Shared vnstock Finance client for a ticker.
+
+    Finance(...)'s constructor does a network handshake + company-type
+    lookup (`self._handshake()` / `self._get_company_type()`), each of which
+    burns a slot against our own request-rate throttle. load_detailed_financials
+    (quarterly) and load_annual_cf (annual) each used to build their own
+    Finance object -- paying that handshake twice for the same ticker. The
+    `period` this is constructed with doesn't matter: every _get_report()
+    call below always passes its own explicit `period=` kwarg, and vnstock's
+    _get_report() prefers that over the client's own self.period
+    (`effective_period = period if period else self.period`), confirmed by
+    reading vnstock's source directly. Returns None on failure so callers can
+    fall back to empty frames instead of raising.
+    """
+    import warnings
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from vnstock.explorer.vci.financial import Finance
+            return vnstock_call(lambda: Finance(ticker, period="quarter", show_log=False))
+    except (Exception, SystemExit):
+        return None
+
+
 @st.cache_data(ttl=86400)
 def load_detailed_financials(ticker: str):
     """Fetch raw VCI income statement + balance sheet for detailed sub-item charts.
@@ -1368,21 +1404,19 @@ def load_detailed_financials(ticker: str):
     Falls back to (empty, empty) on any error. The two reports are independent
     network calls to the VCI API, fetched in parallel to cut latency roughly in half.
     """
-    import warnings
     from concurrent.futures import ThreadPoolExecutor
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from vnstock.explorer.vci.financial import Finance
-            fin = vnstock_call(lambda: Finance(ticker, period="quarter", show_log=False))
-            def _report(report_type, **kw):
-                return vnstock_call(lambda: fin._get_report(report_type, **kw))
-            with ThreadPoolExecutor(max_workers=2) as ex:
-                f_inc = ex.submit(_report, "income_statement", period="quarter",
-                                   lang="en", show_log=False, limit=50)
-                f_bal = ex.submit(_report, "balance_sheet", period="quarter",
-                                   lang="en", show_log=False, limit=50)
-                inc, bal = f_inc.result(), f_bal.result()
+        fin = _finance_client(ticker)
+        if fin is None:
+            return pd.DataFrame(), pd.DataFrame()
+        def _report(report_type, **kw):
+            return vnstock_call(lambda: fin._get_report(report_type, **kw))
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_inc = ex.submit(_report, "income_statement", period="quarter",
+                               lang="en", show_log=False, limit=50)
+            f_bal = ex.submit(_report, "balance_sheet", period="quarter",
+                               lang="en", show_log=False, limit=50)
+            inc, bal = f_inc.result(), f_bal.result()
         return inc, bal
     except (Exception, SystemExit):
         return pd.DataFrame(), pd.DataFrame()
@@ -1394,21 +1428,19 @@ def load_annual_cf(ticker: str):
 
     The two reports are independent network calls, fetched in parallel.
     """
-    import warnings
     from concurrent.futures import ThreadPoolExecutor
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            from vnstock.explorer.vci.financial import Finance
-            fin = vnstock_call(lambda: Finance(ticker, period="year", show_log=False))
-            def _report(report_type, **kw):
-                return vnstock_call(lambda: fin._get_report(report_type, **kw))
-            with ThreadPoolExecutor(max_workers=2) as ex:
-                f_cf  = ex.submit(_report, "cash_flow", period="year",
-                                   lang="en", show_log=False, limit=20)
-                f_inc = ex.submit(_report, "income_statement", period="year",
-                                   lang="en", show_log=False, limit=20)
-                cf, inc = f_cf.result(), f_inc.result()
+        fin = _finance_client(ticker)
+        if fin is None:
+            return pd.DataFrame(), pd.DataFrame()
+        def _report(report_type, **kw):
+            return vnstock_call(lambda: fin._get_report(report_type, **kw))
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_cf  = ex.submit(_report, "cash_flow", period="year",
+                               lang="en", show_log=False, limit=20)
+            f_inc = ex.submit(_report, "income_statement", period="year",
+                               lang="en", show_log=False, limit=20)
+            cf, inc = f_cf.result(), f_inc.result()
         return cf, inc
     except (Exception, SystemExit):
         return pd.DataFrame(), pd.DataFrame()
