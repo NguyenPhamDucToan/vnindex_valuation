@@ -562,7 +562,6 @@ _start_macro_scheduler()
 @st.cache_data(ttl=300)
 def load_prices(ticker: str) -> pd.DataFrame:
     from datetime import date as _date, timedelta
-    from collectors.prices import fetch_prices, upsert_prices, incremental_start_date
 
     def _read_db():
         with get_session() as s:
@@ -580,12 +579,21 @@ def load_prices(ticker: str) -> pd.DataFrame:
     # when data is truly sparse (< 200 rows in 2 years = likely a new ticker).
     # Stale-but-present data is shown as-is — GitHub Actions handles cloud refreshes,
     # and vnstock API calls from Streamlit Cloud servers can hang without a timeout.
+    #
+    # PERF: `from collectors.prices import ...` transitively imports vnstock
+    # (~4s CPU-bound, one-time). It used to sit at the top of this function so
+    # every load_prices() call paid it -- but on cloud (DATABASE_URL set) this
+    # branch never runs and the import is pure waste that, worse, dragged the
+    # ~4s vnstock import onto the header's critical path (load_prices is a
+    # DB-read the above-the-fold header needs). Deferred inside the fetch
+    # branch so the common path (read DB, return) never triggers it.
     _cloud_db = bool(os.getenv("DATABASE_URL"))
     if not _cloud_db:
         cutoff = _date.today() - timedelta(days=730)
         recent = len(df_db[pd.to_datetime(df_db["date"]).dt.date >= cutoff]) if not df_db.empty else 0
         if recent < 200:
             try:
+                from collectors.prices import fetch_prices, upsert_prices, incremental_start_date
                 start = incremental_start_date(ticker)
                 df_fresh = fetch_prices(ticker, start, _date.today())
                 if not df_fresh.empty:
@@ -2386,23 +2394,43 @@ if view == "Phân tích Cổ phiếu":
     ticker = st.sidebar.selectbox("Mã", _available, index=_default_idx, key="ticker_selector")
     st.query_params["ticker"] = ticker
 
-    # ── Parallel prefetch: all slow vnstock API calls fire simultaneously ──
-    # Each function is @st.cache_data; the threads warm the cache so that every
-    # inline call further down is an instant cache hit. Total cold-cache wait
-    # = slowest single call (~3s) instead of sequential sum (~12s).
+    # ── Two-phase prefetch (perceived-speed optimization) ──────────────────
+    # Phase 1 — DB-only loads that the above-the-fold content (header, price
+    # chart, valuation cards) needs. NONE of these touch vnstock, so they
+    # DON'T trigger vnstock's ~5s CPU-bound import; even on a cold server
+    # process the header can paint in ~1s instead of waiting ~12s for the
+    # full API prefetch. Each is @st.cache_data, so the inline calls below
+    # are cache hits.
     from concurrent.futures import ThreadPoolExecutor as _TPE
-    with _TPE(max_workers=11) as _pre:
-        _pre.submit(load_shareholders, ticker)
-        _pre.submit(load_foreign_flow, ticker, 20)
-        _pre.submit(load_detailed_financials, ticker)
-        _pre.submit(load_annual_cf, ticker)
-        _pre.submit(load_company_news, ticker)
-        _pre.submit(load_company_events, ticker)
-        _pre.submit(load_company_info, ticker)
-        _pre.submit(load_ttm, ticker)
-        _pre.submit(load_prices, ticker)
-        _pre.submit(load_financials_q, ticker)
-        _pre.submit(get_all_valuations, ticker)
+    with _TPE(max_workers=5) as _pre_db:
+        _pre_db.submit(load_company_info, ticker)
+        _pre_db.submit(load_ttm, ticker)
+        _pre_db.submit(load_prices, ticker)
+        _pre_db.submit(load_financials_q, ticker)
+        _pre_db.submit(get_all_valuations, ticker)
+
+    # Phase 2 — the slow vnstock/network loads (news, events, shareholders,
+    # detailed financials, foreign flow) feed only below-the-fold sections.
+    # Fire them in the background here (don't join): they warm their caches
+    # while the header + price chart render and stream to the browser, so by
+    # the time _financials_frag / the news+events section runs, the data is
+    # (mostly) ready -- without blocking first paint on them. The daemon
+    # threads outlive this block; st.cache_data is thread-safe for warming.
+    import threading as _thr_pf
+    def _warm_live():
+        with _TPE(max_workers=6) as _pl:
+            _pl.submit(load_shareholders, ticker)
+            _pl.submit(load_foreign_flow, ticker, 20)
+            _pl.submit(load_detailed_financials, ticker)
+            _pl.submit(load_annual_cf, ticker)
+            _pl.submit(load_company_news, ticker)
+            _pl.submit(load_company_events, ticker)
+    # Started AFTER the header renders (see below), not here: the first vnstock
+    # call in _warm_live triggers vnstock's ~4s CPU-bound import, which holds
+    # the GIL and would otherwise slow the header's own (CPU-bound) HTML
+    # construction running concurrently. Deferring the start by those few
+    # lines lets the header compute + stream GIL-clean, then the background
+    # warm kicks off while the browser paints the header.
 
     prices_df   = load_prices(ticker)
     fin_q       = load_financials_q(ticker)
@@ -2443,6 +2471,10 @@ if view == "Phân tích Cổ phiếu":
     # Live-updating header (re-fetches the live quote every 30s during trading hours)
     _render_company_header(ticker, prices_df, _co_name, _co_exch, _co_sect, _sh, _eq, _ni, _ebit_, _dep_, _debt_, _cash_)
     st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:0 0 8px 0;">', unsafe_allow_html=True)
+    # Header is emitted — now kick off the background warm of the vnstock-live
+    # sections (its first call triggers the ~4s vnstock import; doing it here
+    # keeps that off the header's critical path).
+    _thr_pf.Thread(target=_warm_live, daemon=True).start()
 
     # ── Cổ đông lớn & Ban lãnh đạo ────────────────────────────────
     def _owner_type(name: str) -> str:
