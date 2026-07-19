@@ -5932,7 +5932,15 @@ elif view == "Sàng lọc Cổ phiếu":
                             zeroline=True, zerolinecolor="#e2e8f0",
                         ),
                     )
-                    _responsive_chart(fig_combo, 560, width="stretch")
+                    # NOT wrapped in _responsive_chart(): this figure's bottom
+                    # margin (b=220, reserved for the vertical sector-name
+                    # labels) is 63% of the CSS-shrunk mobile height -- forcing
+                    # the container smaller squishes the actual plot area to
+                    # almost nothing since the margin doesn't scale down with
+                    # it, producing overlapping/garbled axis text. Every other
+                    # chart's margin is under ~27% of its mobile height, which
+                    # doesn't visibly break -- this one is a real outlier.
+                    st.plotly_chart(fig_combo, width="stretch")
                     st.caption("Cột = số mã được khuyến nghị Mua/Strong Buy · "
                                "Chấm + đường = trung vị Upside của ngành (trục phải)")
                 else:
