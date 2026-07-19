@@ -2775,7 +2775,13 @@ if view == "Phân tích Cổ phiếu":
                 # Single x-axis — spike spans full figure height automatically
                 xaxis=dict(
                     type="category", showgrid=False,
-                    rangeslider=dict(visible=False), nticks=8,
+                    rangeslider=dict(visible=False),
+                    # nticks=8 (unrotated) crowded/overlapped into an
+                    # unreadable diagonal jumble on phone-width screens --
+                    # fewer labels + a fixed rotation angle instead of
+                    # Plotly's "auto" (which sometimes picks a bad angle for
+                    # long date strings) reads cleanly at any width.
+                    nticks=6, tickangle=-45, tickfont=dict(size=10),
                     # remove blank padding on left/right edges
                     range=[-0.5, len(df1y) - 0.5],
                     showspikes=True, spikemode="across",
