@@ -2788,7 +2788,7 @@ if view == "Phân tích Cổ phiếu":
                     # a narrow phone. automargin lets Plotly reserve however
                     # much height that actually needs instead of the fixed
                     # b=0 margin guessing wrong.
-                    nticks=8, tickangle=-90, tickfont=dict(size=10),
+                    nticks=6, tickangle=-90, tickfont=dict(size=10),
                     automargin=True,
                     # remove blank padding on left/right edges
                     range=[-0.5, len(df1y) - 0.5],
