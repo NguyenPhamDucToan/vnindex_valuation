@@ -2925,7 +2925,13 @@ if view == "Phân tích Cổ phiếu":
                         fig_nn.update_yaxes(title_text="GTNN ròng (tỷ)", showgrid=True,
                                              gridcolor="#e2e8f0", zeroline=False, secondary_y=False)
                         fig_nn.update_yaxes(title_text="Giá (nghìn VND)", showgrid=False, secondary_y=True)
-                        _responsive_chart(fig_nn, 280, width="stretch")
+                        # NOT wrapped in _responsive_chart(): legend sits at
+                        # y=1.1 (10% above the plot, a FRACTION of plot
+                        # height) while the top margin is a fixed 10px --
+                        # shrinking the container for mobile shrinks the plot
+                        # height that 10% is measured against, pulling the
+                        # legend down into the modebar/toolbar area.
+                        st.plotly_chart(fig_nn, width="stretch")
                         st.caption("GTNN = giá trị giao dịch ròng của nhà đầu tư nước ngoài.")
                     else:
                         st.info("Dữ liệu giao dịch nước ngoài hiện không có sẵn.")
@@ -6848,7 +6854,13 @@ elif view == "So sánh Cổ phiếu":
             ]:
                 _tfig.update_layout(title=dict(text=_ttitle, font=dict(size=13)), **_line_layout)
                 with _tcol:
-                    _responsive_chart(_tfig, 280, width="stretch")
+                    # NOT wrapped in _responsive_chart(): legend sits at
+                    # y=-0.28 (28% below the plot, a FRACTION of plot height)
+                    # while the bottom margin is a fixed 10px -- shrinking the
+                    # container for mobile shrinks the plot height that 28%
+                    # is measured against, pulling the legend up into the
+                    # x-axis tick labels.
+                    st.plotly_chart(_tfig, width="stretch")
 
             if _has_yoy:
                 _yoy_fig.add_hline(y=0, line_color="#cbd5e1", line_dash="dot", line_width=1)
