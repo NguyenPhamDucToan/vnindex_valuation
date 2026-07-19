@@ -2768,7 +2768,7 @@ if view == "Phân tích Cổ phiếu":
                 font=dict(color="#374151"),
                 showlegend=True,
                 legend=dict(
-                    orientation="h", yanchor="top", y=-0.06,
+                    orientation="h", yanchor="top", y=-0.18,
                     xanchor="left", x=0, font=dict(size=11, color="#374151"),
                     itemclick="toggle", itemdoubleclick="toggleothers",
                 ),
@@ -2776,15 +2776,20 @@ if view == "Phân tích Cổ phiếu":
                 xaxis=dict(
                     type="category", showgrid=False,
                     rangeslider=dict(visible=False),
-                    # A fixed nticks/tickangle looks right at exactly one
-                    # width and wrong everywhere else -- there's no "6 ticks
-                    # at -45deg" that works on both a 375px phone and a
-                    # 1600px desktop. Leaving tickmode/tickangle on Plotly's
-                    # own "auto" (nothing set here beyond a slightly smaller
-                    # font) lets it pick label count + rotation from the
-                    # actual rendered width client-side, same mechanism
-                    # `config={"responsive": True}` already uses for resize.
-                    tickfont=dict(size=10),
+                    # Neither a fixed nticks/tickangle (looked right on
+                    # exactly one screen width, wrong elsewhere) nor Plotly's
+                    # own "auto" for a *category* axis (kept way more labels
+                    # than fit even narrow-phone width, since date-interval
+                    # auto-thinning is a `type="date"` feature this category
+                    # axis doesn't get) worked. nticks=8 is the desktop value
+                    # this always had; -90deg makes each label need only
+                    # ~1 character-width horizontally instead of a whole
+                    # date string, so 8 of them fit without touching even on
+                    # a narrow phone. automargin lets Plotly reserve however
+                    # much height that actually needs instead of the fixed
+                    # b=0 margin guessing wrong.
+                    nticks=8, tickangle=-90, tickfont=dict(size=10),
+                    automargin=True,
                     # remove blank padding on left/right edges
                     range=[-0.5, len(df1y) - 0.5],
                     showspikes=True, spikemode="across",
