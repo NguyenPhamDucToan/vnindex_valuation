@@ -2776,12 +2776,15 @@ if view == "Phân tích Cổ phiếu":
                 xaxis=dict(
                     type="category", showgrid=False,
                     rangeslider=dict(visible=False),
-                    # nticks=8 (unrotated) crowded/overlapped into an
-                    # unreadable diagonal jumble on phone-width screens --
-                    # fewer labels + a fixed rotation angle instead of
-                    # Plotly's "auto" (which sometimes picks a bad angle for
-                    # long date strings) reads cleanly at any width.
-                    nticks=6, tickangle=-45, tickfont=dict(size=10),
+                    # A fixed nticks/tickangle looks right at exactly one
+                    # width and wrong everywhere else -- there's no "6 ticks
+                    # at -45deg" that works on both a 375px phone and a
+                    # 1600px desktop. Leaving tickmode/tickangle on Plotly's
+                    # own "auto" (nothing set here beyond a slightly smaller
+                    # font) lets it pick label count + rotation from the
+                    # actual rendered width client-side, same mechanism
+                    # `config={"responsive": True}` already uses for resize.
+                    tickfont=dict(size=10),
                     # remove blank padding on left/right edges
                     range=[-0.5, len(df1y) - 0.5],
                     showspikes=True, spikemode="across",
