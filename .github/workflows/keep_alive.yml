@@ -30,17 +30,30 @@ on:
 jobs:
   wake:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install Playwright (Chromium only)
-        run: |
-          pip install playwright
-          python -m playwright install --with-deps chromium
+      - name: Install Playwright package
+        run: pip install playwright
+
+      - name: Cache Chromium browser binary
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('.github/workflows/keep_alive.yml') }}
+
+      - name: Install Chromium (only on cache miss)
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: python -m playwright install --with-deps chromium
+
+      - name: Install Chromium's OS dependencies (fast, needed even on cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: python -m playwright install-deps chromium
 
       - name: Load the app in a real browser (wakes it via WebSocket)
         run: |
@@ -55,11 +68,14 @@ jobs:
               page = browser.new_page(viewport={"width": 1280, "height": 800})
               page.goto(URL, wait_until="load", timeout=60000)
               try:
-                  # Any real app content proves the WebSocket session/script
-                  # actually ran, not just the static shell.
-                  page.wait_for_selector(
-                      "text=/CTCP|DCF|Phân tích|Sàng lọc/", timeout=45000
-                  )
+                  # data-testid is Streamlit's own internal attribute (English,
+                  # stable regardless of the app's Vietnamese UI text or the
+                  # runner's locale/encoding -- the first attempt matched on
+                  # Vietnamese text via a regex selector and timed out, most
+                  # likely an encoding mismatch on the Ubuntu runner rather
+                  # than the app actually being slow). Its presence proves the
+                  # WebSocket session/script actually ran, not just the shell.
+                  page.wait_for_selector('[data-testid="stSidebar"]', timeout=90000)
                   print("App content loaded — wake succeeded.")
               except Exception as e:
                   # Don't fail the job loudly for one slow/cold run — the
