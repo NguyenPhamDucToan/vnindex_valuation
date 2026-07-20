@@ -4,27 +4,27 @@ name: Keep Streamlit app awake (real browser)
 # ever reaches Streamlit Community Cloud's static shell -- an empty
 # <div id="root"></div>, ~6KB, with zero app data in it. The actual Python
 # app only starts (and its "someone is using this" clock only resets) once a
-# real browser opens a WebSocket connection to the backend and runs the
-# script -- confirmed directly: curl's response body has no websocket
-# reference and an empty root div; Playwright loading the same URL sees the
-# real rendered page (ticker data, charts, etc.). So a curl-based keep-alive
-# (this repo tried one before) or an UptimeRobot HTTP monitor genuinely does
-# NOT prevent the cold-boot the next visitor pays -- it only proves the edge/
-# CDN layer is reachable, not that the app container is awake.
+# real browser opens a WebSocket connection to the backend -- confirmed
+# directly: curl's response body has no websocket reference and an empty
+# root div. So a curl-based keep-alive or an UptimeRobot HTTP monitor
+# genuinely does NOT prevent the cold-boot the next visitor pays.
 #
-# This workflow uses a real (headless) browser via Playwright instead, so it
-# performs the same WebSocket handshake + script run a human visitor would.
+# This workflow uses a real (headless) browser via Playwright so the same
+# WebSocket handshake a human visitor's browser performs actually happens.
 #
-# QUOTA NOTE — this repo is private (2000 free Actions min/month, shared with
-# the daily refresh + macro workflows). Chromium is cached between runs via
-# actions/cache to keep each run's overhead low. Most runs (app already warm
-# from the previous ping) finish in well under a minute -- but the wait
-# timeout below is deliberately generous (up to ~10 min worst case) to
-# actually cover a genuine cold start, since waking via GitHub Actions'
-# network path has been observed taking several minutes end-to-end, not
-# seconds. If that worst case starts happening often enough to threaten the
-# quota, raise the cadence (e.g. */40) rather than shrinking the timeout --
-# shrinking it is what caused the repeated false "failed" reports before.
+# DELIBERATELY NOT trying to verify the app fully rendered (no DOM/selector
+# checks). Several iterations of that (waiting for a selector, retrying,
+# widening timeouts) kept reporting "failed" even when a screenshot taken
+# in that same failure branch showed the app completely loaded -- the
+# verification itself was unreliable (innerText and friends can read as
+# empty for CSS/animation reasons totally unrelated to whether the page
+# actually rendered), not the wake. The thing that actually matters here
+# -- the browser opening a WebSocket connection to the backend -- already
+# happens at page.goto(); everything after that was just an unreliable
+# progress bar. So: navigate, wait a fixed amount for good measure, always
+# save a screenshot for anyone who wants to eyeball it, and call it done.
+# Look at the screenshot artifact if you want actual confirmation, not the
+# job's green/red status.
 
 on:
   schedule:
@@ -34,7 +34,7 @@ on:
 jobs:
   wake:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -63,22 +63,9 @@ jobs:
         run: |
           python - <<'EOF'
           from playwright.sync_api import sync_playwright
-          import sys
 
           URL = "https://vnindex-valuation.streamlit.app/"
 
-          # Three straight runs' failure.png artifacts all showed the app
-          # FULLY rendered (VNM price, sidebar, everything) despite the
-          # script reporting a timeout every time -- so this was never about
-          # the app being broken, or a transient blip. The previous "fix"
-          # (retry with a fresh page.goto()) was actually counterproductive:
-          # re-navigating restarts Streamlit's connection from zero instead
-          # of giving the in-progress one more time, so two capped attempts
-          # could total less useful wait time than one patient one. Real
-          # theory now: waking via GitHub Actions' network path genuinely
-          # takes several minutes end-to-end (slower than testing from a
-          # residential IP), not seconds. So: ONE navigation, no reload, and
-          # wait long enough to actually cover that.
           with sync_playwright() as p:
               browser = p.chromium.launch()
               page = browser.new_page(
@@ -88,36 +75,22 @@ jobs:
                       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                   ),
               )
-              try:
-                  resp = page.goto(URL, wait_until="load", timeout=120000)
-                  print(f"goto status: {resp.status if resp else 'no response object'}, url: {page.url}")
-                  page.wait_for_selector('[data-testid="stSidebar"]', state="attached", timeout=480000)
-                  print("App content loaded — wake succeeded.")
-              except Exception as e:
-                  print(f"App content not confirmed within timeout ({e})")
-                  print("--- body text (first 2000 chars) ---")
-                  try:
-                      print(page.inner_text("body")[:2000])
-                  except Exception as be:
-                      print(f"(couldn't read body text: {be})")
-                  try:
-                      page.screenshot(path="failure.png", full_page=True)
-                      with open("failure.html", "w", encoding="utf-8") as f:
-                          f.write(page.content())
-                      print("Saved failure.png and failure.html")
-                  except Exception as se:
-                      print(f"(couldn't save screenshot/html: {se})")
-              finally:
-                  browser.close()
+              resp = page.goto(URL, wait_until="load", timeout=120000)
+              print(f"goto status: {resp.status if resp else 'no response object'}, url: {page.url}")
+              # Fixed wait, not a content check -- gives the backend script a
+              # real chance to run before we disconnect, without depending on
+              # a DOM query that's proven unreliable as a signal either way.
+              page.wait_for_timeout(60000)
+              page.screenshot(path="snapshot.png", full_page=True)
+              print("Wake request sent; snapshot.png saved for manual review.")
+              browser.close()
           EOF
 
-      - name: Upload failure diagnostics
+      - name: Upload snapshot
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: wake-diagnostics
-          path: |
-            failure.png
-            failure.html
+          name: wake-snapshot
+          path: snapshot.png
           if-no-files-found: ignore
           retention-days: 3
