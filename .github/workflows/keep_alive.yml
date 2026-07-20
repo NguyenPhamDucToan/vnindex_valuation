@@ -1,0 +1,71 @@
+name: Keep Streamlit app awake (real browser)
+
+# A plain HTTP ping (curl, UptimeRobot's default HTTP(s) monitor, etc.) only
+# ever reaches Streamlit Community Cloud's static shell -- an empty
+# <div id="root"></div>, ~6KB, with zero app data in it. The actual Python
+# app only starts (and its "someone is using this" clock only resets) once a
+# real browser opens a WebSocket connection to the backend and runs the
+# script -- confirmed directly: curl's response body has no websocket
+# reference and an empty root div; Playwright loading the same URL sees the
+# real rendered page (ticker data, charts, etc.). So a curl-based keep-alive
+# (this repo tried one before) or an UptimeRobot HTTP monitor genuinely does
+# NOT prevent the cold-boot the next visitor pays -- it only proves the edge/
+# CDN layer is reachable, not that the app container is awake.
+#
+# This workflow uses a real (headless) browser via Playwright instead, so it
+# performs the same WebSocket handshake + script run a human visitor would.
+#
+# QUOTA NOTE — this repo is private (2000 free Actions min/month, shared with
+# the daily refresh + macro workflows). Chromium is cached between runs via
+# actions/cache to keep each run's overhead low (~20-40s instead of a fresh
+# ~60s+ download each time). At a 25-min cadence this is roughly 40-60
+# min/day = ~1200-1800 min/month -- if that gets tight, either raise the
+# cadence (e.g. */40) or accept the free tier's occasional cold-boot.
+
+on:
+  schedule:
+    - cron: "7/25 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright (Chromium only)
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Load the app in a real browser (wakes it via WebSocket)
+        run: |
+          python - <<'EOF'
+          from playwright.sync_api import sync_playwright
+          import sys
+
+          URL = "https://vnindex-valuation.streamlit.app/"
+
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page(viewport={"width": 1280, "height": 800})
+              page.goto(URL, wait_until="load", timeout=60000)
+              try:
+                  # Any real app content proves the WebSocket session/script
+                  # actually ran, not just the static shell.
+                  page.wait_for_selector(
+                      "text=/CTCP|DCF|Phân tích|Sàng lọc/", timeout=45000
+                  )
+                  print("App content loaded — wake succeeded.")
+              except Exception as e:
+                  # Don't fail the job loudly for one slow/cold run — the
+                  # goal is best-effort keep-alive, not a strict uptime gate.
+                  print(f"App content not confirmed within timeout ({e}); "
+                        f"may still be cold-booting.")
+              finally:
+                  browser.close()
+          EOF
