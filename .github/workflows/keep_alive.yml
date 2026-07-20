@@ -17,10 +17,14 @@ name: Keep Streamlit app awake (real browser)
 #
 # QUOTA NOTE — this repo is private (2000 free Actions min/month, shared with
 # the daily refresh + macro workflows). Chromium is cached between runs via
-# actions/cache to keep each run's overhead low (~20-40s instead of a fresh
-# ~60s+ download each time). At a 25-min cadence this is roughly 40-60
-# min/day = ~1200-1800 min/month -- if that gets tight, either raise the
-# cadence (e.g. */40) or accept the free tier's occasional cold-boot.
+# actions/cache to keep each run's overhead low. Most runs (app already warm
+# from the previous ping) finish in well under a minute -- but the wait
+# timeout below is deliberately generous (up to ~10 min worst case) to
+# actually cover a genuine cold start, since waking via GitHub Actions'
+# network path has been observed taking several minutes end-to-end, not
+# seconds. If that worst case starts happening often enough to threaten the
+# quota, raise the cadence (e.g. */40) rather than shrinking the timeout --
+# shrinking it is what caused the repeated false "failed" reports before.
 
 on:
   schedule:
@@ -30,7 +34,7 @@ on:
 jobs:
   wake:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -63,25 +67,18 @@ jobs:
 
           URL = "https://vnindex-valuation.streamlit.app/"
 
-          # Two prior runs' failure.png artifacts both showed the app FULLY
-          # rendered (VNM price, sidebar, everything) despite the script
-          # reporting a timeout -- so the app/wake mechanism itself isn't
-          # broken. One run also logged a one-off 403 on a single resource.
-          # Read together: this looks like an occasional transient hiccup
-          # (a resource blip, a slightly slower cold path) that Streamlit's
-          # own frontend recovers from shortly after -- not a systemic
-          # block. Rather than keep chasing the exact timeout/selector for
-          # one script run, retry once with a fresh navigation before
-          # giving up; a transient blip is very unlikely to repeat twice.
-          def attempt(page, n):
-              console_lines = []
-              page.on("console", lambda m: console_lines.append(f"[{m.type}] {m.text}"))
-              page.on("pageerror", lambda e: console_lines.append(f"[pageerror] {e}"))
-              resp = page.goto(URL, wait_until="load", timeout=90000)
-              print(f"[attempt {n}] goto status: {resp.status if resp else 'no response object'}, url: {page.url}")
-              page.wait_for_selector('[data-testid="stSidebar"]', state="attached", timeout=100000)
-              return console_lines
-
+          # Three straight runs' failure.png artifacts all showed the app
+          # FULLY rendered (VNM price, sidebar, everything) despite the
+          # script reporting a timeout every time -- so this was never about
+          # the app being broken, or a transient blip. The previous "fix"
+          # (retry with a fresh page.goto()) was actually counterproductive:
+          # re-navigating restarts Streamlit's connection from zero instead
+          # of giving the in-progress one more time, so two capped attempts
+          # could total less useful wait time than one patient one. Real
+          # theory now: waking via GitHub Actions' network path genuinely
+          # takes several minutes end-to-end (slower than testing from a
+          # residential IP), not seconds. So: ONE navigation, no reload, and
+          # wait long enough to actually cover that.
           with sync_playwright() as p:
               browser = p.chromium.launch()
               page = browser.new_page(
@@ -92,29 +89,24 @@ jobs:
                   ),
               )
               try:
-                  attempt(page, 1)
-                  print("App content loaded — wake succeeded (attempt 1).")
-              except Exception as e1:
-                  print(f"[attempt 1] not confirmed ({e1}); retrying once...")
+                  resp = page.goto(URL, wait_until="load", timeout=120000)
+                  print(f"goto status: {resp.status if resp else 'no response object'}, url: {page.url}")
+                  page.wait_for_selector('[data-testid="stSidebar"]', state="attached", timeout=480000)
+                  print("App content loaded — wake succeeded.")
+              except Exception as e:
+                  print(f"App content not confirmed within timeout ({e})")
+                  print("--- body text (first 2000 chars) ---")
                   try:
-                      attempt(page, 2)
-                      print("App content loaded — wake succeeded (attempt 2).")
-                  except Exception as e2:
-                      # Both attempts failed -- dump diagnostics for real
-                      # inspection instead of guessing further.
-                      print(f"[attempt 2] also not confirmed ({e2})")
-                      print("--- body text (first 2000 chars) ---")
-                      try:
-                          print(page.inner_text("body")[:2000])
-                      except Exception as be:
-                          print(f"(couldn't read body text: {be})")
-                      try:
-                          page.screenshot(path="failure.png", full_page=True)
-                          with open("failure.html", "w", encoding="utf-8") as f:
-                              f.write(page.content())
-                          print("Saved failure.png and failure.html")
-                      except Exception as se:
-                          print(f"(couldn't save screenshot/html: {se})")
+                      print(page.inner_text("body")[:2000])
+                  except Exception as be:
+                      print(f"(couldn't read body text: {be})")
+                  try:
+                      page.screenshot(path="failure.png", full_page=True)
+                      with open("failure.html", "w", encoding="utf-8") as f:
+                          f.write(page.content())
+                      print("Saved failure.png and failure.html")
+                  except Exception as se:
+                      print(f"(couldn't save screenshot/html: {se})")
               finally:
                   browser.close()
           EOF
