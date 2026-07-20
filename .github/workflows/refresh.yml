@@ -2,8 +2,11 @@ name: Daily price + valuation refresh
 
 on:
   schedule:
-    # 11:30 UTC = 18:30 ICT, Mon-Fri (after HOSE closes at 15:00 ICT)
-    - cron: "30 11 * * 1-5"
+    # 09:03 UTC = 16:03 ICT, Mon-Fri (1h after HOSE closes at 15:00 ICT).
+    # :03 instead of :00 on purpose -- GitHub's shared runners queue up
+    # scheduled workflows from every repo hitting the same round minute,
+    # so a few minutes off top-of-hour tends to start closer to on-time.
+    - cron: "3 9 * * 1-5"
   workflow_dispatch: {}
 
 jobs:
