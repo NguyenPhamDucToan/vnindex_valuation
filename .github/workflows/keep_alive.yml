@@ -81,7 +81,18 @@ jobs:
               print(f"final URL: {page.url}")
 
               try:
-                  page.wait_for_selector('[data-testid="stSidebar"]', timeout=180000)
+                  # The failure.png artifact from the previous run proved the
+                  # app WAS fully rendered (VNM price, sidebar, everything) --
+                  # the wake itself works fine. state="visible" (the default)
+                  # was the actual bug: Streamlit likely renders a second,
+                  # CSS-hidden copy of [data-testid="stSidebar"] for a
+                  # responsive/mobile breakpoint, and wait_for_selector grabs
+                  # whichever matches first in DOM order -- if that happens
+                  # to be the hidden one, it waits forever for something that
+                  # was never going to become visible, even though the real
+                  # one is already on screen. state="attached" only needs the
+                  # element to exist in the DOM, sidestepping that entirely.
+                  page.wait_for_selector('[data-testid="stSidebar"]', state="attached", timeout=180000)
                   print("App content loaded — wake succeeded.")
               except Exception as e:
                   # DIAGNOSTIC MODE: dump everything instead of guessing why.
