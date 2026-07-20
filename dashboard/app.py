@@ -2214,6 +2214,36 @@ def _render_company_header(ticker, prices_df, co_name, co_exch, co_sect, sh, eq,
         _company_header_html(ticker, prices_df, co_name, co_exch, co_sect, sh, eq, ni, ebit_, dep_, debt_, cash_),
         unsafe_allow_html=True,
     )
+    # Ticking "Xs ago" readout next to the LIVE badge. The 30s snapshot
+    # refresh above only *jumps* once every 30s -- this fills the gap so the
+    # page visibly feels alive in between, without changing how often the
+    # price itself actually updates. Needs a real JS interval timer, which
+    # st.markdown(unsafe_allow_html=True) strips (Streamlit sanitizes out
+    # <script> tags there) -- components.v1.html renders in its own iframe,
+    # where scripts do run. Counter naturally resets to 0 each fragment
+    # rerun since it's a fresh iframe/JS context every 30s. Only shown
+    # during trading hours -- ticking seconds while the badge reads "EOD"
+    # would imply data is live when it isn't.
+    from collectors.live_quote import is_market_hours_ict
+    if is_market_hours_ict():
+        import streamlit.components.v1 as _components
+        _components.html(
+            """
+            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                        font-size:12px;color:#6b7280;padding:2px 0 0 2px;">
+                Cập nhật <span id="live-tick">0</span>s trước
+            </div>
+            <script>
+                let __n = 0;
+                setInterval(() => {
+                    __n++;
+                    const el = document.getElementById('live-tick');
+                    if (el) el.innerText = __n;
+                }, 1000);
+            </script>
+            """,
+            height=20,
+        )
 
 
 VIEWS = [
