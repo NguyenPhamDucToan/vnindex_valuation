@@ -65,25 +65,60 @@ jobs:
 
           with sync_playwright() as p:
               browser = p.chromium.launch()
-              page = browser.new_page(viewport={"width": 1280, "height": 800})
-              page.goto(URL, wait_until="load", timeout=90000)
+              page = browser.new_page(
+                  viewport={"width": 1280, "height": 800},
+                  user_agent=(
+                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                  ),
+              )
+              console_lines = []
+              page.on("console", lambda m: console_lines.append(f"[{m.type}] {m.text}"))
+              page.on("pageerror", lambda e: console_lines.append(f"[pageerror] {e}"))
+
+              resp = page.goto(URL, wait_until="load", timeout=90000)
+              print(f"goto status: {resp.status if resp else 'no response object'}")
+              print(f"final URL: {page.url}")
+
               try:
-                  # data-testid is Streamlit's own internal attribute (English,
-                  # stable regardless of the app's Vietnamese UI text or the
-                  # runner's locale/encoding -- the first attempt matched on
-                  # Vietnamese text via a regex selector and timed out.
-                  # Confirmed manually (real screenshot, full VNM data
-                  # rendered) that the app genuinely does wake and load fine
-                  # -- the very first wake after a long sleep just took
-                  # longer than 90s. 3 min gives real margin; the job's own
-                  # timeout-minutes: 8 caps the worst case.
                   page.wait_for_selector('[data-testid="stSidebar"]', timeout=180000)
                   print("App content loaded — wake succeeded.")
               except Exception as e:
-                  # Don't fail the job loudly for one slow/cold run — the
-                  # goal is best-effort keep-alive, not a strict uptime gate.
-                  print(f"App content not confirmed within timeout ({e}); "
-                        f"may still be cold-booting.")
+                  # DIAGNOSTIC MODE: dump everything instead of guessing why.
+                  # A previous 90s->3min timeout bump didn't fix it despite
+                  # confirming manually (different machine/IP) that the app
+                  # itself loads fine -- something differs specifically about
+                  # requests from this runner (possibly Cloudflare/WAF
+                  # treating GitHub Actions' well-known IP ranges as bot
+                  # traffic). Saving these as artifacts so the actual
+                  # response can be inspected instead of guessed at again.
+                  print(f"App content not confirmed within timeout ({e})")
+                  print("--- body text (first 2000 chars) ---")
+                  try:
+                      print(page.inner_text("body")[:2000])
+                  except Exception as be:
+                      print(f"(couldn't read body text: {be})")
+                  print("--- console/page errors ---")
+                  for line in console_lines[:40]:
+                      print(line)
+                  try:
+                      page.screenshot(path="failure.png", full_page=True)
+                      with open("failure.html", "w", encoding="utf-8") as f:
+                          f.write(page.content())
+                      print("Saved failure.png and failure.html")
+                  except Exception as se:
+                      print(f"(couldn't save screenshot/html: {se})")
               finally:
                   browser.close()
           EOF
+
+      - name: Upload failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wake-diagnostics
+          path: |
+            failure.png
+            failure.html
+          if-no-files-found: ignore
+          retention-days: 3
