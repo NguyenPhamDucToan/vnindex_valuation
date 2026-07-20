@@ -30,7 +30,7 @@ on:
 jobs:
   wake:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -66,16 +66,18 @@ jobs:
           with sync_playwright() as p:
               browser = p.chromium.launch()
               page = browser.new_page(viewport={"width": 1280, "height": 800})
-              page.goto(URL, wait_until="load", timeout=60000)
+              page.goto(URL, wait_until="load", timeout=90000)
               try:
                   # data-testid is Streamlit's own internal attribute (English,
                   # stable regardless of the app's Vietnamese UI text or the
                   # runner's locale/encoding -- the first attempt matched on
-                  # Vietnamese text via a regex selector and timed out, most
-                  # likely an encoding mismatch on the Ubuntu runner rather
-                  # than the app actually being slow). Its presence proves the
-                  # WebSocket session/script actually ran, not just the shell.
-                  page.wait_for_selector('[data-testid="stSidebar"]', timeout=90000)
+                  # Vietnamese text via a regex selector and timed out.
+                  # Confirmed manually (real screenshot, full VNM data
+                  # rendered) that the app genuinely does wake and load fine
+                  # -- the very first wake after a long sleep just took
+                  # longer than 90s. 3 min gives real margin; the job's own
+                  # timeout-minutes: 8 caps the worst case.
+                  page.wait_for_selector('[data-testid="stSidebar"]', timeout=180000)
                   print("App content loaded — wake succeeded.")
               except Exception as e:
                   # Don't fail the job loudly for one slow/cold run — the
