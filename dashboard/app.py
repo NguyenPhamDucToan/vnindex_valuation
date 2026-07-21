@@ -120,6 +120,7 @@ from valuation.ratios import (
     current_ratio, debt_to_equity, profit_quality, fcf_margin,
     quick_ratio, absolute_liquidity, debt_to_assets, ocf_to_current_liabilities,
     asset_turnover, financial_leverage, rating_color, dupont_analysis,
+    dso, dio, dpo, ccc, cash_interest_coverage,
 )
 from valuation.signals import compute_quality_score, classify_signal
 
@@ -5101,8 +5102,23 @@ if view == "Phân tích Cổ phiếu":
             da  = debt_to_assets(ttm.get("debt"),        ttm.get("total_assets"))
             ocf_cl = ocf_to_current_liabilities(ttm.get("operating_cf"), ttm.get("current_liabilities"))
 
+            # Working-capital cycle + cash-based debt safety. These were
+            # already being computed and stored by the pipeline (Valuation.dso
+            # /dio/dpo/ccc/cash_interest_coverage) but never surfaced anywhere
+            # in the UI. Recomputed here from the same TTM snapshot the other
+            # cards use, rather than read from the Valuation row, so every card
+            # in this scorecard reflects one consistent point in time.
+            _dso = dso(ttm.get("receivables"), ttm.get("revenue"))
+            _dio = dio(ttm.get("inventory"),   ttm.get("cogs"))
+            _dpo = dpo(ttm.get("payables"),    ttm.get("cogs"))
+            _ccc = ccc(_dso, _dio, _dpo)
+            _cic = cash_interest_coverage(ttm.get("operating_cf"), ttm.get("interest_expense"))
+
             def _x(value):
                 return f"{value:.2f}x" if value is not None else "—"
+
+            def _days(value):
+                return f"{value:,.0f} ngày" if value is not None else "—"
 
             _color = rating_color
 
@@ -5251,6 +5267,34 @@ if view == "Phân tích Cổ phiếu":
                         "f": "Dòng tiền hoạt động / Lợi nhuận ròng",
                         "d": "> 1x: lợi nhuận được bảo chứng bằng tiền mặt thực",
                         "g": "≥ 1x", "w": "0.8 – 1x", "b": "< 0.8x",
+                    }),
+                ])
+                # Fourth row: the scorecard covered profitability, liquidity and
+                # leverage but had no read on how efficiently working capital
+                # turns over -- the early-warning dimension, where revenue can
+                # still look fine while receivables stretch or inventory piles
+                # up months before profit falls. Thresholds are the ones the
+                # ratio functions themselves document.
+                + _scorecard("VÒNG QUAY VỐN & AN TOÀN NỢ", [
+                    ("Chu kỳ tiền mặt (CCC)", _days(_ccc), _color(_ccc, 50, 90, higher_better=False), {
+                        "f": "Số ngày thu tiền + tồn kho − số ngày trả người bán",
+                        "d": "Tiền bị kẹt trong vòng quay kinh doanh bao lâu trước khi quay về. Càng ngắn càng tốt; âm là rất tốt (chiếm dụng được vốn nhà cung cấp)",
+                        "g": "≤ 50 ngày", "w": "50 – 90 ngày", "b": "> 90 ngày",
+                    }),
+                    ("Ngày thu tiền (DSO)", _days(_dso), _color(_dso, 30, 60, higher_better=False), {
+                        "f": "Phải thu × 365 / Doanh thu",
+                        "d": "Bán xong bao lâu mới thu được tiền. Tăng dần qua các quý = khách hàng trả chậm hơn, cần theo dõi",
+                        "g": "≤ 30 ngày", "w": "30 – 60 ngày", "b": "> 60 ngày",
+                    }),
+                    ("Ngày tồn kho (DIO)", _days(_dio), _color(_dio, 50, 100, higher_better=False), {
+                        "f": "Hàng tồn kho × 365 / Giá vốn",
+                        "d": "Hàng nằm kho bao lâu mới bán được. Phình lên = hàng khó tiêu thụ hoặc tích trữ nguyên liệu",
+                        "g": "≤ 50 ngày", "w": "50 – 100 ngày", "b": "> 100 ngày",
+                    }),
+                    ("Tiền mặt trả lãi vay", _x(_cic), _color(_cic, 5, 3), {
+                        "f": "Dòng tiền hoạt động / Chi phí lãi vay",
+                        "d": "Tiền thật kiếm được gấp bao nhiêu lần tiền lãi phải trả. Khác với D/E (chỉ nói quy mô nợ), chỉ số này nói khả năng trả",
+                        "g": "≥ 5x", "w": "3 – 5x", "b": "< 3x",
                     }),
                 ])
             )
