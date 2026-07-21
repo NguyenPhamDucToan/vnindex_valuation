@@ -1921,7 +1921,20 @@ def load_market_valuation_history() -> "pd.DataFrame":
                        n_pe=("pe", "count"), n_pb=("pb", "count"))
                   .reset_index()
                   .sort_values("qend"))
-    agg = agg[(agg["n_pe"] >= 10) | (agg["n_pb"] >= 10)]
+    # Sample-size floor applied PER METRIC, not per row. The previous
+    # `(n_pe >= 10) | (n_pb >= 10)` kept a whole quarter whenever *either*
+    # metric had enough tickers -- so 2021-Q2..Q4, where only 3 tickers had a
+    # complete 4-quarter TTM but ~380 had book value, survived on n_pb and
+    # published a "market median P/E" computed from 3 stocks (2.4x, 4.1x,
+    # 6.1x). That is not a market median: it distorted the chart's y-axis and,
+    # worse, dragged the historical average that the "so TB" verdict compares
+    # today's reading against. Masking per metric keeps those quarters' valid
+    # P/B while dropping their unusable P/E. 30 is still a low bar against the
+    # ~380 tickers that normally report.
+    _MIN_SAMPLE = 30
+    agg.loc[agg["n_pe"] < _MIN_SAMPLE, "median_pe"] = np.nan
+    agg.loc[agg["n_pb"] < _MIN_SAMPLE, "median_pb"] = np.nan
+    agg = agg.dropna(subset=["median_pe", "median_pb"], how="all")
     return agg
 
 
@@ -2605,7 +2618,7 @@ if view == "Phân tích Cổ phiếu":
 
     # Live-updating header (re-fetches the live quote every 30s during trading hours)
     _render_company_header(ticker, prices_df, _co_name, _co_exch, _co_sect, _sh, _eq, _ni, _ebit_, _dep_, _debt_, _cash_)
-    st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:0 0 8px 0;">', unsafe_allow_html=True)
+    st.markdown('<hr style="border:none;border-top:1px solid var(--color-rule);margin:0 0 8px 0;">', unsafe_allow_html=True)
     # Header is emitted — now kick off the background warm of the vnstock-live
     # sections (its first call triggers the ~4s vnstock import; doing it here
     # keeps that off the header's critical path).
@@ -2717,7 +2730,7 @@ if view == "Phân tích Cổ phiếu":
         except Exception as _sh_err:
             st.info(f"Không thể tải dữ liệu cổ đông: {_sh_err}")
 
-    st.markdown('<hr style="border:none;border-top:1px solid #2d3748;margin:4px 0 12px 0;">', unsafe_allow_html=True)
+    st.markdown('<hr style="border:none;border-top:1px solid var(--color-rule);margin:4px 0 12px 0;">', unsafe_allow_html=True)
 
     @st.fragment
     def _price_chart_frag(ticker):
@@ -3246,12 +3259,15 @@ if view == "Phân tích Cổ phiếu":
                         line=dict(color="#00347b", width=1.8),
                         hovertemplate="%{x|%d/%m/%Y}<br><b>%{y:.1f}x</b><extra></extra>",
                     ))
-                    # Today's point, called out so the eye lands on the answer
+                    # Today's point, called out so the eye lands on the answer.
+                    # hoverinfo="skip" because it overlaps the line's own last
+                    # point -- with hovermode="x unified" a hovertemplate here
+                    # would print the same value twice in one tooltip.
                     _fig_vb.add_trace(go.Scatter(
                         x=[_vb_x.iloc[-1]], y=[_cur], mode="markers",
                         marker=dict(size=11, color="#00347b",
                                     line=dict(color="#ffffff", width=2)),
-                        hovertemplate=f"Hiện tại: <b>{_cur:.1f}x</b><extra></extra>",
+                        hoverinfo="skip",
                         showlegend=False,
                     ))
                     _fig_vb.update_layout(
@@ -6131,7 +6147,7 @@ elif view == "Sàng lọc Cổ phiếu":
                 _clr = _sig_colors_map[_sig]
                 _kpi_cols[_i].markdown(
                     f"<div style='text-align:center;padding:6px;border-radius:6px;"
-                    f"background:rgba(255,255,255,0.03);border-top:3px solid {_clr};'>"
+                    f"background:var(--color-paper-2);border-top:3px solid {_clr};'>"
                     f"<div style='font-size:24px;font-weight:800;color:{_clr};'>{_cnt}</div>"
                     f"<div style='font-size:11px;color:var(--color-muted);'>{_sig}</div></div>",
                     unsafe_allow_html=True)
@@ -6147,7 +6163,7 @@ elif view == "Sàng lọc Cổ phiếu":
                     _clr = _sig_colors_map[_r["_signal_clean"]]
                     _col.markdown(
                         f"<div style='text-align:center;padding:10px 6px;border-radius:4px;"
-                        f"background:rgba(255,255,255,0.03);border:1px solid {_clr}44;'>"
+                        f"background:var(--color-paper-2);border:1px solid {_clr}44;'>"
                         f"<div style='font-size:16px;font-weight:800;color:var(--color-ink);'>{_r['Mã']}</div>"
                         f"<div style='font-size:11px;color:var(--color-muted);margin-bottom:4px;'>{_r['Ngành']}</div>"
                         f"<div style='font-size:13px;color:{_clr};font-weight:700;'>+{_r['_avg_upside_raw']*100:.0f}%</div>"
@@ -7777,27 +7793,45 @@ elif view == "Tổng quan Thị trường":
 
         with col_ad:
             st.subheader("Tăng / Giảm")
-            _fig_ad = go.Figure(go.Bar(
-                x=["Tăng", "Đứng", "Giảm"], y=[n_up, n_flat, n_dn],
-                marker_color=["#22c55e", "#eab308", "#ef4444"],
-                text=[n_up, n_flat, n_dn], textposition="outside",
-                hovertemplate="%{x}: %{y}<extra></extra>"))
-            _fig_ad.update_layout(height=_responsive_height(200), margin=dict(l=0,r=0,t=10,b=0),
-                dragmode=False, showlegend=False, yaxis_visible=False)
-            _responsive_chart(_fig_ad, 200, width="stretch")
-            _ratio     = n_up / max(n_dn, 1)
-            # #eab308 (yellow-500) previously used here fails 4.5:1 contrast on
-            # the light background; #b45309 (amber-700) matches the existing
-            # "unchanged/neutral" amber convention used in the stock header.
-            _rc        = "#22c55e" if _ratio >= 1.5 else "#b45309" if _ratio >= 0.8 else "#ef4444"
+            # A 3-bar Plotly chart used to sit here for three numbers, eating
+            # ~200px to say something a proportion bar says at a glance. The
+            # question this answers is "how much of the market is green?" --
+            # a part-to-whole read, where a 100%-stacked bar beats separate
+            # bars (and beats a pie, which fails colorblind users since slices
+            # carry meaning by colour alone). Counts stay as text so the exact
+            # values don't depend on reading a pixel width.
+            _ratio = n_up / max(n_dn, 1)
+            _rc = ("var(--color-gain-text)" if _ratio >= 1.5
+                   else "#b45309" if _ratio >= 0.8 else "var(--color-loss-text)")
+            _tot = max(total, 1)
+            _w_up, _w_flat, _w_dn = (n_up / _tot * 100, n_flat / _tot * 100, n_dn / _tot * 100)
+
             st.markdown(
-                f"<div style='text-align:center;font-size:26px;font-weight:700;color:{_rc}'>{_ratio:.2f}"
-                f"<span style='font-size:13px;color:var(--color-muted)'> Tỷ lệ Tăng/Giảm</span></div>"
-                f"<div style='text-align:center;font-size:12px;color:var(--color-muted)'>"
-                f"<span style='color:var(--color-gain-text)'>▲{n_up}</span>  "
-                f"<span style='color:#b45309'>—{n_flat}</span>  "
-                f"<span style='color:var(--color-loss-text)'>▼{n_dn}</span>  "
-                f"trong {total} mã</div>", unsafe_allow_html=True)
+                f"<div style='font-size:34px;font-weight:800;color:{_rc};line-height:1.1;'>"
+                f"{_ratio:.2f}"
+                f"<span style='font-size:13px;font-weight:600;color:var(--color-muted);'>"
+                f" &nbsp;Tỷ lệ Tăng/Giảm</span></div>"
+
+                # Proportion bar. Segments are labelled by text below, not by
+                # colour alone.
+                f"<div style='display:flex;height:26px;width:100%;border-radius:4px;"
+                f"overflow:hidden;margin:14px 0 10px;background:var(--color-surface-hover);'>"
+                f"<div style='width:{_w_up}%;background:#15803d;'></div>"
+                f"<div style='width:{_w_flat}%;background:#b45309;'></div>"
+                f"<div style='width:{_w_dn}%;background:#b91c1c;'></div>"
+                f"</div>"
+
+                f"<div style='display:flex;justify-content:space-between;font-size:12.5px;'>"
+                f"<span><b style='color:var(--color-gain-text);'>▲ {n_up}</b>"
+                f"<span style='color:var(--color-muted);'> Tăng</span></span>"
+                f"<span><b style='color:#b45309;'>— {n_flat}</b>"
+                f"<span style='color:var(--color-muted);'> Đứng</span></span>"
+                f"<span><b style='color:var(--color-loss-text);'>▼ {n_dn}</b>"
+                f"<span style='color:var(--color-muted);'> Giảm</span></span>"
+                f"</div>"
+                f"<div style='font-size:12px;color:var(--color-muted);margin-top:8px;'>"
+                f"trong {total} mã</div>",
+                unsafe_allow_html=True)
 
         st.divider()
 
@@ -7811,75 +7845,120 @@ elif view == "Tổng quan Thị trường":
                     return f"Q{q}/{yr[2:]}"
                 except Exception:
                     return p
-            _mv_lbl = [_fmt_q(p) for p in _mv["period"]]
-            _cur_pe, _cur_pb = _mv["median_pe"].iloc[-1], _mv["median_pb"].iloc[-1]
-            _avg_pe, _avg_pb = _mv["median_pe"].mean(), _mv["median_pb"].mean()
+
+            # Both panels plot the same kind of thing -- one market-wide
+            # valuation multiple over time against its own average -- so they
+            # were near-identical code and are now one helper. Beyond the
+            # duplication, the originals carried real rendering bugs left over
+            # from when this app was dark-themed:
+            #   - gridcolor rgba(255,255,255,0.05): white gridlines at 5% alpha
+            #     on a near-white background, i.e. invisible, which is why
+            #     these two charts read as flat and hard to place values on.
+            #   - marker outline #0e1117: Streamlit's DARK background colour,
+            #     drawn as a near-black ring on a light card.
+            # P/E was also blue and P/B green; green reads as "good", which is
+            # meaningless for a multiple (and if anything backwards -- a high
+            # P/B is expensive). Both now use the same navy as the per-ticker
+            # valuation band, so all three valuation-over-time charts in the
+            # app read as one family.
+            def _market_multiple_chart(col, label, fmt):
+                # Drop the quarters this metric has no usable reading for (see
+                # the per-metric sample floor in load_market_valuation_history)
+                # so the line starts where real data starts instead of at a gap.
+                d = _mv[["period", col]].dropna()
+                lbl = [_fmt_q(p) for p in d["period"]]
+                v = d[col]
+                cur = float(v.iloc[-1])
+                avg, sd = float(v.mean()), float(v.std(ddof=1))
+
+                # Mean +/- 1SD bands: the convention every VN broker's market-
+                # valuation chart uses, and the thing a bare line can't tell
+                # you -- whether today is merely above average or genuinely
+                # stretched. Verified sensible on this series (bands 8.6-12.0
+                # sit inside the actual 7.2-12.1 range) rather than floating
+                # outside anything the market has traded at.
+                lo1, hi1 = avg - sd, avg + sd
+                # Plain-language labels, not "±1σ". The band is a standard
+                # deviation, but a retail investor reading this shouldn't need
+                # to know that word to use the chart -- what they need is
+                # "above this = unusually expensive".
+                if cur > hi1:
+                    verdict, clr = "Đắt hơn mức thường thấy", "#b91c1c"
+                elif cur < lo1:
+                    verdict, clr = "Rẻ hơn mức thường thấy", "#15803d"
+                elif cur > avg:
+                    verdict, clr = "Nhỉnh trên trung bình", "#b45309"
+                else:
+                    verdict, clr = "Quanh/dưới trung bình", "#15803d"
+                diff = (cur / avg - 1) * 100 if avg else 0
+
+                ymin = min(float(v.min()), lo1) * 0.96
+                ymax = max(float(v.max()), hi1) * 1.04
+
+                fig = go.Figure()
+                # Band drawn first so the line sits on top of it.
+                fig.add_hrect(y0=lo1, y1=hi1, fillcolor="#00347b", opacity=0.09,
+                              line_width=0, layer="below")
+                for y, txt in ((hi1, f"Ngưỡng đắt {hi1:{fmt}}"),
+                               (lo1, f"Ngưỡng rẻ {lo1:{fmt}}")):
+                    fig.add_hline(y=y, line=dict(color="#afb8c4", width=1, dash="dot"),
+                                  annotation_text=txt, annotation_position="right",
+                                  annotation_font=dict(size=10, color="#666f7c"))
+                fig.add_hline(y=avg, line=dict(color="#64748b", width=1.2, dash="dash"),
+                              annotation_text=f"Trung bình {avg:{fmt}}",
+                              annotation_position="right",
+                              annotation_font=dict(size=11, color="#47515e"))
+                fig.add_trace(go.Scatter(
+                    x=lbl, y=v, mode="lines", name=label,
+                    line=dict(color="#00347b", width=2.2),
+                    hovertemplate=f"%{{x}}<br>{label}: <b>%{{y:{fmt}}}x</b><extra></extra>"))
+                fig.add_trace(go.Scatter(
+                    x=[lbl[-1]], y=[cur], mode="markers", name="Hiện tại",
+                    marker=dict(color="#00347b", size=11,
+                                line=dict(color="#ffffff", width=2)),
+                    # hoverinfo="skip", not a hovertemplate: this marker sits
+                    # exactly on the line's own last point, so under
+                    # hovermode="x unified" it added a second row showing the
+                    # identical number ("P/E: 10.2x" then "Hiện tại: 10.2x").
+                    # It's visual emphasis, not separate data.
+                    hoverinfo="skip",
+                    showlegend=False))
+                fig.update_layout(
+                    height=_responsive_height(300),
+                    # r=116 to fit the plain-language threshold labels
+                    # ("Ngưỡng đắt 12.0") that replaced the shorter "+1σ 12.0".
+                    margin=dict(l=0, r=116, t=52, b=0), dragmode=False,
+                    hovermode="x unified", showlegend=False,
+                    plot_bgcolor="rgba(255,255,255,0)", paper_bgcolor="rgba(0,0,0,0)",
+                    hoverlabel=dict(bgcolor="#ffffff", font_size=12, font_color="#0f172a"),
+                    title=dict(
+                        text=(f"<b style='font-size:19px;color:#0a121d'>{cur:{fmt}}x</b>"
+                              f"<span style='font-size:12px;color:#666f7c'> {label} hiện tại · "
+                              f"{diff:+.0f}% so TB</span><br>"
+                              f"<span style='font-size:12.5px;color:{clr}'><b>{verdict}</b></span>"),
+                        font=dict(size=13)),
+                    xaxis=dict(type="category", nticks=8, showgrid=False,
+                               tickfont=dict(size=11)),
+                    yaxis=dict(title=f"{label} (lần)", showgrid=True,
+                               gridcolor="#e2e8f0", zeroline=False,
+                               range=[ymin, ymax], tickfont=dict(size=11)))
+                return fig
 
             _vc1, _vc2 = st.columns(2)
             with _vc1:
-                _pe_diff = (_cur_pe / _avg_pe - 1) * 100 if _avg_pe else 0
-                _pe_clr  = "#ef4444" if _pe_diff > 5 else "#22c55e" if _pe_diff < -5 else "#eab308"
-                _pe_ymin = max(0.0, float(_mv["median_pe"].min()) * 0.85)
-                _pe_ymax = float(_mv["median_pe"].max()) * 1.06
-                fig_mpe = go.Figure(go.Scatter(
-                    x=_mv_lbl, y=_mv["median_pe"], mode="lines", name="P/E trung vị",
-                    line=dict(color="#60a5fa", width=2.5), fill="tozeroy",
-                    fillcolor="rgba(96,165,250,0.08)",
-                    hovertemplate="P/E: %{y:.1f}x<extra></extra>"))
-                fig_mpe.add_trace(go.Scatter(
-                    x=_mv_lbl, y=[_avg_pe] * len(_mv_lbl), mode="lines", name="Trung bình",
-                    line=dict(color="#64748b", width=1, dash="dot"),
-                    hovertemplate=f"Trung bình: {_avg_pe:.1f}x<extra></extra>"))
-                fig_mpe.add_trace(go.Scatter(
-                    x=[_mv_lbl[-1]], y=[_cur_pe], mode="markers", name="Hiện tại",
-                    marker=dict(color=_pe_clr, size=10, line=dict(color="#0e1117", width=1.5)),
-                    hovertemplate=f"Hiện tại: {_cur_pe:.1f}x<extra></extra>", showlegend=False))
-                fig_mpe.update_layout(
-                    height=_responsive_height(300), margin=dict(l=0, r=10, t=30, b=0), dragmode=False,
-                    hovermode="x unified", plot_bgcolor="rgba(255,255,255,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    hoverlabel=dict(bgcolor="#ffffff", font_size=12, font_color="#0f172a"),
-                    title=dict(text=f"P/E hiện tại: <span style='color:{_pe_clr}'>{_cur_pe:.1f}x "
-                                    f"({_pe_diff:+.0f}% so TB)</span>", font=dict(size=14)),
-                    legend=dict(orientation="h", y=-0.15),
-                    xaxis=dict(type="category", nticks=8, showgrid=False),
-                    yaxis=dict(title="P/E (x)", showgrid=True, gridcolor="rgba(255,255,255,0.05)",
-                               zeroline=False, range=[_pe_ymin, _pe_ymax]))
-                _responsive_chart(fig_mpe, 300, width="stretch")
-
+                _responsive_chart(_market_multiple_chart("median_pe", "P/E", ".1f"),
+                                  300, width="stretch")
             with _vc2:
-                _pb_diff = (_cur_pb / _avg_pb - 1) * 100 if _avg_pb else 0
-                _pb_clr  = "#ef4444" if _pb_diff > 5 else "#22c55e" if _pb_diff < -5 else "#eab308"
-                _pb_ymin = max(0.0, float(_mv["median_pb"].min()) * 0.85)
-                _pb_ymax = float(_mv["median_pb"].max()) * 1.06
-                fig_mpb = go.Figure(go.Scatter(
-                    x=_mv_lbl, y=_mv["median_pb"], mode="lines", name="P/B trung vị",
-                    line=dict(color="#34d399", width=2.5), fill="tozeroy",
-                    fillcolor="rgba(52,211,153,0.08)",
-                    hovertemplate="P/B: %{y:.2f}x<extra></extra>"))
-                fig_mpb.add_trace(go.Scatter(
-                    x=_mv_lbl, y=[_avg_pb] * len(_mv_lbl), mode="lines", name="Trung bình",
-                    line=dict(color="#64748b", width=1, dash="dot"),
-                    hovertemplate=f"Trung bình: {_avg_pb:.2f}x<extra></extra>"))
-                fig_mpb.add_trace(go.Scatter(
-                    x=[_mv_lbl[-1]], y=[_cur_pb], mode="markers", name="Hiện tại",
-                    marker=dict(color=_pb_clr, size=10, line=dict(color="#0e1117", width=1.5)),
-                    hovertemplate=f"Hiện tại: {_cur_pb:.2f}x<extra></extra>", showlegend=False))
-                fig_mpb.update_layout(
-                    height=_responsive_height(300), margin=dict(l=0, r=10, t=30, b=0), dragmode=False,
-                    hovermode="x unified", plot_bgcolor="rgba(255,255,255,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    hoverlabel=dict(bgcolor="#ffffff", font_size=12, font_color="#0f172a"),
-                    title=dict(text=f"P/B hiện tại: <span style='color:{_pb_clr}'>{_cur_pb:.2f}x "
-                                    f"({_pb_diff:+.0f}% so TB)</span>", font=dict(size=14)),
-                    legend=dict(orientation="h", y=-0.15),
-                    xaxis=dict(type="category", nticks=8, showgrid=False),
-                    yaxis=dict(title="P/B (x)", showgrid=True, gridcolor="rgba(255,255,255,0.05)",
-                               zeroline=False, range=[_pb_ymin, _pb_ymax]))
-                _responsive_chart(fig_mpb, 300, width="stretch")
+                _responsive_chart(_market_multiple_chart("median_pb", "P/B", ".2f"),
+                                  300, width="stretch")
 
             st.caption(
                 "P/E, P/B = trung vị (median) của toàn bộ mã có dữ liệu mỗi quý. "
-                "Đường chấm = trung bình toàn bộ giai đoạn. Giá trị hiện tại cao hơn đường trung bình "
-                "→ thị trường đang đắt hơn so với quá khứ; thấp hơn → đang rẻ hơn.")
+                "**Vùng xanh** = khoảng thị trường dao động trong phần lớn thời gian. "
+                "Đường vượt **lên trên** vùng này → đang đắt hơn hẳn so với quá khứ; "
+                "rơi **xuống dưới** → đang rẻ hơn hẳn. "
+                "Mỗi quý chỉ được tính khi có tối thiểu 30 mã đủ dữ liệu — nên đường P/E "
+                "bắt đầu muộn hơn P/B (giai đoạn đầu quá ít mã có đủ 4 quý lợi nhuận).")
         else:
             st.info("Không đủ dữ liệu để tính lịch sử P/E và P/B toàn thị trường.")
 
