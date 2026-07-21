@@ -231,6 +231,20 @@ st.markdown("""<style>
     --color-hairline:       #e2e8f0;
     --color-on-accent:      #bfdbfe;
     --color-on-accent-muted:#93c5fd;
+    /* Gain/loss TEXT colors, split from the brighter chart-mark colors.
+       The vivid #22c55e / #ef4444 used for chart lines and fills only reach
+       2.09:1 and 3.45:1 against this background -- fine for a thick plotted
+       line, but below the 4.5:1 WCAG floor for text, and they were being
+       used for table-cell figures users scan row after row. These darker
+       shades are the same hue family at 4.59:1 and 5.92:1. Chart marks
+       deliberately keep the bright originals: contrast rules for graphical
+       objects differ from text, and dulling every line would hurt the
+       charts' readability to fix a problem they don't have.
+       NOTE: pandas Styler callbacks can't use these -- st.dataframe renders
+       via a canvas grid that doesn't resolve CSS custom properties -- so
+       those sites repeat the literal hex and must be kept in sync. */
+    --color-gain-text:      #15803d;
+    --color-loss-text:      #b91c1c;
     --radius-card: 4px;
     --radius-pill: 999px;
     --z-tooltip: 50;
@@ -2364,8 +2378,8 @@ if st.session_state.get("hm_popup_ticker"):
                 st.markdown(
                     f"<div style='font-size:11px;color:var(--color-muted);margin-bottom:2px;'>"
                     f"O&nbsp;<b style='color:var(--color-ink)'>{_gopen:,.0f}</b>&nbsp;"
-                    f"H&nbsp;<b style='color:#22c55e'>{_ghigh:,.0f}</b>&nbsp;"
-                    f"L&nbsp;<b style='color:#ef4444'>{_glow:,.0f}</b>&nbsp;"
+                    f"H&nbsp;<b style='color:var(--color-gain-text)'>{_ghigh:,.0f}</b>&nbsp;"
+                    f"L&nbsp;<b style='color:var(--color-loss-text)'>{_glow:,.0f}</b>&nbsp;"
                     f"C&nbsp;<b style='color:{_gcc}'>{_gcur:,.0f}</b>&nbsp;"
                     f"Vol&nbsp;<b style='color:var(--color-ink)'>{_gvol/1e6:.2f}M</b><br>"
                     f"MA10&nbsp;<b style='color:#2563eb'>{_gmini['ma10'].dropna().iloc[-1]:,.0f}</b>&nbsp;"
@@ -3490,10 +3504,13 @@ if view == "Phân tích Cổ phiếu":
                     # gets the card's full width, regardless of screen size.
 
                     def _color_action(val):
+                        # Literal hex, not var(--color-gain-text): st.dataframe
+                        # renders through a canvas grid that doesn't resolve CSS
+                        # custom properties. Keep in sync with those tokens.
                         if "mua" in str(val).lower():
-                            return "color: #22c55e; font-weight: 600"
+                            return "color: #15803d; font-weight: 600"
                         if "bán" in str(val).lower():
-                            return "color: #ef4444; font-weight: 600"
+                            return "color: #b91c1c; font-weight: 600"
                         return ""
 
                     st.markdown("**Chỉ số kỹ thuật**")
@@ -7545,9 +7562,9 @@ elif view == "Tổng quan Thị trường":
                 f"<div style='text-align:center;font-size:26px;font-weight:700;color:{_rc}'>{_ratio:.2f}"
                 f"<span style='font-size:13px;color:var(--color-muted)'> Tỷ lệ Tăng/Giảm</span></div>"
                 f"<div style='text-align:center;font-size:12px;color:var(--color-muted)'>"
-                f"<span style='color:#22c55e'>▲{n_up}</span>  "
+                f"<span style='color:var(--color-gain-text)'>▲{n_up}</span>  "
                 f"<span style='color:#b45309'>—{n_flat}</span>  "
-                f"<span style='color:#ef4444'>▼{n_dn}</span>  "
+                f"<span style='color:var(--color-loss-text)'>▼{n_dn}</span>  "
                 f"trong {total} mã</div>", unsafe_allow_html=True)
 
         st.divider()
@@ -7676,10 +7693,13 @@ elif view == "Tổng quan Thị trường":
         # ── Top gainers / losers
         gain_col, lose_col = st.columns(2)
         def _chg_color(val):
+            # Literal hex, not var(--color-gain-text): st.dataframe renders
+            # through a canvas grid that doesn't resolve CSS custom
+            # properties. Keep in sync with those tokens.
             try:
                 v = float(str(val).replace("%","").replace("+",""))
-                if v > 0: return "color:#22c55e;font-weight:600"
-                if v < 0: return "color:#ef4444;font-weight:600"
+                if v > 0: return "color:#15803d;font-weight:600"
+                if v < 0: return "color:#b91c1c;font-weight:600"
             except: pass
             return ""
 

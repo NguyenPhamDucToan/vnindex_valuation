@@ -1,0 +1,35 @@
+name: Tests
+
+# The valuation modules have solid unit coverage (86 tests), but nothing was
+# running them automatically -- which is how a units assertion in
+# test_live_quote.py sat red for several commits after the code it tested was
+# deliberately changed (the divide-by-1000 fix). For an app whose whole job is
+# computing prices, a silently-red suite is the failure mode worth preventing.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          PYTHONIOENCODING: utf-8
+        # The suite is pure-function unit tests over valuation/ and collectors/
+        # helpers -- no DB and no network, so no DATABASE_URL/secrets needed.
+        run: python -m pytest -v

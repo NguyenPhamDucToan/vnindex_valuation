@@ -65,6 +65,16 @@ def _make_price_board_df(overrides=None):
 
 
 def test_fetch_live_quote_success():
+    """price_board returns raw VND; fetch_live_quote converts to thousands.
+
+    The mocked board rows are raw VND (59000.0 = 59,000 VND), matching what
+    VCI actually returns. fetch_live_quote divides by 1000 so its output
+    matches the Price.close convention (thousands VND) used everywhere else
+    -- apply_live_overlay then multiplies back by 1000 at the display
+    boundary. This assertion previously expected the raw values and had been
+    failing since the divide-by-1000 fix; volume is deliberately NOT scaled
+    (it's a share count, not a price).
+    """
     df = _make_price_board_df()
 
     with patch("vnstock.Trading") as mock_trading:
@@ -72,11 +82,11 @@ def test_fetch_live_quote_success():
         result = fetch_live_quote("VNM")
 
     assert result is not None
-    assert result["price"] == 59000.0
-    assert result["open"] == 59300.0
-    assert result["high"] == 59800.0
-    assert result["low"] == 59000.0
-    assert result["ref"] == 59200.0
+    assert result["price"] == 59.0
+    assert result["open"] == 59.3
+    assert result["high"] == 59.8
+    assert result["low"] == 59.0
+    assert result["ref"] == 59.2
     assert result["volume"] == 3489300.0
     assert "as_of" in result
 
