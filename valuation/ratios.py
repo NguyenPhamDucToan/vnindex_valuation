@@ -205,17 +205,22 @@ def equity_ratio(equity: float, total_assets: float) -> Optional[float]:
 
 def dso(receivables: float, revenue: float) -> Optional[float]:
     """Days Sales Outstanding = Receivables × 365 / Revenue. Target 20–30 days."""
-    r = _safe(receivables * 365, revenue)
-    return r
+    if receivables is None:
+        return None
+    return _safe(receivables * 365, revenue)
 
 
 def dio(inventory: float, cogs: float) -> Optional[float]:
     """Days Inventory Outstanding = Inventory × 365 / COGS. Target 45–50 days."""
+    if inventory is None:
+        return None
     return _safe(inventory * 365, cogs)
 
 
 def dpo(payables: float, cogs: float) -> Optional[float]:
     """Days Payable Outstanding = Payables × 365 / COGS. Target 27–30 days."""
+    if payables is None:
+        return None
     return _safe(payables * 365, cogs)
 
 

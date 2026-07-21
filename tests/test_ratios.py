@@ -67,6 +67,17 @@ def test_working_capital_cycle():
     assert r.ccc(None, dio, dpo) is None
 
 
+def test_working_capital_cycle_handles_missing_numerator():
+    """Regression test: the numerator was multiplied by 365 before _safe saw it,
+    so a None receivables/inventory/payables raised TypeError instead of
+    returning None. Banks legitimately have inventory=None (they hold no stock),
+    which crashed the stock-analysis tab for every banking ticker."""
+    assert r.dio(inventory=None, cogs=365) is None
+    assert r.dso(receivables=None, revenue=365) is None
+    assert r.dpo(payables=None, cogs=365) is None
+    assert r.ccc(r.dso(None, 365), r.dio(None, 365), r.dpo(None, 365)) is None
+
+
 def test_valuation_multiples():
     assert r.pe_ratio(100, 10) == pytest.approx(10.0)
     assert r.pe_ratio(100, -1) is None

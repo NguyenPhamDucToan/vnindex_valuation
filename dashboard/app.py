@@ -834,6 +834,95 @@ def get_all_valuations(ticker: str) -> dict:
     }
 
 
+def _sector_adjusted_valuations(valuations: dict, ttm: dict | None, sector: str) -> dict:
+    """Apply the sector-specific valuation overrides to a copy of `valuations`.
+
+    Banks, real estate, securities and insurers can't be valued with the
+    generic EV/EBITDA / EPV / P-Sales multiples, so those three slots get
+    replaced with sector-appropriate ones (P/NII, NAV proxy, embedded value
+    and so on).
+
+    Shared rather than inline because the valuation cards and the "Đánh giá
+    tổng hợp" block sit in two different st.fragment functions. When the
+    block computed its average straight off the raw dict, the same page
+    reported two different model valuations for a bank -- VCB came out at
+    67,160 unadjusted versus 58,123 adjusted, a 15% gap.
+    """
+    v = dict(valuations)
+    if not ttm:
+        return v
+    shares = ttm.get("shares_outstanding") or 0
+
+    def _ps_val(val_bn, mult):
+        return round(val_bn * 1e9 / (shares * 1e6) * mult) if (val_bn and shares > 0) else None
+
+    if sector == "Ngân hàng":
+        v["ev_ebitda"] = _ps_val(ttm.get("gross_profit"), 8)   # P/NII ×8
+        v["epv"]       = _ps_val(ttm.get("ebit"),          6)   # P/PPOP ×6
+        v["ps"]        = _ps_val(ttm.get("revenue"),       5)   # P/TOI ×5
+
+    elif sector == "Bất động sản":
+        _ebitda_re = (ttm.get("ebit") or 0) + (ttm.get("depreciation") or 0)
+        _nd_re     = (ttm.get("debt") or 0) - (ttm.get("cash") or 0)
+        if _ebitda_re > 0 and shares > 0:
+            _ev_re = _ebitda_re * 15 - _nd_re
+            v["ev_ebitda"] = round(_ev_re * 1e9 / (shares * 1e6)) if _ev_re > 0 else None
+        v["ps"] = _ps_val(ttm.get("revenue"), 3.5)
+        _eq_re = ttm.get("equity")
+        if _eq_re and shares > 0:
+            v["epv"] = round(_eq_re * 1.8 * 1e9 / (shares * 1e6))
+
+    elif sector == "Chứng khoán":
+        v["ps"]        = _ps_val(ttm.get("revenue"), 3)
+        v["ev_ebitda"] = None
+        _eq_sec = ttm.get("equity")
+        if _eq_sec and shares > 0:
+            v["epv"] = round(_eq_sec * 1.2 * 1e9 / (shares * 1e6))
+
+    elif sector == "Bảo hiểm":
+        v["ps"]        = _ps_val(ttm.get("revenue"), 2)
+        v["ev_ebitda"] = None
+        _eq_ins = ttm.get("equity")
+        if _eq_ins and shares > 0:
+            v["epv"] = round(_eq_ins * 2.0 * 1e9 / (shares * 1e6))
+
+    return v
+
+
+def _winsorized_mean(values: list[float]) -> tuple[float | None, int]:
+    """Mean of `values` with outliers clipped at median ± 1.5×MAD.
+
+    Returns (mean, how_many_were_clipped), or (None, 0) for an empty list.
+
+    Outlier methods get capped to the threshold rather than dropped, so every
+    method still contributes some signal -- unlike a trimmed mean, which
+    deletes exactly N values regardless of how many are actually extreme and
+    discards a method's estimate entirely instead of just limiting its pull.
+    1.5×MAD scales with each ticker's own spread (no hand-tuned % band) and
+    degrades gracefully at small N: MAD=0, meaning the methods agree or there
+    are too few to disperse, simply skips the clipping instead of falling off
+    a hard N<4 cliff.
+
+    Module-level rather than inline because the valuation cards and the
+    "Đánh giá tổng hợp" block live in two different st.fragment functions,
+    which don't share locals -- computing it in one and reading it in the
+    other raised NameError, and duplicating the maths would let the two
+    displays drift apart for the same stock.
+    """
+    if not values:
+        return None, 0
+    import statistics as _stats
+    med = _stats.median(values)
+    mad = _stats.median([abs(x - med) for x in values])
+    if mad > 0:
+        lo, hi = med - 1.5 * mad, med + 1.5 * mad
+        clipped = [min(max(x, lo), hi) for x in values]
+        n_clipped = sum(1 for x in values if x < lo or x > hi)
+    else:
+        clipped, n_clipped = list(values), 0
+    return sum(clipped) / len(clipped), n_clipped
+
+
 @st.cache_data(ttl=86400)
 def load_valuation_bands(ticker: str) -> "pd.DataFrame":
     """Daily P/E and P/B history for a ticker, for the self-relative valuation band.
@@ -3324,48 +3413,9 @@ if view == "Phân tích Cổ phiếu":
         with col_dcf:
             st.subheader("Ước tính Định giá")
 
-            v = dict(valuations)  # copy so sector overrides don't mutate cache
-
-            # ── Sector-specific valuation overrides ────────────────────
-            if ttm:
-                _sh_s = ttm.get("shares_outstanding") or 0
-                def _ps_val(val_bn, mult):
-                    return round(val_bn * 1e9 / (_sh_s * 1e6) * mult) if (val_bn and _sh_s > 0) else None
-
-                if _co_sect == "Ngân hàng":
-                    v["ev_ebitda"] = _ps_val(ttm.get("gross_profit"), 8)   # P/NII ×8
-                    v["epv"]       = _ps_val(ttm.get("ebit"),          6)   # P/PPOP ×6
-                    v["ps"]        = _ps_val(ttm.get("revenue"),        5)   # P/TOI ×5
-
-                elif _co_sect == "Bất động sản":
-                    # RE: EV/EBITDA ×15, NAV proxy (Book × 1.5 premium), P/Revenue ×3.5
-                    _ebitda_re = (ttm.get("ebit") or 0) + (ttm.get("depreciation") or 0)
-                    _nd_re     = (ttm.get("debt") or 0) - (ttm.get("cash") or 0)
-                    if _ebitda_re > 0 and _sh_s > 0:
-                        _ev_re = _ebitda_re * 15 - _nd_re
-                        v["ev_ebitda"] = round(_ev_re * 1e9 / (_sh_s * 1e6)) if _ev_re > 0 else None
-                    v["ps"] = _ps_val(ttm.get("revenue"), 3.5)
-                    # EPV → NAV proxy: Book value × 1.8 (RE trades at premium to book for land bank)
-                    _eq_re = ttm.get("equity")
-                    if _eq_re and _sh_s > 0:
-                        v["epv"] = round(_eq_re * 1.8 * 1e9 / (_sh_s * 1e6))
-
-                elif _co_sect == "Chứng khoán":
-                    # Securities: P/Revenue ×3, EPV = BVPS × 1.2 (book value target)
-                    v["ps"]        = _ps_val(ttm.get("revenue"), 3)
-                    v["ev_ebitda"] = None
-                    _eq_sec = ttm.get("equity")
-                    if _eq_sec and _sh_s > 0:
-                        v["epv"] = round(_eq_sec * 1.2 * 1e9 / (_sh_s * 1e6))
-
-                elif _co_sect == "Bảo hiểm":
-                    # Insurance: P/Revenue ×2, Embedded Value proxy = Book × 2.0
-                    # (insurers trade at premium to book for VIF embedded value)
-                    v["ps"]        = _ps_val(ttm.get("revenue"), 2)
-                    v["ev_ebitda"] = None
-                    _eq_ins = ttm.get("equity")
-                    if _eq_ins and _sh_s > 0:
-                        v["epv"] = round(_eq_ins * 2.0 * 1e9 / (_sh_s * 1e6))
+            # Sector-specific overrides; returns a copy, so the cached
+            # `valuations` dict is never mutated.
+            v = _sector_adjusted_valuations(valuations, ttm, _co_sect)
 
             # ── Build method label list (sector-aware) ─────────────────
             _IS_BANK   = (_co_sect == "Ngân hàng")
@@ -3440,31 +3490,15 @@ if view == "Phân tích Cổ phiếu":
                 unsafe_allow_html=True)
 
             valid_prices = [v[k] for k, *_ in _valid_methods if v.get(k) and v[k] > 0]
+            # Initialised here so the "Đánh giá tổng hợp" block further down can
+            # test `avg_val is not None` instead of probing locals() -- it only
+            # gets a value when there are usable estimates to average.
+            avg_val = None
             if valid_prices and current_price:
                 import statistics as _stats
                 _sorted = sorted(valid_prices)
                 med_val = _stats.median(_sorted)
-                # Winsorized mean, clipped at median ± 1.5×MAD (median absolute
-                # deviation): outlier methods are capped to the threshold
-                # instead of being dropped outright, so every method still
-                # contributes some signal — unlike a trimmed mean, which
-                # always deletes exactly N values regardless of how many are
-                # actually extreme, and which discards a fixed method's
-                # estimate entirely rather than just limiting its pull.
-                # 1.5×MAD scales with each ticker's own spread automatically
-                # (no hand-tuned % band needed) and degrades gracefully at
-                # small N — MAD=0 (methods agree, or too few to disperse)
-                # just skips clipping instead of a hard N<4 cliff to a plain
-                # mean.
-                _mad = _stats.median([abs(x - med_val) for x in _sorted])
-                if _mad > 0:
-                    _lo, _hi = med_val - 1.5 * _mad, med_val + 1.5 * _mad
-                    _winsorized = [min(max(x, _lo), _hi) for x in _sorted]
-                    _n_clipped = sum(1 for x in _sorted if x < _lo or x > _hi)
-                else:
-                    _winsorized = _sorted
-                    _n_clipped = 0
-                avg_val = sum(_winsorized) / len(_winsorized)
+                avg_val, _n_clipped = _winsorized_mean(_sorted)
                 _trim_label = f"WINSORIZED MEAN ({len(_sorted)} PP, kẹp {_n_clipped} giá trị lệch xa)"
                 u_avg = (avg_val - current_price) / current_price * 100
                 u_med = (med_val - current_price) / current_price * 100
@@ -5108,11 +5142,35 @@ if view == "Phân tích Cổ phiếu":
             # in the UI. Recomputed here from the same TTM snapshot the other
             # cards use, rather than read from the Valuation row, so every card
             # in this scorecard reflects one consistent point in time.
-            _dso = dso(ttm.get("receivables"), ttm.get("revenue"))
-            _dio = dio(ttm.get("inventory"),   ttm.get("cogs"))
-            _dpo = dpo(ttm.get("payables"),    ttm.get("cogs"))
-            _ccc = ccc(_dso, _dio, _dpo)
-            _cic = cash_interest_coverage(ttm.get("operating_cf"), ttm.get("interest_expense"))
+            # Financials (banks/brokers/insurers) have no operating working-capital
+            # cycle: they hold no inventory, "receivables" are the loan book, and
+            # interest expense is a cost of revenue rather than a debt burden. Run
+            # through the formulas anyway and a bank reads DSO ~8,250 days with an
+            # empty DIO -- so the whole row is skipped for them instead.
+            _IS_FIN = _co_sect in ("Ngân hàng", "Chứng khoán", "Bảo hiểm")
+            if _IS_FIN:
+                _dso = _dio = _dpo = _ccc = _cic = None
+            else:
+                _dso = dso(ttm.get("receivables"), ttm.get("revenue"))
+                _dio = dio(ttm.get("inventory"),   ttm.get("cogs"))
+                _dpo = dpo(ttm.get("payables"),    ttm.get("cogs"))
+                _ccc = ccc(_dso, _dio, _dpo)
+                _cic = cash_interest_coverage(ttm.get("operating_cf"), ttm.get("interest_expense"))
+
+            # A debt-free company divides OCF by a rounding-error interest line
+            # and reads "16,044.57x" (TCH: 1,828bn OCF / 0.11bn interest, with
+            # debt literally 0). That looks like a data error rather than the
+            # strength it actually is, so say it in words past the point where
+            # the number stops carrying information.
+            _no_borrowings = _cic is not None and _cic > 100
+
+            # Property developers hold years of project inventory by design --
+            # TCH carries 11,832bn of it against 1,096bn COGS, i.e. ~3,900 days.
+            # Judging that against the 50/100-day manufacturing thresholds paints
+            # every developer red, so the cycle bands are widened for the sector.
+            _IS_RE_SECT = _co_sect == "Bất động sản"
+            _dio_good, _dio_warn = (1095, 1825) if _IS_RE_SECT else (50, 100)
+            _ccc_good, _ccc_warn = (1095, 1825) if _IS_RE_SECT else (50, 90)
 
             def _x(value):
                 return f"{value:.2f}x" if value is not None else "—"
@@ -5275,8 +5333,8 @@ if view == "Phân tích Cổ phiếu":
                 # still look fine while receivables stretch or inventory piles
                 # up months before profit falls. Thresholds are the ones the
                 # ratio functions themselves document.
-                + _scorecard("VÒNG QUAY VỐN & AN TOÀN NỢ", [
-                    ("Chu kỳ tiền mặt (CCC)", _days(_ccc), _color(_ccc, 50, 90, higher_better=False), {
+                + ("" if _IS_FIN else _scorecard("VÒNG QUAY VỐN & AN TOÀN NỢ", [
+                    ("Chu kỳ tiền mặt (CCC)", _days(_ccc), _color(_ccc, _ccc_good, _ccc_warn, higher_better=False), {
                         "f": "Số ngày thu tiền + tồn kho − số ngày trả người bán",
                         "d": "Tiền bị kẹt trong vòng quay kinh doanh bao lâu trước khi quay về. Càng ngắn càng tốt; âm là rất tốt (chiếm dụng được vốn nhà cung cấp)",
                         "g": "≤ 50 ngày", "w": "50 – 90 ngày", "b": "> 90 ngày",
@@ -5286,17 +5344,21 @@ if view == "Phân tích Cổ phiếu":
                         "d": "Bán xong bao lâu mới thu được tiền. Tăng dần qua các quý = khách hàng trả chậm hơn, cần theo dõi",
                         "g": "≤ 30 ngày", "w": "30 – 60 ngày", "b": "> 60 ngày",
                     }),
-                    ("Ngày tồn kho (DIO)", _days(_dio), _color(_dio, 50, 100, higher_better=False), {
+                    ("Ngày tồn kho (DIO)", _days(_dio), _color(_dio, _dio_good, _dio_warn, higher_better=False), {
                         "f": "Hàng tồn kho × 365 / Giá vốn",
-                        "d": "Hàng nằm kho bao lâu mới bán được. Phình lên = hàng khó tiêu thụ hoặc tích trữ nguyên liệu",
-                        "g": "≤ 50 ngày", "w": "50 – 100 ngày", "b": "> 100 ngày",
+                        "d": ("Với bất động sản, tồn kho là dự án đang xây hoặc chưa bán — nằm vài năm là bình thường, nên ngưỡng đánh giá rộng hơn ngành sản xuất"
+                              if _IS_RE_SECT else
+                              "Hàng nằm kho bao lâu mới bán được. Phình lên = hàng khó tiêu thụ hoặc tích trữ nguyên liệu"),
+                        "g": f"≤ {_dio_good:,} ngày", "w": f"{_dio_good:,} – {_dio_warn:,} ngày", "b": f"> {_dio_warn:,} ngày",
                     }),
-                    ("Tiền mặt trả lãi vay", _x(_cic), _color(_cic, 5, 3), {
+                    ("Tiền mặt trả lãi vay",
+                     "Không vay nợ" if _no_borrowings else _x(_cic),
+                     "#16a34a" if _no_borrowings else _color(_cic, 5, 3), {
                         "f": "Dòng tiền hoạt động / Chi phí lãi vay",
-                        "d": "Tiền thật kiếm được gấp bao nhiêu lần tiền lãi phải trả. Khác với D/E (chỉ nói quy mô nợ), chỉ số này nói khả năng trả",
+                        "d": "Tiền thật kiếm được gấp bao nhiêu lần tiền lãi phải trả. Khác với D/E (chỉ nói quy mô nợ), chỉ số này nói khả năng trả. Trên 100x nghĩa là doanh nghiệp gần như không vay — hiện 'Không vay nợ' thay cho con số",
                         "g": "≥ 5x", "w": "3 – 5x", "b": "< 3x",
                     }),
-                ])
+                ]))
             )
             _LEGEND = (
                 '<div style="display:flex;gap:18px;justify-content:flex-end;'
@@ -5481,53 +5543,109 @@ if view == "Phân tích Cổ phiếu":
 
 
 
-        # ── Valuation Football Field ───────────────────────────────
+        # ── Đánh giá tổng hợp ──────────────────────────────────────
+        # Replaced the football-field bar chart that used to sit here. That
+        # chart re-plotted the same ten estimates the "Ước tính Định giá"
+        # cards above already list -- and the cards carry more: each one's %
+        # vs market, and sector-aware labels (P/NII for banks, NAV proxy for
+        # real estate) the chart flattened into generic names. What it cost
+        # was ~470px to restate them.
+        #
+        # This block answers something nothing else in the app did: how the
+        # model's own number stacks up against an outside view and against
+        # the quality screen. load_analyst_recommendation() had been written
+        # but never called anywhere -- dead code fetching a real VCI rating
+        # and target price. The quality score and Buy/Sell signal were only
+        # ever shown in the screener, so a stock surfaced there as "Strong
+        # Buy" lost that verdict the moment you opened its detail page.
         if valuations and current_price:
             st.divider()
-            st.subheader("So sánh các Phương pháp Định giá")
-            _ff_methods = [
-                ("dcf", "DCF/FCFF"), ("fcfe", "FCFE"), ("graham", "Graham"),
-                ("pe", f"P/E ×{MARKET_PE}"), ("pb", "P/B"), ("ev_ebitda", "EV/EBITDA"),
-                ("epv", "EPV"), ("ps", "P/Sales"), ("ri", "Residual Income"),
-                ("pocf", "P/OCF"),
-            ]
-            _ff = [(lbl, valuations.get(k)) for k, lbl in _ff_methods
-                   if valuations.get(k) and valuations[k] > 0]
-            if _ff:
-                _ff_vals = [v for _, v in _ff]
-                _ff_avg  = sum(_ff_vals) / len(_ff_vals)
-                # sort by value for visual ladder
-                _ff.sort(key=lambda x: x[1])
-                _labels  = [x[0] for x in _ff]
-                _vals    = [x[1] for x in _ff]
-                _colors  = ["#22c55e" if v >= current_price else "#ef4444" for v in _vals]
-                fig_ff = go.Figure(go.Bar(
-                    x=_vals, y=_labels, orientation="h",
-                    marker_color=_colors,
-                    text=[f"{v:,.0f}" for v in _vals], textposition="outside",
-                    hovertemplate="%{y}: %{x:,.0f} VND<extra></extra>",
-                ))
-                # Current price line
-                fig_ff.add_vline(x=current_price, line_dash="dash", line_color="#f59e0b",
-                                 line_width=2, annotation_text=f"Market {current_price:,.0f}",
-                                 annotation_position="top", annotation_font_color="#f59e0b")
-                # Average line
-                fig_ff.add_vline(x=_ff_avg, line_dash="dot", line_color="#60a5fa",
-                                 line_width=2, annotation_text=f"Avg {_ff_avg:,.0f}",
-                                 annotation_position="bottom", annotation_font_color="#60a5fa")
-                fig_ff.update_layout(
-                    height=max(300, len(_ff) * 38), margin=dict(l=0, r=60, t=20, b=0),
-                    dragmode=False, xaxis_title="Giá trị nội tại (VND)",
-                    showlegend=False)
-                st.plotly_chart(fig_ff, width="stretch")
-                _ff_up = (_ff_avg - current_price) / current_price * 100
-                _ff_cc = "#22c55e" if _ff_up >= 0 else "#ef4444"
+            st.subheader("Đánh giá tổng hợp")
+
+            _ar = load_analyst_recommendation(ticker)
+
+            # Quality score + signal from the same stored row the screener
+            # reads, so the two screens can't disagree about the same stock.
+            _qs_v = None
+            _sig_v = None
+            with get_session() as _s_ev:
+                _vrow = _s_ev.execute(
+                    select(Valuation.roe, Valuation.net_margin, Valuation.profit_quality,
+                           Valuation.fcf_margin, Valuation.current_ratio,
+                           Valuation.debt_to_equity, Valuation.upside_pct)
+                    .where(Valuation.ticker == ticker)
+                    .order_by(Valuation.calc_date.desc()).limit(1)
+                ).first()
+            if _vrow:
+                _qs_v = compute_quality_score(_vrow[0], _vrow[1], _vrow[2],
+                                              _vrow[3], _vrow[4], _vrow[5])
+                _sig_v = classify_signal((_vrow[6] or 0) / 100, _qs_v)
+
+            def _ev_card(title, main, sub, color, note=""):
+                return (
+                    f'<div style="flex:1;min-width:0;background:var(--color-paper-2);'
+                    f'border:1px solid var(--color-rule);border-radius:4px;padding:14px 16px;">'
+                    f'<div style="font-size:11px;color:var(--color-muted);margin-bottom:6px;'
+                    f'letter-spacing:.4px;text-transform:uppercase;">{title}</div>'
+                    f'<div style="font-size:23px;font-weight:800;color:{color};'
+                    f'line-height:1.15;">{main}</div>'
+                    f'<div style="font-size:12px;color:var(--color-neutral);margin-top:5px;">{sub}</div>'
+                    + (f'<div style="font-size:11px;color:var(--color-muted);margin-top:3px;">{note}</div>'
+                       if note else "")
+                    + '</div>'
+                )
+
+            _cards = []
+
+            # 1. This app's own number. Recomputed through the shared helper
+            #    rather than read from the cards section -- that lives in a
+            #    different st.fragment, whose locals aren't visible here.
+            _ev_adj = _sector_adjusted_valuations(valuations, ttm, _co_sect)
+            _ev_prices = sorted(x for x in _ev_adj.values()
+                                if isinstance(x, (int, float)) and x and x > 0)
+            _ev_model, _ = _winsorized_mean(_ev_prices)
+            if _ev_model is not None:
+                _m_up = (_ev_model - current_price) / current_price * 100
+                _m_c = "var(--color-gain-text)" if _m_up >= 0 else "var(--color-loss-text)"
+                _cards.append(_ev_card(
+                    "Mô hình định giá", f"{_ev_model:,.0f}",
+                    f"{_m_up:+.1f}% so với thị giá {current_price:,.0f}", _m_c,
+                    f"Trung bình {len(_ev_prices)} phương pháp (đã kẹp ngoại lai)"))
+
+            # 2. The outside view. Analyst identity deliberately omitted --
+            #    the useful part is the house's call, not who wrote it.
+            if _ar and _ar.get("target_price"):
+                _t = float(_ar["target_price"])
+                _a_up = (_t - current_price) / current_price * 100
+                _a_c = "var(--color-gain-text)" if _a_up >= 0 else "var(--color-loss-text)"
+                _rating = (_ar.get("rating") or "").upper() or "—"
+                _cards.append(_ev_card(
+                    "Chuyên viên phân tích", f"{_t:,.0f}",
+                    f"{_a_up:+.1f}% so với thị giá · Khuyến nghị <b>{_rating}</b>", _a_c,
+                    "Nguồn: VCI"))
+
+            # 3. The screen's own verdict, so it travels with the stock.
+            if _qs_v is not None:
+                _q_c = ("var(--color-gain-text)" if _qs_v >= 70
+                        else "#b45309" if _qs_v >= 50 else "var(--color-loss-text)")
+                _q_suffix = (
+                    "<span style=\"font-size:14px;color:var(--color-muted);\">/100</span>"
+                )
+                _cards.append(_ev_card(
+                    "Điểm chất lượng", f"{_qs_v:.0f}{_q_suffix}",
+                    f"Tín hiệu: <b>{_sig_v}</b>" if _sig_v else "—", _q_c,
+                    "ROE · Biên LN · Chất lượng LN · FCF · Thanh khoản · Nợ"))
+
+            if _cards:
                 st.markdown(
-                    f"<div style='font-size:13px;color:var(--color-muted);'>"
-                    f"{len(_ff)} phương pháp · Giá trị nội tại trung bình "
-                    f"<b style='color:{_ff_cc}'>{_ff_avg:,.0f} VND ({_ff_up:+.1f}% so với thị trường)</b> · "
-                    f"Xanh = cao hơn giá thị trường (tín hiệu định giá thấp)</div>",
+                    '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+                    + "".join(_cards) + '</div>',
                     unsafe_allow_html=True)
+                st.caption(
+                    "Ba góc nhìn độc lập: mô hình tính từ báo cáo tài chính, khuyến nghị "
+                    "của chuyên viên phân tích bên ngoài, và điểm chất lượng nội bộ. "
+                    "Khi chúng **mâu thuẫn nhau** là lúc đáng xem kỹ lại giả định."
+                )
 
         # ── Tin tức & Sự kiện ─────────────────────────────────────────
         st.markdown("---")
