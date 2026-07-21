@@ -5170,6 +5170,20 @@ if view == "Phân tích Cổ phiếu":
                 _bank_cost = _div(abs(ttm["cogs"]) if ttm.get("cogs") else None,
                                   ttm.get("receivables"))
                 _bank_ea   = _div(ttm.get("equity"), ttm.get("total_assets"))
+
+            # The generic leverage row misreads both financial sectors. A bank's
+            # D/E counts only interbank/SBV borrowings, so VCB reads 2.42x "red"
+            # while its real leverage is assets/equity ~10.9x; and FCF margin /
+            # profit quality are noise for both -- bank operating cash flow swings
+            # with deposit flows, and every broker runs structurally negative OCF
+            # because growing the margin book is an operating outflow (HCM: -9,126bn).
+            _IS_SEC_SECT = _co_sect == "Chứng khoán"
+            _lev_assets = _dep_funding = _eq_assets = None
+            if _IS_BANK_SECT or _IS_SEC_SECT:
+                _ta_, _eq_ = ttm.get("total_assets"), ttm.get("equity")
+                _lev_assets  = (_ta_ / _eq_) if (_ta_ and _eq_) else None
+                _eq_assets   = (_eq_ / _ta_) if (_ta_ and _eq_) else None
+                _dep_funding = (ttm["payables"] / _ta_) if (_ta_ and ttm.get("payables")) else None
             if _IS_FIN:
                 _dso = _dio = _dpo = _ccc = _cic = None
             else:
@@ -5370,7 +5384,42 @@ if view == "Phân tích Cổ phiếu":
                         "g": "≥ 0.4x", "w": "0.2 – 0.4x", "b": "< 0.2x",
                     }),
                 ])) +
-                _scorecard("ĐÒN BẨY & DÒNG TIỀN", [
+                (_scorecard("CƠ CẤU VỐN & NGUỒN VỐN", [
+                    ("Đòn bẩy (Tài sản / Vốn chủ)", _x(_lev_assets),
+                     _color(_lev_assets, 12, 15, higher_better=False), {
+                        "f": "Tổng tài sản / Vốn chủ sở hữu",
+                        "d": "Đòn bẩy thật của ngân hàng: mỗi đồng vốn chủ đang gánh bao nhiêu đồng tài sản. Đây mới là con số phản ánh rủi ro, không phải D/E (D/E chỉ tính vốn vay liên ngân hàng, bỏ qua tiền gửi)",
+                        "g": "≤ 12x", "w": "12 – 15x", "b": "> 15x",
+                    }),
+                    ("Tiền gửi KH / Tổng tài sản", fmt_pct(_dep_funding),
+                     _color(_dep_funding, 0.60, 0.45), {
+                        "f": "Tiền gửi khách hàng / Tổng tài sản",
+                        "d": "Bao nhiêu phần nguồn vốn đến từ tiền gửi dân cư và doanh nghiệp. Cao thì nguồn vốn ổn định và rẻ; thấp nghĩa là phụ thuộc vốn vay liên ngân hàng, dễ tổn thương khi thị trường căng thanh khoản",
+                        "g": "≥ 60%", "w": "45 – 60%", "b": "< 45%",
+                    }),
+                    ("Vay liên ngân hàng / Vốn chủ", _x(de),
+                     _color(de, 2, 4, higher_better=False), {
+                        "f": "Vay liên ngân hàng & NHNN / Vốn chủ sở hữu",
+                        "d": "Mức phụ thuộc nguồn vốn bán buôn ngoài tiền gửi. Nguồn này rút nhanh hơn tiền gửi nên càng lớn càng nhạy với biến động thanh khoản",
+                        "g": "≤ 2x", "w": "2 – 4x", "b": "> 4x",
+                    }),
+                ]) if _IS_BANK_SECT else _scorecard("ĐÒN BẨY & AN TOÀN VỐN", [
+                    ("Nợ / Vốn chủ (D/E)", _x(de), _color(de, 1, 2, higher_better=False), {
+                        "f": "Tổng nợ vay / Vốn chủ sở hữu",
+                        "d": "Công ty chứng khoán vay để tài trợ cho vay margin, nên đòn bẩy là một phần mô hình kinh doanh — nhưng càng cao thì càng chịu áp lực khi thị trường đảo chiều",
+                        "g": "≤ 1x", "w": "1 – 2x", "b": "> 2x",
+                    }),
+                    ("Nợ / Tổng tài sản", fmt_pct(da), _color(da, 0.30, 0.60, higher_better=False), {
+                        "f": "Tổng nợ vay / Tổng tài sản",
+                        "d": "Tỷ trọng nợ trong cơ cấu vốn",
+                        "g": "≤ 30%", "w": "30 – 60%", "b": "> 60%",
+                    }),
+                    ("Vốn chủ / Tổng tài sản", fmt_pct(_eq_assets), _color(_eq_assets, 0.40, 0.25), {
+                        "f": "Vốn chủ sở hữu / Tổng tài sản",
+                        "d": "Đệm vốn tự có. Không hiển thị Biên FCF và Chất lượng LN vì dòng tiền hoạt động của công ty chứng khoán thường âm do tăng dư nợ margin — không phản ánh sức khỏe kinh doanh",
+                        "g": "≥ 40%", "w": "25 – 40%", "b": "< 25%",
+                    }),
+                ]) if _IS_SEC_SECT else _scorecard("ĐÒN BẨY & DÒNG TIỀN", [
                     ("Nợ / Vốn chủ (D/E)", _x(de),       _color(de,   1,  2, higher_better=False), {
                         "f": "Tổng nợ vay / Vốn chủ sở hữu",
                         "d": "Mức độ đòn bẩy tài chính",
@@ -5391,7 +5440,7 @@ if view == "Phân tích Cổ phiếu":
                         "d": "> 1x: lợi nhuận được bảo chứng bằng tiền mặt thực",
                         "g": "≥ 1x", "w": "0.8 – 1x", "b": "< 0.8x",
                     }),
-                ])
+                ]))
                 # Fourth row: the scorecard covered profitability, liquidity and
                 # leverage but had no read on how efficiently working capital
                 # turns over -- the early-warning dimension, where revenue can
@@ -5706,11 +5755,25 @@ if view == "Phân tích Cổ phiếu":
                     '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
                     + "".join(_cards) + '</div>',
                     unsafe_allow_html=True)
-                st.caption(
-                    "Ba góc nhìn độc lập: mô hình tính từ báo cáo tài chính, khuyến nghị "
-                    "của chuyên viên phân tích bên ngoài, và điểm chất lượng nội bộ. "
-                    "Khi chúng **mâu thuẫn nhau** là lúc đáng xem kỹ lại giả định."
-                )
+                # The analyst card only exists for tickers a broker actually
+                # covers -- smaller caps like TCX have no target price at all --
+                # so the caption counts the cards that rendered instead of
+                # promising three views and showing two.
+                _parts = []
+                if _ev_model is not None:
+                    _parts.append("mô hình tính từ báo cáo tài chính")
+                if _ar and _ar.get("target_price"):
+                    _parts.append("khuyến nghị của chuyên viên phân tích bên ngoài")
+                if _qs_v is not None:
+                    _parts.append("điểm chất lượng nội bộ")
+                _n_word = {1: "Một", 2: "Hai", 3: "Ba"}.get(len(_parts), str(len(_parts)))
+                _cap = f"{_n_word} góc nhìn độc lập: " + ", ".join(_parts[:-1])
+                _cap += (" và " if len(_parts) > 1 else "") + _parts[-1] + "."
+                if not (_ar and _ar.get("target_price")):
+                    _cap += " Mã này chưa có chuyên viên phân tích nào công bố giá mục tiêu."
+                if len(_parts) > 1:
+                    _cap += " Khi chúng **mâu thuẫn nhau** là lúc đáng xem kỹ lại giả định."
+                st.caption(_cap)
 
         # ── Tin tức & Sự kiện ─────────────────────────────────────────
         st.markdown("---")
