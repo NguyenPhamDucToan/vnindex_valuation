@@ -298,7 +298,11 @@ def rating_color(val: Optional[float], good: float, ok: float, higher_better: bo
     percentage-point threshold).
     """
     if val is None:
-        return "#94a3b8"
+        # #94a3b8 (slate-400) only reached 2.53:1 against the app's card
+        # background -- below the 3:1 floor even for the large bold numbers
+        # these colours are used on, so a missing value rendered as
+        # near-illegible grey. This is the app's muted-text token, 5.03:1.
+        return "#666f7c"
     above_good = val >= good if higher_better else val <= good
     above_ok   = val >= ok   if higher_better else val <= ok
     return "#16a34a" if above_good else ("#d97706" if above_ok else "#dc2626")

@@ -263,11 +263,23 @@ html, body, [data-testid="stApp"] {
 h1, h2, h3, h4, h5, h6,
 [data-testid="stMarkdownContainer"] h1, [data-testid="stMarkdownContainer"] h2,
 [data-testid="stMarkdownContainer"] h3, [data-testid="stMarkdownContainer"] h4,
+.sec-h,
 .ch-ticker, .ch-price {
     font-family: "Fira Code", ui-monospace, "SF Mono", Consolas, monospace !important;
     font-weight: 600;
     letter-spacing: -0.01em;
 }
+/* .sec-h = a top-level section heading written as raw HTML rather than
+   st.subheader() (needed when the heading carries inline markup a
+   subheader can't hold). Streamlit's subheader renders an <h3>, which the
+   rule above puts in Fira Code; hand-rolled heading divs were silently
+   falling through to the body font, so two headings at the same level
+   ("DuPont" vs "So sánh các Phương pháp Định giá") rendered in different
+   typefaces. Sharing the selector keeps them in sync from here on.
+   Deliberately NOT applied to the smaller 17px headings inside bordered
+   cards: those sit a level below and reading them as body-font labels is
+   the intended hierarchy, not an oversight. */
+.sec-h { font-size: 25px; color: var(--color-ink); }
 
 /* Native widget chrome — sharpen the soft default-rounded look and anchor
    interactive elements to the accent token instead of Streamlit's stock red. */
@@ -5286,7 +5298,7 @@ if view == "Phân tích Cổ phiếu":
 
                 _dp_html = (
                     '<div style="margin-top:4px;">'
-                    '<div style="font-weight:600;font-size:25px;margin-bottom:10px;">'
+                    '<div class="sec-h" style="margin-bottom:10px;">'
                     'DuPont</div>'
                     '<div class="dp-row" style="display:flex;align-items:center;gap:2px;">'
                     + _dp_card("Biên LN ròng", f"{dp_margin*100:.1f}%", _margin_c, "LN ròng / Doanh thu")
@@ -5402,7 +5414,7 @@ if view == "Phân tích Cổ phiếu":
                     )
 
                 st.markdown(
-                    '<div style="font-weight:600;font-size:25px;margin:18px 0 10px;">'
+                    '<div class="sec-h" style="margin:18px 0 10px;">'
                     'ROIC vs WACC</div>',
                     unsafe_allow_html=True,
                 )

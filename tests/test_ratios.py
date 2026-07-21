@@ -101,7 +101,9 @@ def test_check_risk_flags():
 
 
 def test_rating_color_higher_better():
-    assert r.rating_color(None, 0.10, 0.05) == "#94a3b8"          # missing data -> gray
+    # missing data -> muted grey (#666f7c, the app's muted-text token; the
+    # previous #94a3b8 only hit 2.53:1 contrast on the card background)
+    assert r.rating_color(None, 0.10, 0.05) == "#666f7c"
     assert r.rating_color(0.15, 0.10, 0.05) == "#16a34a"           # above good -> green
     assert r.rating_color(0.07, 0.10, 0.05) == "#d97706"           # between ok/good -> amber
     assert r.rating_color(0.02, 0.10, 0.05) == "#dc2626"           # below ok -> red
