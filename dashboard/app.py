@@ -5148,6 +5148,28 @@ if view == "Phân tích Cổ phiếu":
             # through the formulas anyway and a bank reads DSO ~8,250 days with an
             # empty DIO -- so the whole row is skipped for them instead.
             _IS_FIN = _co_sect in ("Ngân hàng", "Chứng khoán", "Bảo hiểm")
+            _IS_BANK_SECT = _co_sect == "Ngân hàng"
+
+            # Banks fail the generic liquidity row outright -- current/quick/cash
+            # ratio all read "—" because a bank's balance sheet has no
+            # current/non-current split -- so that row is swapped for the metrics
+            # the sector is actually judged on. All five come from the bank field
+            # remapping in collectors/financials.py (revenue=TOI, gross_profit=NII,
+            # cogs=provisions, receivables=loan book, payables=customer deposits).
+            _nim = _bank_cir = _bank_ldr = _bank_cost = _bank_ea = None
+            if _IS_BANK_SECT:
+                def _div(a, b):
+                    if a is None or not b:
+                        return None
+                    return a / b
+
+                _nim       = _div(ttm.get("gross_profit"), ttm.get("total_assets"))
+                _bank_cir  = _div(abs(ttm["ga_expense"]) if ttm.get("ga_expense") else None,
+                                  ttm.get("revenue"))
+                _bank_ldr  = _div(ttm.get("receivables"), ttm.get("payables"))
+                _bank_cost = _div(abs(ttm["cogs"]) if ttm.get("cogs") else None,
+                                  ttm.get("receivables"))
+                _bank_ea   = _div(ttm.get("equity"), ttm.get("total_assets"))
             if _IS_FIN:
                 _dso = _dio = _dpo = _ccc = _cic = None
             else:
@@ -5257,14 +5279,24 @@ if view == "Phân tích Cổ phiếu":
 
             scorecard_html = _TOOLTIP_CSS + (
                 _scorecard("SINH LỜI", [
-                    ("Biên LN gộp",    fmt_pct(gm),      _color(gm,      0.25, 0.15), {
-                        "f": "Lợi nhuận gộp / Doanh thu",
-                        "d": "Đo hiệu quả sản xuất cốt lõi trước chi phí vận hành",
+                    # For banks these two cells are fed by the field remapping
+                    # (gross_profit=net interest income, ebit=pre-provision
+                    # operating profit, revenue=total operating income), so the
+                    # industrial labels described the wrong quantity entirely.
+                    ("Thu nhập lãi / Tổng TN" if _IS_BANK_SECT else "Biên LN gộp",
+                     fmt_pct(gm), _color(gm, 0.25, 0.15), {
+                        "f": ("Thu nhập lãi thuần / Tổng thu nhập hoạt động"
+                              if _IS_BANK_SECT else "Lợi nhuận gộp / Doanh thu"),
+                        "d": ("Bao nhiêu phần thu nhập đến từ cho vay. Thấp hơn nghĩa là nguồn thu đa dạng hơn (phí, ngoại hối, đầu tư)"
+                              if _IS_BANK_SECT else "Đo hiệu quả sản xuất cốt lõi trước chi phí vận hành"),
                         "g": "≥ 25%", "w": "15 – 25%", "b": "< 15%",
                     }),
-                    ("Biên hoạt động", fmt_pct(om),      _color(om,      0.15, 0.05), {
-                        "f": "EBIT / Doanh thu",
-                        "d": "Lợi nhuận sau chi phí bán hàng & quản lý, trước lãi vay và thuế",
+                    ("Biên trước dự phòng" if _IS_BANK_SECT else "Biên hoạt động",
+                     fmt_pct(om), _color(om, 0.15, 0.05), {
+                        "f": ("Lợi nhuận trước dự phòng (PPOP) / Tổng thu nhập hoạt động"
+                              if _IS_BANK_SECT else "EBIT / Doanh thu"),
+                        "d": ("Lãi còn lại sau chi phí vận hành nhưng trước khi trích lập dự phòng nợ xấu"
+                              if _IS_BANK_SECT else "Lợi nhuận sau chi phí bán hàng & quản lý, trước lãi vay và thuế"),
                         "g": "≥ 15%", "w": "5 – 15%", "b": "< 5%",
                     }),
                     ("Biên LN ròng",   fmt_pct(nm),      _color(nm,      0.10, 0.05), {
@@ -5277,13 +5309,46 @@ if view == "Phân tích Cổ phiếu":
                         "d": "Đo mức sinh lời trên đồng vốn cổ đông bỏ ra",
                         "g": "≥ 15%", "w": "10 – 15%", "b": "< 10%",
                     }),
-                    ("ROA",            fmt_pct(roa_val),  _color(roa_val,  0.08, 0.05), {
+                    # A bank funds a huge asset base with deposits, so it earns
+                    # 1-2% on assets by design -- judging that against the 8%/5%
+                    # industrial bands painted every bank red (VCB: 1.4%).
+                    ("ROA",            fmt_pct(roa_val),
+                     _color(roa_val, *((0.015, 0.010) if _IS_BANK_SECT else (0.08, 0.05))), {
                         "f": "Lợi nhuận ròng / Tổng tài sản",
-                        "d": "Đo hiệu quả sử dụng toàn bộ tài sản",
-                        "g": "≥ 8%", "w": "5 – 8%", "b": "< 5%",
+                        "d": ("Ngân hàng dùng tiền gửi để tạo tài sản rất lớn nên ROA tự nhiên thấp; 1–2% đã là tốt"
+                              if _IS_BANK_SECT else "Đo hiệu quả sử dụng toàn bộ tài sản"),
+                        "g": "≥ 1.5%" if _IS_BANK_SECT else "≥ 8%",
+                        "w": "1 – 1.5%" if _IS_BANK_SECT else "5 – 8%",
+                        "b": "< 1%" if _IS_BANK_SECT else "< 5%",
                     }),
                 ]) +
-                _scorecard("THANH KHOẢN", [
+                (_scorecard("HIỆU QUẢ & AN TOÀN NGÂN HÀNG", [
+                    ("Biên lãi thuần (NIM)", fmt_pct(_nim), _color(_nim, 0.030, 0.020), {
+                        "f": "Thu nhập lãi thuần / Tổng tài sản",
+                        "d": "Chênh lệch lãi cho vay và lãi huy động, tính trên toàn bộ tài sản. Đây là nguồn sống chính của ngân hàng",
+                        "g": "≥ 3%", "w": "2 – 3%", "b": "< 2%",
+                    }),
+                    ("Chi phí / Thu nhập (CIR)", fmt_pct(_bank_cir), _color(_bank_cir, 0.35, 0.50, higher_better=False), {
+                        "f": "Chi phí hoạt động / Tổng thu nhập hoạt động",
+                        "d": "Tốn bao nhiêu đồng chi phí để tạo ra 100 đồng thu nhập. Càng thấp càng vận hành hiệu quả",
+                        "g": "≤ 35%", "w": "35 – 50%", "b": "> 50%",
+                    }),
+                    ("Cho vay / Tiền gửi", fmt_pct(_bank_ldr), _color(_bank_ldr, 1.00, 1.20, higher_better=False), {
+                        "f": "Dư nợ cho vay khách hàng / Tiền gửi khách hàng",
+                        "d": "Cho vay ra bao nhiêu so với tiền huy động được. Cao thì sinh lời tốt hơn nhưng đệm thanh khoản mỏng. Lưu ý: đây không phải LDR theo quy định của NHNN (công thức đó tính thêm các nguồn vốn khác)",
+                        "g": "≤ 100%", "w": "100 – 120%", "b": "> 120%",
+                    }),
+                    ("Chi phí tín dụng", fmt_pct(_bank_cost), _color(_bank_cost, 0.010, 0.020, higher_better=False), {
+                        "f": "Chi phí dự phòng rủi ro / Dư nợ cho vay",
+                        "d": "Mỗi năm phải trích lập dự phòng bao nhiêu phần trăm dư nợ. Tăng lên là dấu hiệu chất lượng tài sản đi xuống",
+                        "g": "≤ 1%", "w": "1 – 2%", "b": "> 2%",
+                    }),
+                    ("Vốn chủ / Tổng tài sản", fmt_pct(_bank_ea), _color(_bank_ea, 0.09, 0.06), {
+                        "f": "Vốn chủ sở hữu / Tổng tài sản",
+                        "d": "Đệm vốn tự có chống đỡ rủi ro. Mỏng thì chịu lỗ kém hơn khi nợ xấu tăng",
+                        "g": "≥ 9%", "w": "6 – 9%", "b": "< 6%",
+                    }),
+                ]) if _IS_BANK_SECT else _scorecard("THANH KHOẢN", [
                     ("Current ratio",      _x(cr),     _color(cr,     2,   1), {
                         "f": "Tài sản ngắn hạn / Nợ ngắn hạn",
                         "d": "Khả năng trả nợ ngắn hạn bằng tài sản lưu động",
@@ -5304,7 +5369,7 @@ if view == "Phân tích Cổ phiếu":
                         "d": "Khả năng trả nợ từ tiền kinh doanh tạo ra",
                         "g": "≥ 0.4x", "w": "0.2 – 0.4x", "b": "< 0.2x",
                     }),
-                ]) +
+                ])) +
                 _scorecard("ĐÒN BẨY & DÒNG TIỀN", [
                     ("Nợ / Vốn chủ (D/E)", _x(de),       _color(de,   1,  2, higher_better=False), {
                         "f": "Tổng nợ vay / Vốn chủ sở hữu",
