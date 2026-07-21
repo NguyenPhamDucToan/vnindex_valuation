@@ -822,6 +822,93 @@ def get_all_valuations(ticker: str) -> dict:
 
 
 @st.cache_data(ttl=86400)
+def load_valuation_bands(ticker: str) -> "pd.DataFrame":
+    """Daily P/E and P/B history for a ticker, for the self-relative valuation band.
+
+    Answers "is 12x cheap?" against the stock's OWN history rather than the
+    sector median (which the peer scatter already covers). Built from daily
+    closes divided by the TTM fundamentals that were *publicly known* on each
+    date.
+
+    On the reporting lag: a quarter's numbers aren't public on the quarter-end
+    date -- VN issuers file quarterly statements within ~45 days. Dating each
+    TTM snapshot at quarter-end (as valuation_history does, where it only
+    drives a smoothed overlay) would mean the band shows a P/E computed from
+    earnings nobody could have known yet -- look-ahead bias that makes the
+    historical range subtly wrong right where it matters, around results. So
+    each snapshot only takes effect PUBLISH_LAG days after its quarter ends.
+
+    Returns columns: date, pe, pb. Empty frame when there isn't enough history
+    (needs 4 quarters for one TTM point).
+    """
+    import calendar
+
+    PUBLISH_LAG_DAYS = 45
+
+    with get_session() as s:
+        fin_rows = s.execute(
+            select(Financial.period, Financial.net_income,
+                   Financial.equity, Financial.shares_outstanding)
+            .where(Financial.ticker == ticker, Financial.period_type == "Q")
+            .order_by(Financial.period.asc())
+        ).all()
+
+    if len(fin_rows) < 4:
+        return pd.DataFrame()
+
+    snaps = []
+    for i in range(3, len(fin_rows)):
+        window = fin_rows[i - 3: i + 1]
+        last = window[-1]
+        shares = last.shares_outstanding or 0
+        if shares <= 0:
+            continue
+
+        # TTM net income needs all 4 quarters present -- a partial sum would
+        # understate earnings and inflate P/E into a false "expensive" reading.
+        ni_vals = [r.net_income for r in window if r.net_income is not None]
+        ttm_ni = sum(ni_vals) if len(ni_vals) == 4 else None
+
+        # Same unit convention as the rest of the app: net_income/equity in
+        # VND billions, shares in millions -> * 1000 gives VND per share.
+        eps  = (ttm_ni * 1_000 / shares) if ttm_ni and ttm_ni > 0 else None
+        bvps = (last.equity * 1_000 / shares) if last.equity and last.equity > 0 else None
+        if eps is None and bvps is None:
+            continue
+
+        yr, qn = int(last.period[:4]), int(last.period[6])
+        mo = qn * 3
+        q_end = pd.Timestamp(f"{yr}-{mo:02d}-{calendar.monthrange(yr, mo)[1]}")
+        snaps.append({
+            "available_from": q_end + pd.Timedelta(days=PUBLISH_LAG_DAYS),
+            "eps": eps, "bvps": bvps,
+        })
+
+    if not snaps:
+        return pd.DataFrame()
+
+    px = load_prices(ticker)
+    if px.empty:
+        return pd.DataFrame()
+
+    df = px[["date", "close"]].copy()
+    df["date"] = pd.to_datetime(df["date"])
+    snap_df = pd.DataFrame(snaps).sort_values("available_from")
+
+    # merge_asof = for each trading day, attach the most recent snapshot that
+    # was already published by then (never a future one).
+    df = pd.merge_asof(
+        df.sort_values("date"), snap_df,
+        left_on="date", right_on="available_from", direction="backward",
+    )
+
+    price_vnd = df["close"] * 1_000  # Price.close is thousands VND
+    df["pe"] = (price_vnd / df["eps"]).where(df["eps"] > 0)
+    df["pb"] = (price_vnd / df["bvps"]).where(df["bvps"] > 0)
+    return df[["date", "pe", "pb"]].dropna(how="all", subset=["pe", "pb"])
+
+
+@st.cache_data(ttl=86400)
 def valuation_history(ticker: str) -> pd.DataFrame:
     """Compute intrinsic-value estimates at each quarterly TTM snapshot."""
     import calendar
@@ -3058,6 +3145,151 @@ if view == "Phân tích Cổ phiếu":
 
                 else:
                     st.info("Dữ liệu giao dịch tự doanh chưa có sẵn từ nguồn dữ liệu hiện tại.")
+
+            # ── Self-relative valuation band ───────────────────────────
+            # The peer scatter above answers "cheap vs the sector"; this
+            # answers "cheap vs its own history", which is the question a
+            # bare "P/E 11.9x" can't settle on its own.
+            st.write("")
+            with st.container(border=True):
+                _vb = load_valuation_bands(ticker)
+                _vb_metric = st.segmented_control(
+                    "Valuation band metric", ["P/E", "P/B"], default="P/E",
+                    key="vb_metric_sel", label_visibility="collapsed",
+                ) or "P/E"
+                _vb_col = "pe" if _vb_metric == "P/E" else "pb"
+                _vb_series = _vb[["date", _vb_col]].dropna() if not _vb.empty else pd.DataFrame()
+
+                st.markdown(
+                    f'<div style="font-size:17px;font-weight:700;color:var(--color-ink);margin-bottom:8px;">'
+                    f'{_vb_metric} so với lịch sử chính nó'
+                    f'<span style="color:var(--color-muted);font-size:13px;font-weight:400;">'
+                    f' · {len(_vb_series)} phiên</span></div>',
+                    unsafe_allow_html=True)
+
+                if len(_vb_series) < 60:
+                    st.info(
+                        f"Chưa đủ lịch sử để dựng vùng {_vb_metric} "
+                        "(cần ít nhất 4 quý báo cáo liên tiếp)."
+                    )
+                else:
+                    _v = _vb_series[_vb_col]
+                    _cur = float(_v.iloc[-1])
+                    # Percentiles, not mean±SD: cyclical names (HPG's TTM P/E
+                    # spans 1.3x-198x as steel earnings collapse toward zero)
+                    # blow up both the mean and the SD, so an SD band would sit
+                    # far outside anything the stock has actually traded at.
+                    _p25, _p50, _p75 = _v.quantile([0.25, 0.50, 0.75])
+                    _pctile = float((_v < _cur).mean() * 100)
+                    # Y-axis clipped to Tukey fences (p25/p75 -/+ 1.5*IQR), not
+                    # to raw percentiles. A 2nd-98th percentile clip was tried
+                    # first and failed exactly where it was needed: HPG's 2023
+                    # earnings collapse pushed P/E to ~200x for months, so the
+                    # 98th percentile sat near the top of that spike and the
+                    # axis still ran 0-200, flattening the meaningful 7-14x
+                    # range into a line on the floor. The fences key off the
+                    # middle-50% spread instead, so a long outlier episode
+                    # can't drag them along. Values outside stay plotted (the
+                    # line visibly exits the top) and get counted in the
+                    # caption rather than silently disappearing.
+                    _iqr = _p75 - _p25
+                    _ylo = max(0.0, _p25 - 1.5 * _iqr)
+                    _yhi = _p75 + 1.5 * _iqr
+                    # Never clip the current value out of its own chart.
+                    _ylo, _yhi = min(_ylo, _cur), max(_yhi, _cur)
+                    _pad = (_yhi - _ylo) * 0.08 or 1.0
+
+                    if _pctile <= 25:
+                        _verdict, _vcolor = "Rẻ hơn phần lớn lịch sử", "var(--color-gain-text)"
+                    elif _pctile >= 75:
+                        _verdict, _vcolor = "Đắt hơn phần lớn lịch sử", "var(--color-loss-text)"
+                    else:
+                        _verdict, _vcolor = "Quanh mức trung bình lịch sử", "#b45309"
+
+                    # Numbers as text, not hover-only, so the takeaway survives
+                    # a glance (and touch, where there is no hover).
+                    st.markdown(
+                        f'<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:baseline;'
+                        f'margin:-2px 0 10px;">'
+                        f'<div><span style="font-size:27px;font-weight:800;color:var(--color-ink);">'
+                        f'{_cur:.1f}x</span>'
+                        f'<span style="font-size:12px;color:var(--color-muted);"> hiện tại</span></div>'
+                        f'<div style="font-size:13px;font-weight:700;color:{_vcolor};">{_verdict}'
+                        f'<span style="font-weight:400;color:var(--color-muted);"> · thấp hơn '
+                        f'{100 - _pctile:.0f}% thời gian</span></div>'
+                        f'<div style="font-size:12px;color:var(--color-muted);">'
+                        f'Trung vị <b style="color:var(--color-ink-2);">{_p50:.1f}x</b> · '
+                        f'Vùng thường gặp <b style="color:var(--color-ink-2);">'
+                        f'{_p25:.1f}–{_p75:.1f}x</b></div>'
+                        f'</div>',
+                        unsafe_allow_html=True)
+
+                    _vb_x = _vb_series["date"]
+                    _fig_vb = go.Figure()
+                    # 25-75 percentile as a shaded band behind the line
+                    _fig_vb.add_hrect(
+                        y0=_p25, y1=_p75,
+                        # Literal hex, not var(--color-accent): Plotly renders
+                        # independently of the page's CSS cascade and can't
+                        # resolve custom properties.
+                        fillcolor="#00347b", opacity=0.10,
+                        line_width=0, layer="below",
+                    )
+                    _fig_vb.add_hline(
+                        y=_p50, line=dict(color="#64748b", width=1, dash="dash"),
+                        annotation_text=f"Trung vị {_p50:.1f}x",
+                        annotation_position="right",
+                        annotation_font=dict(size=11, color="#64748b"),
+                    )
+                    _fig_vb.add_trace(go.Scatter(
+                        x=_vb_x, y=_v, mode="lines", name=_vb_metric,
+                        line=dict(color="#00347b", width=1.8),
+                        hovertemplate="%{x|%d/%m/%Y}<br><b>%{y:.1f}x</b><extra></extra>",
+                    ))
+                    # Today's point, called out so the eye lands on the answer
+                    _fig_vb.add_trace(go.Scatter(
+                        x=[_vb_x.iloc[-1]], y=[_cur], mode="markers",
+                        marker=dict(size=11, color="#00347b",
+                                    line=dict(color="#ffffff", width=2)),
+                        hovertemplate=f"Hiện tại: <b>{_cur:.1f}x</b><extra></extra>",
+                        showlegend=False,
+                    ))
+                    _fig_vb.update_layout(
+                        height=_responsive_height(260),
+                        margin=dict(l=0, r=70, t=6, b=0),
+                        dragmode=False, showlegend=False, hovermode="x unified",
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0)",
+                        yaxis=dict(title=f"{_vb_metric} (lần)", gridcolor="#e2e8f0",
+                                   zeroline=False, range=[_ylo - _pad, _yhi + _pad],
+                                   tickfont=dict(size=11)),
+                        xaxis=dict(showgrid=False, tickfont=dict(size=11)),
+                        font=dict(color="#374151"),
+                    )
+                    _responsive_chart(_fig_vb, 260, width="stretch")
+
+                    _clipped = int(((_v < _ylo) | (_v > _yhi)).sum())
+                    _clip_share = _clipped / len(_v)
+                    # A big off-axis share on P/E isn't a charting artefact --
+                    # it means TTM earnings collapsed toward zero for a stretch
+                    # (HPG: 29% of sessions, the 2023 steel downturn), which
+                    # sends P/E toward infinity and makes it a poor valuation
+                    # read for that period. Book value doesn't collapse the same
+                    # way, so point the user at the P/B tab rather than letting
+                    # them draw conclusions from a broken denominator.
+                    if _vb_metric == "P/E" and _clip_share > 0.15:
+                        st.caption(
+                            f"⚠️ {_clip_share*100:.0f}% số phiên nằm ngoài trục — giai đoạn lợi "
+                            f"nhuận 4 quý giảm sát 0 khiến P/E vọt lên rất cao và mất ý nghĩa "
+                            f"định giá. Với cổ phiếu chu kỳ như vậy, tab **P/B** thường phản ánh "
+                            f"đúng hơn."
+                        )
+                    st.caption(
+                        f"Vùng xanh = khoảng {_vb_metric} thường gặp (25–75% thời gian). "
+                        f"Tính từ lợi nhuận 4 quý gần nhất **đã công bố** (trễ 45 ngày sau "
+                        f"kết thúc quý) nên không dùng số liệu tương lai."
+                        + (f" · {_clipped} phiên ngoại lai nằm ngoài trục."
+                           if _clipped and _clip_share <= 0.15 else "")
+                    )
 
         # ── Valuation panel ────────────────────────────────────────
         with col_dcf:
