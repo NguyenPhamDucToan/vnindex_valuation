@@ -13,10 +13,12 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     # A healthy full run is ~51 min (641 tickers at the 2s vnstock delay).
-    # Capped at 90 (down from 150) so a hung/stuck run can't quietly burn an
-    # extra hour of the monthly Actions budget -- 90 still leaves ~75% headroom
-    # over a normal run for slower API days.
-    timeout-minutes: 90
+    # Repo is public now, so Actions minutes are free/unlimited -- no reason
+    # to cut this tight anymore. 150 leaves real headroom for a slow-API day
+    # instead of getting cancelled mid-run (happened at the old 90 cap on
+    # 2026-08-05: a run that needed a bit more than 90 min got killed with
+    # ~90 min of work already sunk, wasting the whole day's refresh).
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
