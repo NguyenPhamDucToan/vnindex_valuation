@@ -10,9 +10,9 @@ on:
   push:
     branches: [main]
     # The suite only exercises valuation/* and collectors/* helpers, so a push
-    # that touches only docs, workflows, or memory files can't break it -- skip
-    # those to save Actions minutes on the metered private repo. Pull requests
-    # and manual runs stay unfiltered as a backstop.
+    # that touches only docs, workflows, or memory files can't break it --
+    # skip those for faster feedback / less CI noise. Pull requests and
+    # manual runs stay unfiltered as a backstop.
     paths:
       - "valuation/**"
       - "collectors/**"

@@ -26,17 +26,16 @@ name: Keep Streamlit app awake (real browser)
 # Look at the screenshot artifact if you want actual confirmation, not the
 # job's green/red status.
 
-# Budget note (GitHub Free = 2,000 Actions min/month on a private repo):
-# this used to run every 25 min, 24/7 (~1,730 runs -> ~5,200 min/month) and
-# single-handedly blew the whole monthly quota mid-month, which also froze the
-# essential daily data refresh. Streamlit Cloud doesn't sleep in 25 minutes --
-# its inactivity timeout is on the order of hours -- so a ping every 4 hours,
-# only during Vietnam waking hours, keeps the app warm for real visitors while
-# costing ~120 runs/month instead of ~1,730. UTC hours below map to ICT
-# (UTC+7): 23->06:00, 03->10:00, 07->14:00, 11->18:00.
+# Budget note: the 2,000 min/month Actions cap only applies to private
+# repos. This repo is public now, so Actions minutes are free/unlimited on
+# standard runners -- restored to the original every-25-min cadence (the
+# 4-hour throttle below was only ever a workaround for the private-repo
+# quota, not a real requirement). Still scoped to Vietnam waking hours
+# (no point pinging at 3am ICT when nobody's visiting): UTC 23:00-14:00
+# maps to ICT 06:00-21:00.
 on:
   schedule:
-    - cron: "0 3,7,11,23 * * *"
+    - cron: "7/25 23,0-14 * * *"
   workflow_dispatch: {}
 
 jobs:
@@ -88,11 +87,10 @@ jobs:
               # Fixed wait, not a content check -- gives the backend script a
               # real chance to run before we disconnect, without depending on
               # a DOM query that's proven unreliable as a signal either way.
-              # 30s (was 60s): the websocket handshake that resets the sleep
-              # clock already happens at goto(); this is just headroom for the
-              # backend to spin up, and halving it shaves ~90 min/month off the
-              # Actions bill across all runs.
-              page.wait_for_timeout(30000)
+              # Restored to 60s (was cut to 30s to save Actions minutes on
+              # the private-repo budget) -- public repo now, so more
+              # backend-spin-up headroom costs nothing.
+              page.wait_for_timeout(60000)
               page.screenshot(path="snapshot.png", full_page=True)
               print("Wake request sent; snapshot.png saved for manual review.")
               browser.close()
