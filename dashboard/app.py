@@ -2611,8 +2611,7 @@ if st.session_state.get("hm_popup_ticker"):
         st.divider()
         if st.button("Xem phân tích đầy đủ →", type="primary", use_container_width=True):
             st.session_state["hm_popup_ticker"] = None
-            st.session_state["view_selector"] = "Phân tích Cổ phiếu"
-            st.session_state["ticker_input"] = _gpt
+            st.session_state["hm_navigate_to"] = _gpt
             st.rerun()
 
     _global_ticker_popup()
@@ -6808,13 +6807,24 @@ elif view == "Sàng lọc Cổ phiếu":
                     _clicked_ticker = _clicked_raw.lstrip("★✩ ")
                     _is_pinned = _clicked_ticker in pinned
 
-                    _act_col, _info_col = st.columns([3, 7])
+                    _view_col, _act_col, _info_col = st.columns([3, 3, 6])
                     _info_col.markdown(
                         f"**{_clicked_ticker}** — "
                         f"{'đã có trong Theo dõi ★' if _is_pinned else 'chưa có trong Theo dõi ✩'}"
                     )
+                    # Jump straight to the ticker's full analysis view -- via
+                    # hm_navigate_to (handled near the top of the file, before
+                    # the sidebar radio renders), same handoff the sector-
+                    # heatmap popup uses. Can't set view_selector directly
+                    # here: that widget's already been instantiated earlier
+                    # in this run, and Streamlit raises on writing a widget's
+                    # session_state key after it's rendered in the same run.
+                    if _view_col.button("→ Xem phân tích đầy đủ", key="wl_view_click",
+                                        use_container_width=True, type="primary"):
+                        st.session_state["hm_navigate_to"] = _clicked_ticker
+                        st.rerun()
                     if _is_pinned:
-                        if _act_col.button(f"✕ Xóa {_clicked_ticker} khỏi Theo dõi",
+                        if _act_col.button(f"✕ Xóa khỏi Theo dõi",
                                            key="wl_rm_click", use_container_width=True):
                             if st.session_state.get("wl_rm_confirm") == _clicked_ticker:
                                 unpin_ticker(_clicked_ticker)
@@ -6824,7 +6834,7 @@ elif view == "Sàng lọc Cổ phiếu":
                                 st.session_state["wl_rm_confirm"] = _clicked_ticker
                                 st.warning(f"Bấm Xóa lần nữa để xác nhận xóa **{_clicked_ticker}**")
                     else:
-                        if _act_col.button(f"★ Lưu {_clicked_ticker} vào Theo dõi",
+                        if _act_col.button(f"★ Lưu vào Theo dõi",
                                            key="wl_save_click", use_container_width=True):
                             pin_ticker(_clicked_ticker)
                             st.success(f"★ Đã lưu {_clicked_ticker}!")
@@ -6887,8 +6897,18 @@ elif view == "Sàng lọc Cổ phiếu":
                     .map(_saved_sig_color, subset=["Tín hiệu"])
                     .map(_saved_q_color,   subset=["Quality"] if "Quality" in display_cols2 else [])
                 )
-                st.dataframe(styled2, width="stretch")
-                st.caption(f"{len(pinned)} đã lưu · hiển thị {len(saved_df)}")
+                _saved_sel = st.dataframe(
+                    styled2, width="stretch", on_select="rerun", selection_mode="single-row",
+                )
+                st.caption(f"{len(pinned)} đã lưu · hiển thị {len(saved_df)} · bấm 1 dòng để xem phân tích đầy đủ")
+
+                _saved_sel_rows = _saved_sel.selection.get("rows", []) if _saved_sel else []
+                if _saved_sel_rows:
+                    _saved_clicked = saved_disp.iloc[_saved_sel_rows[0]]["Mã"]
+                    if st.button(f"→ Xem phân tích đầy đủ: {_saved_clicked}",
+                                 key="wl_saved_view_click", type="primary"):
+                        st.session_state["hm_navigate_to"] = _saved_clicked
+                        st.rerun()
 
                 # Remove button
                 _rem2 = rem_col.text_input("Xóa mã", placeholder="e.g. VNM",
