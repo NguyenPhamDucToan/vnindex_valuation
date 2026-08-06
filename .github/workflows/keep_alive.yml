@@ -48,15 +48,26 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Pinned exact: an unpinned `pip install playwright` can resolve a
+      # newer release on a later run than whatever populated the Chromium
+      # cache below. The cache key never accounted for that -- it only
+      # changes when this YAML file changes -- so a plain version bump on
+      # PyPI silently desynced the cached browser build from what the freshly
+      # -installed client library expects, and every run failed with
+      # "BrowserType.launch: Executable doesn't exist at .../chromium_headless
+      # _shell-NNNN/..." until something happened to invalidate the cache.
+      # Pinning here, and baking the pin into the cache key, means a future
+      # manual version bump is what invalidates the cache (as intended)
+      # instead of an untracked upstream release doing it silently.
       - name: Install Playwright package
-        run: pip install playwright
+        run: pip install playwright==1.62.0
 
       - name: Cache Chromium browser binary
         id: pw-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('.github/workflows/keep_alive.yml') }}
+          key: playwright-chromium-${{ runner.os }}-1.62.0
 
       - name: Install Chromium (only on cache miss)
         if: steps.pw-cache.outputs.cache-hit != 'true'
