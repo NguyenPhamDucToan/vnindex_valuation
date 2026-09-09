@@ -85,24 +85,47 @@ def step2_load_financials(tickers: list[str], force: bool = False) -> None:
     ok = skip = fail = 0
     for i, ticker in enumerate(to_fetch, 1):
         prefix = f"[{i}/{len(to_fetch)}] {ticker}"
-        try:
-            # Quarterly
-            df_q = fetch_financials(ticker, n_periods=_N_QUARTERS, freq="quarter")
-            n_q = upsert_financials(ticker, df_q)
 
-            # Annual
-            df_y = fetch_financials(ticker, n_periods=_N_ANNUAL, freq="year")
-            n_y = upsert_financials(ticker, df_y)
+        # vnstock's rate limiter calls sys.exit(), which raises SystemExit --
+        # a BaseException that `except Exception` does not catch. This loop used
+        # to have only that clause, so one throttle killed the whole run. It
+        # matters far more now that a weekly refresh sweeps every ticker rather
+        # than only the handful that had never been loaded. Same retry shape as
+        # step3_load_prices.
+        done = False
+        for attempt in range(1, 4):
+            try:
+                # Quarterly
+                df_q = fetch_financials(ticker, n_periods=_N_QUARTERS, freq="quarter")
+                n_q = upsert_financials(ticker, df_q)
 
-            if n_q == 0 and n_y == 0:
-                logger.warning(f"{prefix}: no data returned")
-                skip += 1
-            else:
-                logger.info(f"{prefix}: {n_q}Q + {n_y}Y rows stored")
-                ok += 1
+                # Annual
+                df_y = fetch_financials(ticker, n_periods=_N_ANNUAL, freq="year")
+                n_y = upsert_financials(ticker, df_y)
 
-        except Exception as e:
-            logger.error(f"{prefix}: FAILED — {e}")
+                if n_q == 0 and n_y == 0:
+                    logger.warning(f"{prefix}: no data returned")
+                    skip += 1
+                else:
+                    logger.info(f"{prefix}: {n_q}Q + {n_y}Y rows stored"
+                                + (f" [attempt {attempt}]" if attempt > 1 else ""))
+                    ok += 1
+                done = True
+                break
+
+            except SystemExit:
+                logger.warning(f"{prefix}: rate limit hit (attempt {attempt}) — "
+                               f"sleeping {_RATE_LIMIT_SLEEP}s")
+                time.sleep(_RATE_LIMIT_SLEEP)
+
+            except Exception as e:
+                logger.error(f"{prefix}: FAILED — {e}")
+                fail += 1
+                done = True  # a real error, not a throttle: don't retry
+                break
+
+        if not done:
+            logger.error(f"{prefix}: gave up after 3 rate-limit retries")
             fail += 1
 
         if i < len(to_fetch):

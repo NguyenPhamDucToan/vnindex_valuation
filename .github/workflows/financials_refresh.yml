@@ -1,0 +1,60 @@
+name: Weekly financials refresh
+
+# The daily job only touches prices; nothing re-fetched the quarterly reports,
+# so the database froze at whatever quarter each ticker was first loaded with.
+# This picks up newly published quarters. Weekly is the right cadence -- a
+# company files four times a year -- and the script only fetches tickers that
+# are actually behind, so outside earnings season it finishes in seconds.
+on:
+  schedule:
+    # 05:00 UTC Sunday = 12:00 ICT Sunday. Clear of every other job: the
+    # weekday price refresh (09:03 UTC Mon-Fri), the macro refresh (02:00 UTC
+    # Sunday) and the web repo's slow refresh (18:00 UTC Saturday), so nothing
+    # contends for the same vnstock rate limit. Monday's deploy then publishes
+    # the new quarter.
+    - cron: "0 5 * * 0"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Which tickers to fetch"
+        default: behind
+        type: choice
+        options: [behind, all]
+      lag:
+        description: "Days after quarter end before a quarter is expected"
+        default: "40"
+        type: string
+
+# A second run while one is fetching would double the request rate and get
+# both throttled; queue instead, and never kill one mid-sweep.
+concurrency:
+  group: financials-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    # 403 tickers x 2 requests at the 1.5s delay is ~35 min when the API is
+    # healthy. Each throttle costs a 90s sleep on top, so the cap is generous
+    # rather than tight -- a run cancelled at 90% has thrown away the whole
+    # sweep and still leaves the quarter missing.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch newly published quarters
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONIOENCODING: utf-8
+        run: |
+          ARGS="--lag ${{ inputs.lag || '40' }}"
+          if [ "${{ inputs.mode }}" = "all" ]; then ARGS="$ARGS --all"; fi
+          python run_financials_refresh.py $ARGS
