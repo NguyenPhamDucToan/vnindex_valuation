@@ -100,7 +100,19 @@ def profit_growth(net_income_now: float, net_income_prev: float) -> Optional[flo
 # ---------------------------------------------------------------------------
 
 def profit_quality(operating_cf: float, net_income: float) -> Optional[float]:
-    """OCF / Net income. ≥ 1.0 = good; < 0.8 = earnings quality risk."""
+    """OCF / Net income. ≥ 1.0 = good; < 0.8 = earnings quality risk.
+
+    Undefined when the company lost money: "how much of the profit is backed by
+    cash" has no answer when there is no profit, and dividing two negatives
+    manufactures a flattering positive. TCI (OCF -666bn, net income -2bn) scored
+    328.74x, which compute_quality_score clamps to a perfect 10/10 on this
+    metric -- the most cash-destroying names in the market came out looking like
+    the highest earnings quality. Five of them, ST8 and TVB included, were
+    pushed over the quality-45 line and shown as "Buy". None returns them to
+    "not measurable", which the score already handles by averaging the rest.
+    """
+    if net_income is None or net_income <= 0:
+        return None
     return _safe(operating_cf, net_income)
 
 
@@ -271,7 +283,9 @@ RISK_FLAGS = {
     "liquidity":       lambda ocf, cl:    ocf / cl < 0.2 if cl else False,
     "debt_dependency": lambda ocf, int_:  ocf / int_ < 3.0 if int_ else False,
     "over_investment": lambda ocf, capex: ocf < capex,
-    "profit_quality":  lambda ocf, ni:    ocf / ni < 0.8 if ni else False,
+    # ni > 0, not just truthy: a loss makes the ratio meaningless, and the sign
+    # flip turned cash-burning loss-makers into "no risk here".
+    "profit_quality":  lambda ocf, ni:    ocf / ni < 0.8 if (ni and ni > 0) else False,
 }
 
 
@@ -287,7 +301,8 @@ def check_risk_flags(
         "liquidity_risk":      bool(current_liabilities and operating_cf / current_liabilities < 0.2),
         "debt_dependency_risk": bool(interest_expense and operating_cf / interest_expense < 3.0),
         "over_investment_risk": bool(capex and operating_cf < capex),
-        "profit_quality_risk":  bool(net_income and operating_cf / net_income < 0.8),
+        "profit_quality_risk":  bool(net_income and net_income > 0
+                                     and operating_cf / net_income < 0.8),
     }
 
 
