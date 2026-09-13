@@ -37,6 +37,16 @@ from models.schema import Financial
 # deadlines without chasing a quarter the whole market has yet to publish.
 DEFAULT_LAG_DAYS = 40
 
+# A quarter is not final when it is first filed. Vietnamese issuers publish
+# unaudited quarterly figures and correct them afterwards, and the half-year and
+# annual reports go through review: BMI restated 2026-Q2 total assets from
+# 8,500.4bn to 8,647.5bn four days after we fetched them. Chasing only the
+# tickers that are MISSING a quarter never picks that up, because they are not
+# missing anything. So while a quarter is still young, the tickers that already
+# have it get refetched too. Measured rate on a 19-ticker sample: one restated,
+# so this is a small correction that is nonetheless invisible without it.
+DEFAULT_RESTATE_DAYS = 120
+
 _QUARTER_END = {1: (3, 31), 2: (6, 30), 3: (9, 30), 4: (12, 31)}
 
 
@@ -72,6 +82,31 @@ def tickers_behind(target: str) -> list[str]:
     return [ticker for ticker, newest in rows if (newest or "") < target]
 
 
+def _quarter_age_days(period: str):
+    """Days since the balance-sheet date of a '2026-Q2' label."""
+    try:
+        year, quarter = period.split("-Q")
+        # _QUARTER_END is keyed by int, as expected_quarter uses it -- looking it
+        # up with the string straight out of split() returned None silently and
+        # disabled the sweep this function gates.
+        month, day = _QUARTER_END[int(quarter)]
+        return (date.today() - date(int(year), month, day)).days
+    except (ValueError, KeyError):
+        return None
+
+
+def _tickers_with_target(target: str) -> list[str]:
+    """Tickers whose newest stored quarter is exactly `target`."""
+    with get_session() as session:
+        rows = session.execute(
+            select(Financial.ticker, func.max(Financial.period))
+            .where(Financial.period_type == "Q")
+            .group_by(Financial.ticker)
+            .order_by(Financial.ticker)
+        ).all()
+    return [ticker for ticker, newest in rows if newest == target]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--all", action="store_true",
@@ -80,6 +115,9 @@ def main() -> None:
                     help=f"days after quarter end before a quarter is expected (default {DEFAULT_LAG_DAYS})")
     ap.add_argument("--skip-shares", action="store_true",
                     help="do not refresh share counts (they move independently of filings)")
+    ap.add_argument("--restate-days", type=int, default=DEFAULT_RESTATE_DAYS,
+                    help=("refetch tickers that already have the expected quarter while it is "
+                          f"younger than this many days (default {DEFAULT_RESTATE_DAYS}; 0 disables)"))
     args = ap.parse_args()
 
     # Share counts first, and unconditionally: a bonus issue changes every
@@ -111,6 +149,20 @@ def main() -> None:
         step2_load_financials(todo, force=True)
     else:
         logger.info("No ticker is missing a quarter.")
+
+    # Restatement sweep, quarterly report only -- annual figures do not move
+    # between the quarterly filings this is checking, and skipping them halves
+    # the API calls.
+    age = _quarter_age_days(target)
+    if args.restate_days and age is not None and age <= args.restate_days:
+        current = [t for t in _tickers_with_target(target) if t not in set(todo)]
+        if current:
+            logger.info(f"{target} is {age} days old — refetching {len(current)} tickers "
+                        f"that already have it, in case they have been restated")
+            step2_load_financials(current, force=True, quarterly_only=True)
+    elif args.restate_days:
+        logger.info(f"{target} is {age} days old, past the {args.restate_days}-day "
+                    f"restatement window — no refetch")
 
     # Always recompute: even with no new filing, a refreshed share count moves
     # every per-share figure -- TRA's DCF halved from 76,882 to 38,444 and its

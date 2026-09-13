@@ -73,8 +73,14 @@ def step1_load_tickers() -> list[str]:
     return tickers
 
 
-def step2_load_financials(tickers: list[str], force: bool = False) -> None:
-    """Fetch financials for all tickers. Skips tickers already loaded unless force=True."""
+def step2_load_financials(tickers: list[str], force: bool = False,
+                          quarterly_only: bool = False) -> None:
+    """Fetch financials for all tickers. Skips tickers already loaded unless force=True.
+
+    quarterly_only halves the API calls by skipping the annual report, which is
+    what a restatement sweep wants: annual figures do not move between the
+    quarterly filings it is checking.
+    """
     logger.info("=== Step 2: Loading financials ===")
     already_loaded = _tickers_with_financials()
     to_fetch = tickers if force else [t for t in tickers if t not in already_loaded]
@@ -100,10 +106,13 @@ def step2_load_financials(tickers: list[str], force: bool = False) -> None:
                 n_q = upsert_financials(ticker, df_q)
 
                 # Annual
-                df_y = fetch_financials(ticker, n_periods=_N_ANNUAL, freq="year")
-                n_y = upsert_financials(ticker, df_y)
+                if quarterly_only:
+                    n_y = 0
+                else:
+                    df_y = fetch_financials(ticker, n_periods=_N_ANNUAL, freq="year")
+                    n_y = upsert_financials(ticker, df_y)
 
-                if n_q == 0 and n_y == 0:
+                if n_q == 0 and n_y == 0 and not quarterly_only:
                     logger.warning(f"{prefix}: no data returned")
                     skip += 1
                 else:
