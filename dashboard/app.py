@@ -856,6 +856,18 @@ def _sector_adjusted_valuations(valuations: dict, ttm: dict | None, sector: str)
     def _ps_val(val_bn, mult):
         return round(val_bn * 1e9 / (shares * 1e6) * mult) if (val_bn and shares > 0) else None
 
+    # Discounted-cash-flow, FCFE and P/OCF assume a business that retains cash
+    # after capex. A bank's operating cash flow is deposit, loan and client-money
+    # movement, so these three come out 6 to 45 times the share price -- CTG at
+    # 1,365,553 VND on DCF, 660,338 on FCFE and 197,677 on P/OCF against a 29,950
+    # VND share. The winsorized mean only clips them to a ceiling, so they still
+    # dragged the average: CTG's model price was 78,677 where the six sound
+    # methods say 60,918. Dropping them moves the 46 financial tickers by a
+    # median of -15.6%.
+    if sector in ("Ngân hàng", "Chứng khoán", "Bảo hiểm"):
+        for _k in ("dcf", "fcfe", "pocf"):
+            v[_k] = None
+
     if sector == "Ngân hàng":
         v["ev_ebitda"] = _ps_val(ttm.get("gross_profit"), 8)   # P/NII ×8
         v["epv"]       = _ps_val(ttm.get("ebit"),          6)   # P/PPOP ×6
