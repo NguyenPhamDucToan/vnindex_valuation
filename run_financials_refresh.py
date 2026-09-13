@@ -28,6 +28,7 @@ from sqlalchemy import func, select
 
 from collectors.bulk_load import step2_load_financials
 from collectors.compute_valuations import run as compute_all
+from collectors.shares import refresh_share_counts
 from models.database import get_session
 from models.schema import Financial
 
@@ -77,7 +78,16 @@ def main() -> None:
                     help="refetch every ticker that has financials, not just the stale ones")
     ap.add_argument("--lag", type=int, default=DEFAULT_LAG_DAYS,
                     help=f"days after quarter end before a quarter is expected (default {DEFAULT_LAG_DAYS})")
+    ap.add_argument("--skip-shares", action="store_true",
+                    help="do not refresh share counts (they move independently of filings)")
     args = ap.parse_args()
+
+    # Share counts first, and unconditionally: a bonus issue changes every
+    # per-share figure the moment it happens, with no filing to signal it. The
+    # reported count only catches up at the next quarter end, and until then
+    # the price is on the new base while the divisor is on the old one.
+    if not args.skip_shares:
+        refresh_share_counts()
 
     target = expected_quarter(date.today(), args.lag)
     logger.info(f"Quarter expected to be published by now: {target}")
@@ -95,17 +105,17 @@ def main() -> None:
         todo = tickers_behind(target)
         logger.info(f"{len(todo)} tickers are missing {target}")
 
-    if not todo:
-        logger.info("Nothing to fetch — every ticker is current. Done.")
-        return
+    if todo:
+        # force=True is the whole point: without it step2 skips every ticker
+        # that already has any rows, which is all of them.
+        step2_load_financials(todo, force=True)
+    else:
+        logger.info("No ticker is missing a quarter.")
 
-    # force=True is the whole point: without it step2 skips every ticker that
-    # already has any rows, which is all of them.
-    step2_load_financials(todo, force=True)
-
-    # Ratios, margins and the DCF all read the financials table, so they are
-    # stale the moment a new quarter lands. Recompute before anyone reads them.
-    logger.info("Financials updated — recomputing valuations...")
+    # Always recompute: even with no new filing, a refreshed share count moves
+    # every per-share figure -- TRA's DCF halved from 76,882 to 38,444 and its
+    # published upside fell from +88% to +3.6% on nothing else.
+    logger.info("Recomputing valuations...")
     compute_all()
 
     still = tickers_behind(target)

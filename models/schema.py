@@ -20,6 +20,14 @@ class Company(Base):
     exchange = Column(String(10), default="HOSE")
     listed_date = Column(Date)
     is_active = Column(Boolean, default=True)
+    # Shares outstanding as the exchange reports them today, which is not what
+    # the newest quarterly report says: a bonus issue between the balance-sheet
+    # date and now leaves the reported count stale, and every per-share figure
+    # derived from it -- DCF, Graham, EPS, market cap -- is then wrong by the
+    # issue ratio. Refreshed weekly by collectors/shares.py; compute_ttm prefers
+    # it over the reported count whenever it is at least as recent.
+    shares_outstanding_current = Column(Float)   # millions, same unit as Financial
+    shares_updated_at = Column(Date)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     prices = relationship("Price", back_populates="company", cascade="all, delete-orphan")

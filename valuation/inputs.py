@@ -16,8 +16,22 @@ from sqlalchemy import select
 
 from config import TAX_RATE
 from models.database import get_session
-from models.schema import Financial
+from models.schema import Company, Financial
 from valuation.wacc import DEFAULT_COD
+
+_QUARTER_END = {"1": (3, 31), "2": (6, 30), "3": (9, 30), "4": (12, 31)}
+
+
+def _period_end(period: str):
+    """Balance-sheet date behind a '2026-Q2' label, or None if unparseable."""
+    from datetime import date as _date
+    try:
+        year, quarter = str(period).split("-Q")
+        month, day = _QUARTER_END[quarter]
+        return _date(int(year), month, day)
+    except (ValueError, KeyError):
+        return None
+
 
 # Flow items: summed across the 4 quarters for TTM
 _FLOW = [
@@ -51,6 +65,11 @@ def compute_ttm(ticker: str) -> dict | None:
         ).scalars().all()
         # Convert to plain dicts inside the session to avoid DetachedInstanceError
         rows = [{c: getattr(r, c) for c in _cols} for r in orm_rows]
+        live = session.execute(
+            select(Company.shares_outstanding_current, Company.shares_updated_at)
+            .where(Company.ticker == ticker)
+        ).first()
+        live_shares, live_at = (live[0], live[1]) if live else (None, None)
 
     if not rows:
         return None
@@ -65,6 +84,18 @@ def compute_ttm(ticker: str) -> dict | None:
     # Take most recent value for balance-sheet items (rows[0] = most recent)
     for col in _STOCK:
         ttm[col] = rows[0].get(col)
+
+    # The reported share count is only true as of its balance-sheet date. A
+    # bonus issue after that leaves it stale while the price has already halved,
+    # so every per-share figure downstream is wrong by the issue ratio -- TRA
+    # published a +88% upside on nothing but that. Prefer the exchange's live
+    # count when it is at least as recent as the report it would replace.
+    if live_shares and live_at:
+        end = _period_end(rows[0].get("period") or "")
+        if end is None or live_at >= end:
+            ttm["shares_outstanding"] = float(live_shares)
+            ttm["shares_source"] = "live"
+    ttm.setdefault("shares_source", "reported")
 
     # NWC change: latest quarter vs oldest available (≈ 1-year delta for ΔNWC)
     def _nwc(r: dict) -> float | None:
