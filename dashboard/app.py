@@ -1173,7 +1173,8 @@ def load_valuation_screen_data() -> pd.DataFrame:
 
             qs = compute_quality_score(
                 v.roe, v.net_margin, v.profit_quality,
-                v.fcf_margin, v.current_ratio, v.debt_to_equity
+                v.fcf_margin, v.current_ratio, v.debt_to_equity,
+                sector=sector_map.get(v.ticker),
             )
 
             records.append({
@@ -1306,7 +1307,8 @@ def load_sector_data() -> pd.DataFrame:
 
             qs = compute_quality_score(
                 v.roe, v.net_margin, v.profit_quality,
-                v.fcf_margin, v.current_ratio, v.debt_to_equity
+                v.fcf_margin, v.current_ratio, v.debt_to_equity,
+                sector=sector_map.get(v.ticker),
             )
 
             rows.append({
@@ -5691,7 +5693,8 @@ if view == "Phân tích Cổ phiếu":
                 ).first()
             if _vrow:
                 _qs_v = compute_quality_score(_vrow[0], _vrow[1], _vrow[2],
-                                              _vrow[3], _vrow[4], _vrow[5])
+                                              _vrow[3], _vrow[4], _vrow[5],
+                                              sector=load_sector_map().get(ticker))
                 _sig_v = classify_signal((_vrow[6] or 0) / 100, _qs_v)
 
             def _ev_card(title, main, sub, color, note=""):

@@ -186,10 +186,23 @@ def _quarter_end_date(period: str) -> pd.Timestamp:
     return pd.Timestamp(f"{yr}-{mo:02d}-{calendar.monthrange(yr, mo)[1]}")
 
 
+def _sector_of(ticker: str) -> str | None:
+    """Sector for the quality score, which grades financials on their own bars."""
+    from models.database import get_session
+    from models.schema import Company
+    with get_session() as session:
+        row = session.execute(
+            select(Company.sector).where(Company.ticker == ticker)).first()
+    return row[0] if row else None
+
+
 def backtest_ticker(ticker: str) -> list[dict]:
     rows = _load_q_rows(ticker)
     if len(rows) < 4:
         return []
+    # Score the same way production does, or the backtest measures a different
+    # rule than the one the app publishes.
+    sector = _sector_of(ticker)
 
     price_df = _load_price_df(ticker)
     if price_df.empty:
@@ -215,6 +228,7 @@ def backtest_ticker(ticker: str) -> list[dict]:
             fcf_margin(ttm.get("fcf"), ttm.get("revenue")),
             current_ratio(ttm.get("current_assets"), ttm.get("current_liabilities")),
             debt_to_equity(ttm.get("debt"), ttm.get("equity")),
+            sector=sector,
         )
 
         snapshots.append({"period": period, "date": dt, "avg_value": avg_val, "quality": qs})

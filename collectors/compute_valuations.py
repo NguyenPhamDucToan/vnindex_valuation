@@ -173,10 +173,22 @@ def compute_valuation_row(ticker: str, calc_date: date) -> dict | None:
     ta = ttm.get("total_assets")
     eq = ttm.get("equity")
 
-    gm = gross_margin(gp, rev)
-    opm = operating_margin(ebit, rev)
-    ebm = ebitda_margin(ebitda_v, rev)
-    nm = net_margin(ni, rev)
+    # A margin is only meaningful if the revenue it divides by is a real
+    # denominator. MHC books 0.6bn of revenue against 694bn of assets -- its
+    # profit comes from financial investments, not from selling anything -- and
+    # dividing a 107bn result by it produced a net margin of 18,716%. PTC came
+    # out at 75,592%. Asset turnover separates these cleanly: the market median
+    # is 0.53 and the fifth percentile 0.032, with only six tickers under 0.01
+    # and a natural gap right there (NTL 0.0084, then HQC 0.0121). Banks sit at
+    # 0.025 and up, so the test leaves them alone. Below the line the revenue
+    # line says nothing and the margins are left undefined rather than absurd.
+    _rev_material = bool(rev and ta and ta > 0 and abs(rev) / ta >= 0.01)
+    _mrev = rev if _rev_material else None
+
+    gm = gross_margin(gp, _mrev)
+    opm = operating_margin(ebit, _mrev)
+    ebm = ebitda_margin(ebitda_v, _mrev)
+    nm = net_margin(ni, _mrev)
     roe_v = roe(ni, eq)
     roa_v = roa(ni, ta)
     at = asset_turnover(rev, ta)
@@ -193,8 +205,8 @@ def compute_valuation_row(ticker: str, calc_date: date) -> dict | None:
     pay = ttm.get("payables")
 
     pq = profit_quality(ocf, ni)
-    ocf_rev = ocf_to_revenue(ocf, rev)
-    fm = fcf_margin(fcf_v, rev)
+    ocf_rev = ocf_to_revenue(ocf, _mrev)
+    fm = fcf_margin(fcf_v, _mrev)
     fy = fcf_yield(fcf_v, ta)
     cc = capex_coverage(ocf, capex)
     fc = fcf_conversion(fcf_v, ocf)
