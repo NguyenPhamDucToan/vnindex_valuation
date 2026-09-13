@@ -336,6 +336,14 @@ def upsert_financials(ticker: str, df: pd.DataFrame) -> int:
     value_cols = [c for c in df.columns if c not in meta_cols]
     upserted = 0
 
+    # vnstock leaves a missing line item as NaN, and Postgres stores NaN happily
+    # in a double precision column -- 440 of them had accumulated. compute_ttm
+    # skips None but not NaN, and sum([1.0, nan]) is nan, so a single missing
+    # quarter discarded the other three: AAT had operating cash flow of 292.4,
+    # -132.5 and 57.4 thrown away because 2025-Q3 was NaN. NULL is what "we do
+    # not have this number" means in a database.
+    df = df.astype(object).where(pd.notna(df), None)
+
     with get_session() as session:
         existing = {
             (r[0], r[1])

@@ -12,6 +12,8 @@ Workflow:
 """
 from __future__ import annotations
 
+import math
+
 from sqlalchemy import select
 
 from config import TAX_RATE
@@ -76,14 +78,24 @@ def compute_ttm(ticker: str) -> dict | None:
 
     ttm: dict = {"ticker": ticker, "period": "TTM", "n_quarters": len(rows)}
 
-    # Sum flow items over available quarters
+    # Sum flow items over available quarters. NaN is filtered alongside None:
+    # rows written before collectors/financials.py started coercing it still
+    # carry NaN, and one of them would turn the whole sum into NaN rather than
+    # simply being the quarter we do not have.
+    def _num(v):
+        try:
+            return v is not None and not math.isnan(float(v))
+        except (TypeError, ValueError):
+            return False
+
     for col in _FLOW:
-        vals = [r[col] for r in rows if r.get(col) is not None]
+        vals = [r[col] for r in rows if _num(r.get(col))]
         ttm[col] = sum(vals) if vals else None
 
     # Take most recent value for balance-sheet items (rows[0] = most recent)
     for col in _STOCK:
-        ttm[col] = rows[0].get(col)
+        v = rows[0].get(col)
+        ttm[col] = v if _num(v) else None
 
     # The reported share count is only true as of its balance-sheet date. A
     # bonus issue after that leaves it stale while the price has already halved,
