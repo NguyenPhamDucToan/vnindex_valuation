@@ -11,7 +11,7 @@ on:
 
 jobs:
   refresh:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A healthy full run is ~51 min (641 tickers at the 2s vnstock delay).
     # Repo is public now, so Actions minutes are free/unlimited -- no reason
     # to cut this tight anymore. 150 leaves real headroom for a slow-API day
@@ -20,9 +20,9 @@ jobs:
     # ~90 min of work already sunk, wasting the whole day's refresh).
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: "pip"

@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   refresh:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Measured, not estimated: the first full sweep reached 342 of 403 tickers
     # in 180 minutes and was cancelled at the cap, leaving 57 behind and the
     # market split across two quarters. That is ~26s per ticker, because the
@@ -42,9 +42,9 @@ jobs:
     # tickers and finish in minutes.
     timeout-minutes: 350
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: "pip"

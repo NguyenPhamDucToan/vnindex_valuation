@@ -1,5 +1,11 @@
+# vnstock left PyPI in late September 2026 (4.x's vnai dependency with it) and
+# is now published only on its own index. 5.x keeps the Quote/Company/Finance
+# API; on the free guest tier prices and overviews work, but financial
+# statements and shareholders need a registered API key.
+--extra-index-url https://vnstocks.com/api/packages
+
 # Data collection
-vnstock>=4.0.0
+vnstock>=5,<6
 requests>=2.31.0
 truststore>=0.9.0
 xlrd>=2.0.1
@@ -11,6 +17,8 @@ remotezip>=0.12.0
 # Storage
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
+# SQLAlchemy 2.1 made psycopg 3 the default driver for a bare postgresql:// URL.
+psycopg[binary]>=3.2
 
 # Analysis
 pandas>=2.1.0
