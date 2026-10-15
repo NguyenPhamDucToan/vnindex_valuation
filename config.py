@@ -31,6 +31,14 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "data", "vnindex.db")
 # If DATABASE_URL is set (e.g. Supabase Postgres connection string), use it.
 # Otherwise fall back to the local SQLite file.
 DB_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
+# Name psycopg2 explicitly. SQLAlchemy 2.1 made psycopg 3 the default for a
+# bare postgresql:// URL, and psycopg 3's server-side prepared statements
+# collide behind Supabase's transaction pooler ("prepared statement _pg3_0
+# already exists").
+for _bare in ("postgres://", "postgresql://"):
+    if DB_URL.startswith(_bare):
+        DB_URL = "postgresql+psycopg2://" + DB_URL[len(_bare):]
+        break
 
 # --- Valuation / WACC parameters ---
 # CAPM inputs for Vietnamese market
