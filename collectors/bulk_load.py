@@ -34,8 +34,21 @@ from models.schema import Company, Financial
 # Prices: 1 call/ticker takes ~5-6s already → 2s delay keeps it ~7-8s/req (~8 req/min, safe)
 # Do NOT run financials + prices in parallel — combined rate exceeds limit.
 _FINANCIALS_DELAY = 1.5
-_PRICES_DELAY = 2.0
+# vnstock 5's guest tier allows 10 calls per minute and, unlike 4.x, raises an
+# ordinary exception ("Đã dùng hết hạn mức theo phút") instead of sys.exit().
+# At the old 2s delay every ticker after the 10th each minute failed, so from
+# 2026-10-16 the daily refresh stored almost nothing while reporting success.
+# 6.5s keeps it under 10/min; ~641 tickers then take ~70 minutes.
+_PRICES_DELAY = 6.5
 _RATE_LIMIT_SLEEP = 90  # seconds to sleep when vnstock fires sys.exit() on rate limit
+_QUOTA_SLEEP = 61  # the per-minute quota resets within a minute
+
+
+def _is_quota_error(e: Exception) -> bool:
+    """vnstock 5's per-minute quota error (raised as EntitlementError)."""
+    msg = str(e).lower()
+    return (type(e).__name__ == "RateLimitedError"
+            or "hạn mức theo phút" in msg or "per minute" in msg)
 
 # Number of periods to fetch per ticker
 _N_QUARTERS = 20
@@ -173,6 +186,11 @@ def step3_load_prices(tickers: list[str], force: bool = False) -> None:
                                f"sleeping {_RATE_LIMIT_SLEEP}s")
                 time.sleep(_RATE_LIMIT_SLEEP)
             except Exception as e:
+                if _is_quota_error(e):
+                    logger.warning(f"{prefix}: per-minute quota hit (attempt {attempt}) — "
+                                   f"sleeping {_QUOTA_SLEEP}s")
+                    time.sleep(_QUOTA_SLEEP)
+                    continue
                 logger.error(f"{prefix}: price fetch FAILED — {e}")
                 fail += 1
                 fetched = True  # don't retry non-rate-limit errors
@@ -186,6 +204,10 @@ def step3_load_prices(tickers: list[str], force: bool = False) -> None:
             time.sleep(_PRICES_DELAY)
 
     logger.info(f"Prices done: {ok} ok, {skip} skipped, {fail} failed out of {len(tickers)}")
+    # A run where most tickers failed must not show green: that is how eleven
+    # days of empty refreshes went unnoticed.
+    if fail > len(tickers) // 2:
+        raise SystemExit(f"Price refresh failed for {fail}/{len(tickers)} tickers")
 
 
 def run(
