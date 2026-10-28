@@ -25,4 +25,6 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONIOENCODING: utf-8
+          # vnstock 5.1+ refuses the guest tier on GitHub Actions.
+          VNSTOCK_API_KEY: ${{ secrets.VNSTOCK_API_KEY }}
         run: python run_macro.py
