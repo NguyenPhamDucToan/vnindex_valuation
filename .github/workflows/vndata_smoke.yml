@@ -1,0 +1,79 @@
+name: vndata live check
+
+# The unit tests patch every source out, so they cannot tell whether VCI, SSI
+# and VNDirect still answer GitHub's runners -- which is what every scheduled
+# job depends on. This makes one real call per kind of data through vndata and
+# fails on the first that does not come back, minutes after a change to vndata
+# and every Monday before the price refresh, instead of during it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "vndata/**"
+      - ".github/workflows/vndata_smoke.yml"
+  schedule:
+    # 08:00 UTC Monday, an hour before the weekday price refresh.
+    - cron: "0 8 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install pandas requests
+
+      - name: Call every source once
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python - <<'PY'
+          import sys, time
+          from datetime import date, timedelta
+          from vndata import Company, Finance, Listing, Market, Quote, Trading
+
+          end = date.today().isoformat()
+          start = (date.today() - timedelta(days=20)).isoformat()
+          checks = {
+              "VCI prices (VCB)": lambda: Quote("VCB").history(start=start, end=end),
+              "VCI index (VNINDEX)": lambda: Quote("VNINDEX").history(start=start, end=end),
+              "SSI prices (fallback)": lambda: Quote("VCB")._ssi(date.fromisoformat(start), date.fromisoformat(end), "1D", None),
+              "VCI income statement (HPG)": lambda: Finance("HPG")._get_report("income_statement", limit=50),
+              "VCI balance sheet (VCB)": lambda: Finance("VCB")._get_report("balance_sheet", limit=50),
+              "VCI overview (VCB)": lambda: Company("VCB").overview(),
+              "VCI shareholders (FPT)": lambda: Company("FPT").shareholders(),
+              "VCI news (SSI)": lambda: Company("SSI").news(),
+              "VCI events (SSI)": lambda: Company("SSI").events(),
+              "VCI listing": lambda: Listing().symbols_by_exchange(),
+              "VCI price board (VCB)": lambda: Trading("VCB").price_board(["VCB"]),
+              "VNDirect USD/VND": lambda: Market().forex("USDVND").ohlcv(start=(date.today() - timedelta(days=30)).isoformat(), end=end),
+          }
+          failed = []
+          for name, fn in checks.items():
+              t = time.monotonic()
+              try:
+                  df = fn()
+                  rows = 0 if df is None else len(df)
+                  ok = rows > 0
+                  print(f"{'ok  ' if ok else 'FAIL'} {name}: {rows} rows in {time.monotonic() - t:.1f}s")
+              except Exception as e:
+                  ok = False
+                  print(f"FAIL {name}: {type(e).__name__}: {e}")
+              if not ok:
+                  failed.append(name)
+          if failed:
+              print(f"::error::{len(failed)} source check(s) failed: " + ", ".join(failed))
+              sys.exit(1)
+          print("all sources answered")
+          PY
