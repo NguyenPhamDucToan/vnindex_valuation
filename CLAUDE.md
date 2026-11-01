@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A data pipeline + Streamlit dashboard for valuing HOSE (Ho Chi Minh Stock Exchange, Vietnam)
-listed companies. It fetches financials/prices via `vnstock`, computes DCF/multiples/ratio-based
+listed companies. It fetches financials/prices via the in-repo `vndata` package, computes DCF/multiples/ratio-based
 intrinsic values, stores everything in SQLite (or Postgres/Supabase), and serves an interactive
 dashboard for screening, watchlisting, and per-ticker deep dives.
 
@@ -48,7 +48,7 @@ There is no lint/format command configured in this repo.
 ### Data flow
 
 ```
-vnstock/FireAnt/NSO/SBV/World Bank APIs
+VCI/SSI/VNDirect (vndata), FireAnt/NSO/SBV/World Bank APIs
         |
    collectors/*.py   (fetch + upsert into SQLite/Postgres via models/)
         |
@@ -103,21 +103,28 @@ which is why they're straightforward to unit test in isolation from `models`/`co
   (`SIGNAL_ORDER = ["Strong Buy", ..., "Strong Sell"]`) combining upside % and quality score; used
   by both the dashboard's Watchlist/Screen views and `backtest_signals.py`.
 
-### Rate limiting
+### Market data (`vndata/`) and rate limiting
 
-vnstock's VCI "Guest" tier caps at ~20 requests/minute and raises `SystemExit` (not an exception)
-when throttled — every fetch loop in `collectors/` (bulk_load, financials, prices) catches
-`SystemExit` specifically and sleeps before retrying. Data collection is **always sequential,
-never parallel**, and callers must not remove the inter-request `time.sleep()` calls or run
-financials + prices concurrently, or the whole batch gets rate-limited.
+vnstock is gone. `vndata/` calls the sources' JSON APIs directly with `requests` — VCI for prices,
+statements, company data, listings and the price board; SSI iBoard as the price fallback; VNDirect
+for USD/VND — with no API key. Its classes (`Quote`, `Company`, `Finance`, `Listing`, `Trading`,
+`Market`) keep vnstock's names, signatures and DataFrame columns, and `Finance._get_report` keeps
+vnstock's `item_id` naming (`vndata/_names.py`, verified identical on all ~1,500 VCI titles), so the
+item_id maps in `collectors/financials.py` and the web exporter are unchanged. Prices come back in
+thousands of VND, indices in points. Tests: `tests/test_vndata.py` (offline, patched payloads).
+
+The rate limit that shaped the collectors was vnstock's (Guest tier ~20 requests/minute, raised as
+`SystemExit`); VCI itself served 30 statement calls in 4 s without complaint. The `SystemExit`
+handling and inter-request `time.sleep()` calls in `collectors/` are still in place and harmless —
+keep collection sequential until a CI run has shown VCI tolerates more from GitHub's runners.
 
 ### Dashboard (`dashboard/app.py`)
 
 Single large Streamlit file (~7.5k lines). Structure to know:
 - `load_*` functions are the DB read layer (most are `@st.cache_data`-wrapped queries feeding the
   UI — grep for `load_` to find the data a given screen uses).
-- `vnstock_call()` / `vnstock_throttle()` wrap any live (non-cached) vnstock call made directly
-  from the dashboard (e.g. live quotes, intraday index) with the same retry/backoff discipline as
+- `vnstock_call()` / `vnstock_throttle()` (names kept from the vnstock era) wrap any live
+  (non-cached) `vndata` call made directly from the dashboard (e.g. live quotes, intraday index) with the same retry/backoff discipline as
   the collectors.
 - `dashboard/heatmap_component/` is a small custom Streamlit component (Plotly treemap with
   click-to-select-ticker) — `index.html` is the component's JS/HTML, wired up via

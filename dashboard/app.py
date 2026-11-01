@@ -1499,7 +1499,7 @@ def load_vnindex_prices(days: int = 504) -> "pd.DataFrame":
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock import Quote
+            from vndata import Quote
             from datetime import date, timedelta
             end = date.today().strftime("%Y-%m-%d")
             start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -1619,7 +1619,7 @@ def _finance_client(ticker: str):
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock.explorer.vci.financial import Finance
+            from vndata import Finance
             return vnstock_call(lambda: Finance(ticker, period="quarter", show_log=False))
     except (Exception, SystemExit):
         return None
@@ -1686,7 +1686,7 @@ def load_analyst_recommendation(ticker: str) -> dict:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock import Company
+            from vndata import Company
             ov = Company(symbol=ticker, source="VCI").overview()
             if ov is None or ov.empty:
                 return {}
@@ -1710,7 +1710,7 @@ def load_company_news(ticker: str) -> "pd.DataFrame":
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock import Company
+            from vndata import Company
             df = Company(symbol=ticker, source="VCI").news()
         if df is None or df.empty:
             return pd.DataFrame()
@@ -1729,7 +1729,7 @@ def load_company_events(ticker: str) -> "pd.DataFrame":
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock import Company
+            from vndata import Company
             df = Company(symbol=ticker, source="VCI").events()
         if df is None or df.empty:
             return pd.DataFrame()
@@ -1780,26 +1780,28 @@ def load_shareholders(ticker: str):
     import warnings
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from vnstock import Company
+        from vndata import Company
         co = Company(symbol=ticker, source="VCI")
         return co.shareholders(), co.officers()
 
 
 @st.cache_data(ttl=600)
 def load_bank_kbs_data(ticker: str) -> "pd.DataFrame":
-    """Fetch KBS balance sheet + income for banking stocks.
+    """Fetch balance sheet + income for banking stocks.
 
     Returns a DataFrame indexed by period label (e.g. 'Q1/26') with columns:
       interest_income, interest_expense, nii, net_profit, operating_expenses,
       provision, deposits, sbv_borrowings, interbank_borrowings, total_assets
-    All values in VND billions.
+    All values in VND billions. Read from VCI (vndata) since vnstock was
+    dropped; it was KBS before, so expenses now arrive negative, as VCI
+    reports them. Nothing calls this at the moment.
     """
     import warnings, re
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock import Finance
-            fin = Finance(symbol=ticker, source="KBS")
+            from vndata import Finance
+            fin = Finance(symbol=ticker)
             inc = fin.income_statement(period="quarter")
             bal = fin.balance_sheet(period="quarter")
     except Exception:
@@ -1839,15 +1841,15 @@ def load_bank_kbs_data(ticker: str) -> "pd.DataFrame":
         bp = p if p in bal_cols else None
         rows.append({
             "period": _fmt(p),
-            "interest_income":      _get(inc, "interest_income_and_similar_income", p),
-            "interest_expense":     _get(inc, "interest_expense_and_similar_expenses", p),
+            "interest_income":      _get(inc, "interest_and_similar_income", p),
+            "interest_expense":     _get(inc, "interest_and_similar_expenses", p),
             "nii":                  _get(inc, "net_interest_income", p),
-            "net_profit":           _get(inc, "net_profit", p),
-            "operating_expenses":   _get(inc, "operating_expenses", p),
+            "net_profit":           _get(inc, "net_profit_loss_after_tax", p),
+            "operating_expenses":   _get(inc, "general_and_admin_expenses", p),
             "provision":            _get(inc, "provision_for_credit_losses", p),
             "deposits":             _get(bal, "deposits_from_customers", bp) if bp else None,
-            "sbv_borrowings":       _get(bal, "due_to_government_and_borrowings_from_the_state_bank_of_vietnam", bp) if bp else None,
-            "interbank_borrowings": _get(bal, "placements_and_borrowings_from_other_credit_institutions", bp) if bp else None,
+            "sbv_borrowings":       _get(bal, "due_to_gov_and_loans_from_sbv", bp) if bp else None,
+            "interbank_borrowings": _get(bal, "deposits_and_loans_from_other_credit_institutions", bp) if bp else None,
             "total_assets":         _get(bal, "total_assets", bp) if bp else None,
         })
 
@@ -2058,7 +2060,7 @@ _INDEX_SYMBOLS = ["VNINDEX", "HNXINDEX"]
 
 
 def _fetch_one_index_intraday(sym: str, today, week_ago) -> tuple[str, dict | None]:
-    from vnstock import Quote
+    from vndata import Quote
     from concurrent.futures import ThreadPoolExecutor
     try:
         q = Quote(symbol=sym, source="VCI")
@@ -8705,7 +8707,7 @@ elif view == "Tổng quan Thị trường":
                                       hoverlabel=dict(bgcolor="#ffffff", bordercolor="#e2e8f0",
                                                       font=dict(color="#0f172a", size=12)))
                 _responsive_chart(fig_fx, 320, width="stretch")
-                st.caption(f"Nguồn: vnstock (MSN, USD/VND) · Cập nhật đến {_fx_df['period'].iloc[-1]:%d/%m/%Y}")
+                st.caption(f"Nguồn: VNDirect (USD/VND) · Cập nhật đến {_fx_df['period'].iloc[-1]:%d/%m/%Y}")
             else:
                 st.info("Chưa có dữ liệu tỷ giá.")
 

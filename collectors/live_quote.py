@@ -1,4 +1,4 @@
-"""Live (intraday) price snapshot via vnstock's price board.
+"""Live (intraday) price snapshot via VCI's price board (vndata.Trading).
 
 Used by the dashboard to overlay the current market price on top of the
 last stored EOD bar during trading hours.
@@ -67,7 +67,7 @@ def fetch_live_quote(ticker: str) -> dict | None:
     Values are in thousands VND (same convention as Price.close).
     """
     try:
-        from vnstock import Trading
+        from vndata import Trading
         df = Trading(symbol=ticker, source=VNSTOCK_SOURCE).price_board(symbols_list=[ticker])
         if df is None or df.empty:
             return None

@@ -43,7 +43,7 @@ _MIN_RATIO, _MAX_RATIO = 0.5, 20.0
 
 def fetch_issue_share(ticker: str) -> float | None:
     """Shares outstanding today, in millions, or None if unavailable."""
-    from vnstock import Company as VnCompany
+    from vndata import Company as VnCompany
 
     ov = VnCompany(symbol=ticker, source="VCI").overview()
     if ov is None or ov.empty or "issue_share" not in ov.columns:

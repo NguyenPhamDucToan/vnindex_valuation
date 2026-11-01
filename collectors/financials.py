@@ -74,7 +74,7 @@ def _get(df: pd.DataFrame, item_id: str, period_col: str, scale: float = 1e9) ->
 def _fetch_vci(ticker: str, freq: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from vnstock.explorer.vci.financial import Finance
+        from vndata import Finance
         fin = Finance(ticker, period=freq, show_log=False)
         income   = fin._get_report("income_statement", period=freq, lang="en", show_log=False, limit=_API_LIMIT)
         balance  = fin._get_report("balance_sheet",    period=freq, lang="en", show_log=False, limit=_API_LIMIT)

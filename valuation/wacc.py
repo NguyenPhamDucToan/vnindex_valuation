@@ -54,7 +54,7 @@ def compute_beta(ticker: str, days: int = 252) -> float:
     """Compute beta from daily price history: β = Cov(R_stock, R_market) / Var(R_market).
 
     Uses 'days' most-recent trading days from the Price table (stock) and
-    vnstock VNINDEX (market). Falls back to DEFAULT_BETA on any error or
+    VCI VNINDEX via vndata (market). Falls back to DEFAULT_BETA on any error or
     insufficient data (< 60 observations).
     """
     try:
@@ -85,10 +85,10 @@ def compute_beta(ticker: str, days: int = 252) -> float:
         start = pd.to_datetime(stock_df["date"].iloc[0]).strftime("%Y-%m-%d")
         end   = pd.to_datetime(stock_df["date"].iloc[-1]).strftime("%Y-%m-%d")
 
-        # ── VNINDEX prices from vnstock ───────────────────────────
+        # ── VNINDEX prices from VCI ───────────────────────────────
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from vnstock import Quote
+            from vndata import Quote
             vni_raw = Quote(symbol="VNINDEX", source="VCI").history(
                 start=start, end=end, interval="1D"
             )

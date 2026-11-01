@@ -808,7 +808,7 @@ def collect_labor(max_pages: int = 5) -> int:
 
 
 def collect_exchange_rate(days: int = 1825) -> int:
-    """Fetch daily USD/VND exchange rate via vnstock (MSN source) and upsert.
+    """Fetch daily USD/VND exchange rate (VNDirect, via vndata) and upsert.
 
     Replaces World Bank's wb_exchange_rate, which is annual and lags 1-2
     years — this is daily and current to the last trading day. Not an
@@ -820,13 +820,13 @@ def collect_exchange_rate(days: int = 1825) -> int:
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        from vnstock import Market
+        from vndata import Market
         end = _date.today().strftime("%Y-%m-%d")
         start = (_date.today() - _timedelta(days=days)).strftime("%Y-%m-%d")
         df = Market().forex(symbol="USDVND").ohlcv(start=start, end=end, resolution="1D")
 
     if df is None or df.empty:
-        logger.warning("No USD/VND exchange rate data returned from vnstock")
+        logger.warning("No USD/VND exchange rate data returned from VNDirect")
         return 0
 
     rows = [
@@ -835,7 +835,7 @@ def collect_exchange_rate(days: int = 1825) -> int:
             "period": pd.to_datetime(row["time"]).date(),
             "value": round(float(row["close"]), 1),
             "unit": "VND",
-            "source_url": "vnstock (MSN source, USDVND)",
+            "source_url": "https://api-finfo.vndirect.com.vn/v4/currencies (USD_VND)",
         }
         for _, row in df.iterrows() if pd.notna(row["close"])
     ]

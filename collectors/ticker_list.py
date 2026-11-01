@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pandas as pd
 from loguru import logger
-from vnstock import Listing
+from vndata import Listing
 
 from config import EXCHANGE, VNSTOCK_SOURCE
 from models.database import get_session
@@ -15,7 +15,7 @@ def fetch_ticker_list() -> pd.DataFrame:
 
     Columns: symbol, organ_name, exchange, sector (industry_name from ICB)
     """
-    logger.info("Fetching ticker list from vnstock...")
+    logger.info("Fetching ticker list from VCI...")
     listing = Listing(source=VNSTOCK_SOURCE)
 
     df = listing.symbols_by_exchange()
@@ -45,8 +45,14 @@ def upsert_companies(df: pd.DataFrame) -> int:
                 session.add(company)
             company.name = row.get("organ_name") or row.get("short_name") or ticker
             company.exchange = row.get("exchange", EXCHANGE)
-            company.sector = row.get("industry_name") or row.get("sector") or None
-            company.industry = row.get("industry_name") or row.get("industry") or None
+            # Only fill a blank sector. The stored names ("SX Nhựa - Hóa chất",
+            # "Chứng khoán", ...) predate the ICB names VCI now serves, and the
+            # dashboard's sector logic keys on them; overwriting would re-sector
+            # tickers that are already right.
+            if not company.sector:
+                company.sector = row.get("industry_name") or row.get("sector") or None
+            if not company.industry:
+                company.industry = row.get("industry_name") or row.get("industry") or None
             company.is_active = True
             upserted += 1
     logger.info(f"Upserted {upserted} companies")

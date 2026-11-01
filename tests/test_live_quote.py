@@ -77,7 +77,7 @@ def test_fetch_live_quote_success():
     """
     df = _make_price_board_df()
 
-    with patch("vnstock.Trading") as mock_trading:
+    with patch("vndata.Trading") as mock_trading:
         mock_trading.return_value.price_board.return_value = df
         result = fetch_live_quote("VNM")
 
@@ -94,7 +94,7 @@ def test_fetch_live_quote_success():
 def test_fetch_live_quote_zero_price_returns_none():
     df = _make_price_board_df({("match", "match_price"): 0.0})
 
-    with patch("vnstock.Trading") as mock_trading:
+    with patch("vndata.Trading") as mock_trading:
         mock_trading.return_value.price_board.return_value = df
         result = fetch_live_quote("VNM")
 
@@ -102,7 +102,7 @@ def test_fetch_live_quote_zero_price_returns_none():
 
 
 def test_fetch_live_quote_empty_df_returns_none():
-    with patch("vnstock.Trading") as mock_trading:
+    with patch("vndata.Trading") as mock_trading:
         mock_trading.return_value.price_board.return_value = pd.DataFrame()
         result = fetch_live_quote("VNM")
 
@@ -110,7 +110,7 @@ def test_fetch_live_quote_empty_df_returns_none():
 
 
 def test_fetch_live_quote_none_df_returns_none():
-    with patch("vnstock.Trading") as mock_trading:
+    with patch("vndata.Trading") as mock_trading:
         mock_trading.return_value.price_board.return_value = None
         result = fetch_live_quote("VNM")
 
@@ -118,7 +118,7 @@ def test_fetch_live_quote_none_df_returns_none():
 
 
 def test_fetch_live_quote_exception_returns_none():
-    with patch("vnstock.Trading") as mock_trading:
+    with patch("vndata.Trading") as mock_trading:
         mock_trading.side_effect = RuntimeError("API down")
         result = fetch_live_quote("VNM")
 
@@ -133,7 +133,7 @@ def test_fetch_live_quote_missing_optional_fields_fall_back_to_price():
         ("match", "reference_price"): None,
     })
 
-    with patch("vnstock.Trading") as mock_trading:
+    with patch("vndata.Trading") as mock_trading:
         mock_trading.return_value.price_board.return_value = df
         result = fetch_live_quote("VNM")
 

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import pandas as pd
 from loguru import logger
 from sqlalchemy import select, func
-from vnstock import Quote
+from vndata import Quote
 
 from config import VNSTOCK_SOURCE
 from models.database import get_session
