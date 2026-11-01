@@ -91,6 +91,10 @@ class Financial(Base):
     debt = Column(Float)             # Total interest-bearing debt
     cash = Column(Float)             # Tiền và tương đương tiền
     retained_earnings = Column(Float) # Lợi nhuận chưa phân phối (code 421)
+    # Banks only: gross customer loans and the reserve held against them, so the
+    # valuation can tell a bank whose book is provisioned from one whose is not.
+    gross_loans = Column(Float)        # Cho vay khách hàng (gross)
+    loan_loss_reserve = Column(Float)  # Dự phòng rủi ro cho vay khách hàng, positive
 
     # --- Cash flow ---
     operating_cf = Column(Float)     # Tiền thuần từ HĐKD (line 18)

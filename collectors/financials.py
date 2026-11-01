@@ -246,6 +246,9 @@ def _extract_bank(income, balance, cashflow, p: str) -> dict:
     cash                = gb("cash_and_precious_metals")
     retained_earnings   = gb("retained_earnings")
     loans_net           = gb("loans_and_advances_to_customers_net")  # loan book
+    gross_loans         = gb("loans_and_advances_to_customers")
+    _llr                = gb("less_provision_for_losses_on_loans_and_advances_to_customers")
+    loan_loss_reserve   = abs(_llr) if _llr is not None else None
     deposits            = gb("deposits_from_customers")
     interbank_borrow    = gb("deposits_and_loans_from_other_credit_institutions")
     sbv_loans           = gb("due_to_gov_and_loans_from_sbv")
@@ -285,6 +288,7 @@ def _extract_bank(income, balance, cashflow, p: str) -> dict:
         "shares_outstanding": shares_outstanding,
         "operating_cf": operating_cf, "capex": capex, "fcf": fcf,
         "investing_cf": investing_cf, "financing_cf": financing_cf,
+        "gross_loans": gross_loans, "loan_loss_reserve": loan_loss_reserve,
     }
 
 
