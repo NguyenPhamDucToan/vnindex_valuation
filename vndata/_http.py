@@ -51,7 +51,32 @@ def _site_headers(url: str) -> dict:
     return {}
 
 
+# Circuit breaker, per host. A host that stops answering costs ~100s a call
+# (three attempts at a 30s timeout), and the collectors call per ticker, so a
+# source blocking GitHub's runners would run every job past its time limit
+# instead of failing. After _TRIP_AFTER calls in a row fail outright, calls to
+# that host fail at once for _OPEN_S seconds, then one call probes it again.
+_TRIP_AFTER = 3
+_OPEN_S = 120.0
+_BLOCKED_STATUS = {401, 403}
+_host_fails: dict[str, int] = {}
+_host_open_until: dict[str, float] = {}
+
+
+def _host(url: str) -> str:
+    return url.split("/")[2] if "://" in url else url
+
+
+def _failed(host: str) -> None:
+    _host_fails[host] = _host_fails.get(host, 0) + 1
+    if _host_fails[host] >= _TRIP_AFTER:
+        _host_open_until[host] = time.monotonic() + _OPEN_S
+
+
 def _request(method: str, url: str, **kw):
+    host = _host(url)
+    if time.monotonic() < _host_open_until.get(host, 0.0):
+        raise SourceError(f"{host} skipped: {_host_fails.get(host)} failed calls in a row")
     headers = {**_site_headers(url), **kw.pop("headers", {})}
     last: Exception | None = None
     for attempt in range(ATTEMPTS):
@@ -66,11 +91,20 @@ def _request(method: str, url: str, **kw):
             last = SourceError(f"{r.status_code} from {url}")
             continue
         if r.status_code != 200:
+            # 404 and the like are per-request answers; 401/403 mean the host
+            # is refusing us, which is what the breaker is for.
+            if r.status_code in _BLOCKED_STATUS:
+                _failed(host)
             raise SourceError(f"{r.status_code} from {url}")
         try:
-            return r.json()
+            data = r.json()
         except ValueError as e:
             last = SourceError(f"non-JSON reply from {url}: {e}")
+            continue
+        _host_fails[host] = 0
+        _host_open_until.pop(host, None)
+        return data
+    _failed(host)
     raise last if last else SourceError(f"no reply from {url}")
 
 

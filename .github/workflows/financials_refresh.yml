@@ -37,10 +37,10 @@ jobs:
     # Measured, not estimated: the first full sweep reached 342 of 403 tickers
     # in 180 minutes and was cancelled at the cap, leaving 57 behind and the
     # market split across two quarters. That is ~26s per ticker, because the
-    # throttle sleeps dominate, not the 1.5s delay. 350 covers a full 403-ticker
-    # sweep at that rate with room to spare; ordinary weeks touch a handful of
-    # tickers and finish in minutes.
-    timeout-minutes: 350
+    # throttle sleeps dominate, not the 1.5s delay. 360 (the hosted-runner
+    # maximum) covers a full 403-ticker sweep at that rate with room to spare;
+    # ordinary weeks touch a handful of tickers and finish in minutes.
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v5
 

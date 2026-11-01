@@ -41,7 +41,7 @@ on:
 jobs:
   wake:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 20
     steps:
       - name: Set up Python
         uses: actions/setup-python@v6

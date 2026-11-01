@@ -131,6 +131,63 @@ def test_quote_is_empty_when_sources_just_have_no_rows():
         assert Quote("VCB").history(start="2026-11-01", end="2026-11-01").empty
 
 
+class _Resp:
+    def __init__(self, status, body=None):
+        self.status_code, self._body = status, body
+
+    def json(self):
+        return self._body
+
+
+def _breaker_reset(h):
+    h._host_fails.clear()
+    h._host_open_until.clear()
+
+
+def test_breaker_fails_fast_after_repeated_failures():
+    import requests
+    from vndata import _http as h
+    from vndata import SourceError
+    _breaker_reset(h)
+    sent = {"n": 0}
+
+    def down(*_a, **_k):
+        sent["n"] += 1
+        raise requests.ConnectionError("unreachable")
+
+    with patch.object(h._get_session(), "request", side_effect=down), \
+         patch("vndata._http.time.sleep"):
+        for _ in range(10):
+            with pytest.raises((SourceError, requests.RequestException)):
+                h.get_json("https://iq.vietcap.com.vn/x")
+    # Three calls of three attempts each, then the breaker answers alone.
+    assert sent["n"] == h._TRIP_AFTER * h.ATTEMPTS
+    _breaker_reset(h)
+
+
+def test_breaker_trips_on_403_and_recovers_after_success():
+    from vndata import _http as h
+    from vndata import SourceError
+    _breaker_reset(h)
+    with patch.object(h._get_session(), "request", return_value=_Resp(403)):
+        for _ in range(h._TRIP_AFTER):
+            with pytest.raises(SourceError):
+                h.get_json("https://iq.vietcap.com.vn/x")
+    assert h._host_open_until.get("iq.vietcap.com.vn")
+    # Once the open window has passed, a successful probe closes it again.
+    h._host_open_until["iq.vietcap.com.vn"] = 0.0
+    with patch.object(h._get_session(), "request", return_value=_Resp(200, {"ok": 1})):
+        assert h.get_json("https://iq.vietcap.com.vn/x") == {"ok": 1}
+    assert h._host_fails["iq.vietcap.com.vn"] == 0
+    # A 404 is an answer about one request, not about the host.
+    with patch.object(h._get_session(), "request", return_value=_Resp(404)):
+        for _ in range(5):
+            with pytest.raises(SourceError):
+                h.get_json("https://iq.vietcap.com.vn/x")
+    assert h._host_fails["iq.vietcap.com.vn"] == 0
+    _breaker_reset(h)
+
+
 def test_company_overview_keeps_vnstock_columns():
     details = {"data": {"ticker": "VCB", "viOrganName": "Vietcombank", "enOrganName": "VCB",
                         "numberOfSharesMktCap": 8.0e9, "issueShare": 8.0e9,
