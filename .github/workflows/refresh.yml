@@ -12,8 +12,10 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-24.04
-    # A healthy full run is ~51 min (641 tickers at the 2s vnstock delay).
-    # Repo is public now, so Actions minutes are free/unlimited -- no reason
+    # Was ~55-100 min under vnstock 5's 10-calls/minute quota; with vndata
+    # (VCI directly, 1s between tickers) the price sweep is ~15 min plus the
+    # valuation pass. The web repo's deploy waits for this run to finish
+    # before exporting, so a late start here only delays it. Repo is public now, so Actions minutes are free/unlimited -- no reason
     # to cut this tight anymore. 150 leaves real headroom for a slow-API day
     # instead of getting cancelled mid-run (happened at the old 90 cap on
     # 2026-08-05: a run that needed a bit more than 90 min got killed with

@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
+import requests
 
 from ._http import SourceError, get_json, post_json
 
@@ -89,14 +90,21 @@ class Quote:
             raise ValueError("start is after end")
 
         df = pd.DataFrame(columns=COLUMNS)
+        errors = []
         for fetch in (self._vci, self._ssi):
             try:
                 df = fetch(start_d, end_d, interval, count_back)
-            except (SourceError, KeyError, TypeError, ValueError):
+            except (SourceError, requests.RequestException, KeyError, TypeError, ValueError) as e:
+                errors.append(f"{fetch.__name__.strip('_')}: {e}")
                 continue
             if not df.empty:
                 break
         if df.empty:
+            # Every source failing is an error, not "no rows": returning an
+            # empty frame here would let a blocked runner count every ticker
+            # as fetched-with-nothing-new and the daily refresh stay green.
+            if len(errors) == 2:
+                raise SourceError(f"{self.symbol}: " + "; ".join(errors))
             return pd.DataFrame(columns=COLUMNS)
         days = df["time"].dt.date
         df = df[(days >= start_d) & (days <= end_d)]

@@ -34,12 +34,13 @@ from models.schema import Company, Financial
 # Prices: 1 call/ticker takes ~5-6s already → 2s delay keeps it ~7-8s/req (~8 req/min, safe)
 # Do NOT run financials + prices in parallel — combined rate exceeds limit.
 _FINANCIALS_DELAY = 1.5
-# vnstock 5's guest tier allows 10 calls per minute and, unlike 4.x, raises an
-# ordinary exception ("Đã dùng hết hạn mức theo phút") instead of sys.exit().
-# At the old 2s delay every ticker after the 10th each minute failed, so from
-# 2026-10-16 the daily refresh stored almost nothing while reporting success.
-# 6.5s keeps it under 10/min; ~641 tickers then take ~70 minutes.
-_PRICES_DELAY = 6.5
+# Was 6.5s for vnstock 5's guest tier (10 calls/minute), which stretched the
+# daily refresh to ~70 minutes for ~641 tickers and pushed the web deploy back
+# to wait it out. Prices now come from VCI directly through vndata, which has
+# no such quota (30 calls in 4s without complaint), so 1s is just politeness:
+# the whole sweep takes ~15 minutes. vndata raises when VCI and SSI both fail,
+# so a blocked runner shows up as failed tickers below, not as an empty green run.
+_PRICES_DELAY = 1.0
 _RATE_LIMIT_SLEEP = 90  # seconds to sleep when vnstock fires sys.exit() on rate limit
 _QUOTA_SLEEP = 61  # the per-minute quota resets within a minute
 

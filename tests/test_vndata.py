@@ -117,6 +117,20 @@ def test_quote_falls_back_to_ssi():
     assert df["close"].tolist() == [57.2]
 
 
+def test_quote_raises_when_every_source_fails():
+    from vndata import SourceError
+    with patch("vndata.quote.post_json", side_effect=SourceError("403 from VCI")), \
+         patch("vndata.quote.get_json", side_effect=SourceError("403 from SSI")):
+        with pytest.raises(SourceError):
+            Quote("VCB").history(start="2026-10-29", end="2026-10-29")
+
+
+def test_quote_is_empty_when_sources_just_have_no_rows():
+    with patch("vndata.quote.post_json", return_value=[]), \
+         patch("vndata.quote.get_json", return_value={"data": {"s": "no_data"}}):
+        assert Quote("VCB").history(start="2026-11-01", end="2026-11-01").empty
+
+
 def test_company_overview_keeps_vnstock_columns():
     details = {"data": {"ticker": "VCB", "viOrganName": "Vietcombank", "enOrganName": "VCB",
                         "numberOfSharesMktCap": 8.0e9, "issueShare": 8.0e9,
