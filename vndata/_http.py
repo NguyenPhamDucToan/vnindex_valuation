@@ -58,7 +58,10 @@ def _site_headers(url: str) -> dict:
 # that host fail at once for _OPEN_S seconds, then one call probes it again.
 _TRIP_AFTER = 3
 _OPEN_S = 120.0
-_BLOCKED_STATUS = {401, 403}
+# 418 is what VCI's firewall answers once it decides a caller is a bot (seen
+# 2026-11-02 after ~90 company calls at 0.5s apart); back off at once rather
+# than keep knocking.
+_BLOCKED_STATUS = {401, 403, 418}
 _host_fails: dict[str, int] = {}
 _host_open_until: dict[str, float] = {}
 
@@ -91,8 +94,8 @@ def _request(method: str, url: str, **kw):
             last = SourceError(f"{r.status_code} from {url}")
             continue
         if r.status_code != 200:
-            # 404 and the like are per-request answers; 401/403 mean the host
-            # is refusing us, which is what the breaker is for.
+            # 404 and the like are per-request answers; 401/403/418 mean the
+            # host is refusing us, which is what the breaker is for.
             if r.status_code in _BLOCKED_STATUS:
                 _failed(host)
             raise SourceError(f"{r.status_code} from {url}")
