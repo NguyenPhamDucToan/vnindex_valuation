@@ -13,8 +13,12 @@ Workflow:
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+
+if TYPE_CHECKING:          # pandas is imported where it is used; this is for the annotation
+    import pandas as pd
 
 from config import TAX_RATE
 from models.database import get_session

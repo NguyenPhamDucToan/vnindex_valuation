@@ -32,6 +32,8 @@ python run_prices_then_valuations.py    # prices + valuations only (financials a
 python run_macro.py                     # macro indicators (SBV, World Bank)
 python -m collectors.bulk_load --tickers-only   # just refresh the ticker/company list
 python -m collectors.compute_valuations --tickers VNM FPT VIC  # recompute specific tickers
+python run_ticker_refresh.py            # weekly (financials_refresh.yml): ticker list, retire delisted, statements for new listings
+python -m quality.audit [--dry-run]     # daily (refresh.yml): stale prices, missing quarters, unit errors -> data_quality_log
 
 # Scheduled/background refresh (blocking process)
 python daily_refresh.py --now     # run once immediately, then keep the scheduler running

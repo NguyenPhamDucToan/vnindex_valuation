@@ -38,3 +38,15 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONIOENCODING: utf-8
         run: python run_prices_then_valuations.py
+
+      # Data quality audit (quality/audit.py): stale prices, missing quarters,
+      # unit errors. Appends to data_quality_log; the web export turns the
+      # latest run into data/quality.json and a badge. Findings never fail the
+      # job -- it runs even when the refresh failed, which is when it matters.
+      - name: Data quality audit
+        if: always()
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONIOENCODING: utf-8
+        run: python -m quality.audit

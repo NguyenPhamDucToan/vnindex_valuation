@@ -16,7 +16,10 @@ on:
     paths:
       - "valuation/**"
       - "collectors/**"
+      - "vndata/**"
+      - "dashboard/**"
       - "tests/**"
+      - "*.py"
       - "requirements.txt"
       - ".github/workflows/tests.yml"
   pull_request:
@@ -36,6 +39,15 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      # Only errors that would crash at runtime: syntax errors and undefined
+      # names. Added 2026-11-06 after it found `func` used where the dashboard
+      # imports `sqlfunc` -- a NameError swallowed by an except, which had kept
+      # the watchlist signal alerts silent since July. Style rules stay off.
+      - name: Lint for runtime errors
+        run: |
+          pip install ruff
+          ruff check --select E9,F63,F7,F82 .
 
       - name: Run tests
         env:

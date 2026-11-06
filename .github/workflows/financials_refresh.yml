@@ -52,6 +52,18 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      # New listings and expired warrants: the ticker list used to be loaded only
+      # by hand, so a company that listed later never entered the database and a
+      # delisted one kept being price-fetched. First run (2026-11) adds 8 shares
+      # (BVB, DMX, ...) plus new warrants and retires 163 tickers (BCG, TCD, VNE
+      # and expired warrants). Failing here must not cost the quarter refresh.
+      - name: Refresh the ticker list and load new listings
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONIOENCODING: utf-8
+        run: python run_ticker_refresh.py
+
       - name: Fetch newly published quarters
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

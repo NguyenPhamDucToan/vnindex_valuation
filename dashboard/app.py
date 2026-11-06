@@ -2513,6 +2513,13 @@ view = st.sidebar.radio("View", VIEWS, key="view_selector", on_change=_on_view_c
 # Keep the URL in sync so the current view (and, once selected below, ticker)
 # can be shared/bookmarked/reloaded back to the same place.
 st.query_params["view"] = view
+# Every view publishes model prices and buy/sell signals, so say once, on every
+# page, that none of it is investment advice (same wording as the static site).
+st.sidebar.caption(
+    "Thông tin chỉ để tham khảo, **không phải khuyến nghị mua, bán hay nắm giữ** "
+    "cổ phiếu nào. Giá mô hình tính tự động, có thể sai hoặc chậm cập nhật. "
+    "Bạn tự chịu trách nhiệm với quyết định đầu tư của mình."
+)
 
 # ── Startup signal alerts for pinned (watchlist) tickers ─────────────────────
 if not st.session_state.get("_signal_alerts_shown"):
@@ -2521,29 +2528,26 @@ if not st.session_state.get("_signal_alerts_shown"):
         _pinned_for_alert = get_pinned_tickers()
         if _pinned_for_alert:
             from valuation.signals import classify_signal as _cls_sig
+            # Latest row per ticker through a grouped subquery. This used to
+            # call `func`, which is imported here as `sqlfunc`, so every visit
+            # raised a NameError that the except below swallowed and these
+            # alerts never showed (since 2026-07-08); its correlated subquery
+            # also compared each column with itself and matched every date.
+            _lv = (select(Valuation.ticker, sqlfunc.max(Valuation.calc_date).label("d"))
+                   .where(Valuation.ticker.in_(_pinned_for_alert))
+                   .group_by(Valuation.ticker).subquery())
+            _lp = (select(Price.ticker, sqlfunc.max(Price.date).label("d"))
+                   .where(Price.ticker.in_(_pinned_for_alert))
+                   .group_by(Price.ticker).subquery())
             with get_session() as _as:
                 _vrows = _as.execute(
-                    select(
-                        Valuation.ticker,
-                        Valuation.avg_intrinsic_value,
-                        Valuation.quality_score if hasattr(Valuation, "quality_score") else Valuation.roe,
-                    ).where(
-                        Valuation.ticker.in_(_pinned_for_alert),
-                        Valuation.calc_date == select(func.max(Valuation.calc_date))
-                            .where(Valuation.ticker == Valuation.ticker).correlate(Valuation).scalar_subquery(),
-                    )
+                    select(Valuation.ticker, Valuation.avg_intrinsic_value)
+                    .join(_lv, (Valuation.ticker == _lv.c.ticker) & (Valuation.calc_date == _lv.c.d))
                 ).all()
-                _price_rows = {
-                    r[0]: r[1]
-                    for r in _as.execute(
-                        select(Price.ticker, Price.close)
-                        .where(
-                            Price.ticker.in_(_pinned_for_alert),
-                            Price.date == select(func.max(Price.date))
-                                .where(Price.ticker == Price.ticker).correlate(Price).scalar_subquery(),
-                        )
-                    ).all()
-                }
+                _price_rows = dict(_as.execute(
+                    select(Price.ticker, Price.close)
+                    .join(_lp, (Price.ticker == _lp.c.ticker) & (Price.date == _lp.c.d))
+                ).all())
             for _row in _vrows:
                 _tkr, _avg_iv = _row[0], _row[1]
                 _close = _price_rows.get(_tkr)

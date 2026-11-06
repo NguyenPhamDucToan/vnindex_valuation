@@ -205,3 +205,22 @@ class MacroIndicator(Base):
         UniqueConstraint("indicator", "period", name="uq_macro_indicator_period"),
         Index("ix_macro_indicator_period", "indicator", "period"),
     )
+
+
+class DataQualityLog(Base):
+    """One finding of quality/audit.py: a stale price, a missing quarter, a
+    figure that looks like a unit error. Each run appends its findings under one
+    run_at, so the latest run is `WHERE run_at = max(run_at)`."""
+    __tablename__ = "data_quality_log"
+
+    id       = Column(Integer, primary_key=True, autoincrement=True)
+    run_at   = Column(DateTime, nullable=False)
+    rule     = Column(String(40), nullable=False)    # e.g. "stale_price"
+    severity = Column(String(10), nullable=False)    # "error" | "warn" | "info" (run marker)
+    ticker   = Column(String(12))                    # None for a market-wide finding
+    detail   = Column(String(300))
+    value    = Column(Float)
+
+    __table_args__ = (
+        Index("ix_dq_run_at", "run_at"),
+    )
