@@ -128,3 +128,24 @@ def test_a_clean_run_still_leaves_a_marker(session):
     session.commit()
     (row,) = session.query(DataQualityLog).all()
     assert (row.rule, row.severity, row.value) == ("audit_run", "info", 0.0)
+
+
+def test_quarters_that_do_not_add_up_to_the_annual_report(session):
+    days = _sessions(5)
+    _market(session, days)
+    for t, annual_ni in (("REC", 100.0), ("ADJ", 140.0)):
+        session.add(Company(ticker=t, name=t, exchange="HOSE", is_active=True))
+        for d in days:
+            session.add(Price(ticker=t, date=d, open=10, high=10, low=10, close=10, volume=1, adjusted_close=10))
+        for q in range(1, 5):
+            session.add(Financial(ticker=t, period=f"2025-Q{q}", period_type="Q", revenue=250.0,
+                                  net_income=25.0, total_assets=1000, equity=500, shares_outstanding=10))
+        session.add(Financial(ticker=t, period="2025", period_type="Y", revenue=1000.0,
+                              net_income=annual_ni))
+        # An older year that disagrees is not reported -- only the newest.
+        session.add(Financial(ticker=t, period="2024", period_type="Y", revenue=1.0, net_income=1.0))
+    session.add(Valuation(ticker="REC", calc_date=days[-1]))
+    session.commit()
+    f = [x for x in run_checks(session, TODAY) if x[0] == "ttm_annual_gap"]
+    assert [(x[2], x[3].split()[0]) for x in f] == [("ADJ", "net_income")]
+    assert f[0][4] == pytest.approx(40 / 140, abs=1e-4)

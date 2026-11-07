@@ -29,6 +29,11 @@ funds file no statements and trade too thinly for a staleness test):
   bad_balance      error  shares outstanding missing or <= 0, or total assets
                           below equity in the newest quarter
   negative_equity  warn   equity <= 0 in the newest quarter (can be genuine)
+  ttm_annual_gap   warn   the four quarters of the newest full year sum to a
+                          revenue or net income more than 5% (and 5bn) away from
+                          the annual report -- usually an audit adjustment the
+                          quarterly filings never picked up, which the TTM
+                          figures (built from quarters) then carry
   valuations_stale error  the newest valuation run predates the newest prices
 
     python -m quality.audit [--dry-run]
@@ -54,6 +59,8 @@ UNIT_JUMP = 3.0            # one-day close ratio that can only be a scale error
 GAP = 0.15                 # one-day move beyond this is a corporate action or an error
 FIN_UNIT_JUMP = 20.0
 REVENUE_UNIT_JUMP = 1000.0
+RECON_PCT = 0.05           # quarters vs annual report, relative
+RECON_MIN_BN = 5.0         # ... and absolute, so a 1bn company's rounding is not flagged
 KEEP_DAYS = 60             # runs older than this are deleted
 _MIN_TICKERS_FOR_A_SESSION = 100   # a date counts as a session once this many shares traded
 
@@ -162,6 +169,35 @@ def run_checks(session, today: date | None = None) -> list[tuple]:
         elif assets is not None and equity is not None and float(assets) < float(equity):
             out.append(("bad_balance", "error", t,
                         f"{period}: total assets {assets} below equity {equity}", None))
+
+    # ── quarters vs the annual report (newest full year) ──────────────────
+    annual = session.execute(
+        select(Financial.ticker, Financial.period, Financial.revenue, Financial.net_income)
+        .where(Financial.period_type == "Y")).all()
+    newest_year: dict[str, tuple] = {}
+    for t, period, rev, ni in annual:
+        if _is_share(t) and (t not in newest_year or str(period) > str(newest_year[t][0])):
+            newest_year[t] = (str(period), rev, ni)
+    q_flow = {(t, str(p)): (r, n) for t, p, r, n in session.execute(
+        select(Financial.ticker, Financial.period, Financial.revenue, Financial.net_income)
+        .where(Financial.period_type == "Q")).all()}
+    active_set = set(active)
+    for t, (year, rev_y, ni_y) in sorted(newest_year.items()):
+        if t not in active_set:
+            continue
+        qs = [q_flow.get((t, f"{year}-Q{i}")) for i in range(1, 5)]
+        if not all(qs):
+            continue
+        for idx, name, annual_v in ((0, "revenue", rev_y), (1, "net_income", ni_y)):
+            vals = [q[idx] for q in qs]
+            if annual_v is None or any(v is None for v in vals):
+                continue
+            a, s4 = float(annual_v), sum(float(v) for v in vals)
+            gap = abs(s4 - a)
+            if a and gap > RECON_MIN_BN and gap / abs(a) > RECON_PCT:
+                out.append(("ttm_annual_gap", "warn", t,
+                            f"{name} {year}: quarters sum {s4:,.1f}bn, annual report {a:,.1f}bn",
+                            round(gap / abs(a), 4)))
 
     # ── valuations ───────────────────────────────────────────────────────
     last_val = session.execute(select(func.max(Valuation.calc_date))).scalar()
