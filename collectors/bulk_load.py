@@ -25,7 +25,8 @@ from sqlalchemy import func, select
 
 from collectors.ticker_list import fetch_ticker_list, upsert_companies
 from collectors.financials import fetch_financials, upsert_financials
-from collectors.prices import fetch_prices, upsert_prices, incremental_start_date
+from collectors.prices import (fetch_prices, upsert_prices, stored_range, stored_closes,
+                               rebase_ratio, needs_rebase, OVERLAP_DAYS)
 from models.database import get_session
 from models.schema import Company, Financial
 
@@ -162,21 +163,37 @@ def step3_load_prices(tickers: list[str], force: bool = False) -> None:
     logger.info("=== Step 3: Loading price history ===")
     today = date.today()
 
-    ok = skip = fail = 0
+    ok = skip = fail = rebased = 0
     for i, ticker in enumerate(tickers, 1):
         prefix = f"[{i}/{len(tickers)}] {ticker}"
-        start = today - timedelta(days=365 * 5) if force else incremental_start_date(ticker)
-        if start > today:
+        first, last = stored_range(ticker)
+        full_from = min(first, today - timedelta(days=365 * 5)) if first else today - timedelta(days=365 * 5)
+        if force or last is None:
+            start = full_from
+        elif last >= today:
             logger.debug(f"{prefix}: prices up to date, skipping")
             skip += 1
             continue
+        else:
+            # Re-read an overlap: if VCI now prices those days differently it
+            # has adjusted for an entitlement, and the whole history is reloaded.
+            start = last - timedelta(days=OVERLAP_DAYS)
 
         fetched = False
         for attempt in range(1, 4):  # up to 3 attempts
             try:
                 df = fetch_prices(ticker, start, today)
+                note = ""
+                if not force and last is not None:
+                    ratio = rebase_ratio(stored_closes(ticker, start), df)
+                    if needs_rebase(ratio):
+                        full = fetch_prices(ticker, full_from, today)
+                        if not full.empty:
+                            df, start = full, full_from
+                            rebased += 1
+                            note = f" — REBASED x{ratio:.4f}, VCI adjusted the history"
                 count = upsert_prices(ticker, df)
-                logger.info(f"{prefix}: {count} price rows stored (from {start})"
+                logger.info(f"{prefix}: {count} price rows stored (from {start}){note}"
                             + (f" [attempt {attempt}]" if attempt > 1 else ""))
                 ok += 1
                 fetched = True
@@ -204,7 +221,8 @@ def step3_load_prices(tickers: list[str], force: bool = False) -> None:
         if i < len(tickers):
             time.sleep(_PRICES_DELAY)
 
-    logger.info(f"Prices done: {ok} ok, {skip} skipped, {fail} failed out of {len(tickers)}")
+    logger.info(f"Prices done: {ok} ok ({rebased} rebased), {skip} skipped, "
+                f"{fail} failed out of {len(tickers)}")
     # A run where most tickers failed must not show green: that is how eleven
     # days of empty refreshes went unnoticed.
     if fail > len(tickers) // 2:
