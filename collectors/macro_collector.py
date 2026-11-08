@@ -61,15 +61,37 @@ _YOY_RE_ANCHORED_OLD = re.compile(r"Giá tiêu dùng tháng \S+/\d{4}.{0,80}?so 
 
 # "Lạm phát cơ bản [n] tháng X(/năm) tăng A% so với tháng trước(,| và) tăng B% so với cùng kỳ năm trước"
 _CORE_INFLATION_RE = re.compile(
-    r"Lạm phát cơ bản\s*(?:\[\d+\]\s*)?tháng [^,]+?(tăng|giảm) ([\d,]+)% so với tháng trước,?\s*(?:và )?(tăng|giảm) ([\d,]+)% so với cùng kỳ năm trước"
+    # The footnote mark is "[3]" on the web page but a bare "3" glued to the
+    # word in the PDF text ("Lạm phát cơ bản3 tháng 10/2026 giảm ...").
+    r"Lạm phát cơ bản\s*(?:\[\d+\]\s*|\d\s*)?tháng [^,]+?(tăng|giảm) ([\d,]+)% so với tháng trước,?\s*(?:và )?(tăng|giảm) ([\d,]+)% so với cùng kỳ năm trước"
 )
-# Monthly change of the "Lương thực" (staple foods) CPI sub-group.
+# Monthly change of the "Lương thực" (staple foods) CPI sub-group. The PDF
+# wording ("Chỉ số giá nhóm lương thực tháng 10/2026 giảm 0,57%") is tried first.
+_CPI_FOOD_RE_ANCHORED = re.compile(r"[Cc]hỉ số giá nhóm lương thực(?: tháng [\d/]+)? (tăng|giảm) ([\d,]+)%")
 _CPI_FOOD_RE = re.compile(r"Lương thực (tăng|giảm)(?:\s+(?:mạnh|cao) nhất)?(?:\s+với mức)? ([\d,]+)%")
 # Monthly change of the "Giao thông" (transport) CPI group. The anchored form
 # ("Chỉ số giá nhóm giao thông tăng X%") appears in the per-group (i)-(xi) breakdown
 # and is preferred; the looser fallback matches "(Riêng/Nhóm) giao thông tăng/giảm X%".
-_CPI_TRANSPORT_RE_ANCHORED = re.compile(r"Chỉ số giá nhóm giao thông (tăng|giảm) ([\d,]+)%")
+_CPI_TRANSPORT_RE_ANCHORED = re.compile(r"Chỉ số giá nhóm giao thông(?: tháng [\d/]+)? (tăng|giảm) ([\d,]+)%")
+# Since May 2026 the web page carries only a two-line summary; the full release
+# (core inflation, group breakdown) is the attached PDF.
+_CPI_PDF_RE = re.compile(r'href="(https://www\.nso\.gov\.vn/wp-content/uploads/[^"]+\.pdf)"')
 _CPI_TRANSPORT_RE_FALLBACK = re.compile(r"[Nn]hóm giao thông (tăng|giảm)(?:\s+(?:mạnh|cao) nhất)?(?:\s+với mức)? ([\d,]+)%")
+
+
+def _group_mom_re(group: str) -> re.Pattern:
+    """A group's change explicitly "so với tháng trước". Tried before the looser
+    patterns above, which can hit a quarter/half-year comparison first: June 2026
+    reads "Nhóm giao thông giảm mạnh 4,85% so với tháng trước" but later "Chỉ số
+    giá nhóm giao thông tăng 5,23%" for the 6-month average."""
+    return re.compile(
+        rf"[Nn]hóm {group}(?: tháng [\d/]+)? (tăng|giảm)(?: mạnh| cao)?(?: nhất)?(?: với mức)? ([\d,]+)%"
+        r"(?: \[\d+\])?,?(?: \([^)]{0,80}\))? so với tháng trước"
+    )
+
+
+_CPI_FOOD_RE_MOM = _group_mom_re("lương thực")
+_CPI_TRANSPORT_RE_MOM = _group_mom_re("giao thông")
 
 
 _CPI_BODY_RE = re.compile(r"tiêu dùng(?:\s*\(CPI\))?\s+tháng\s+\S+\s+(?:tăng|giảm)")
@@ -97,6 +119,8 @@ def _cpi_window(text: str) -> str:
 _SLUG_RE_WORD = re.compile(r"thang-(muoi-hai|muoi-mot|mot|hai|ba|tu|nam|sau|bay|tam|chin|muoi)-.*?nam-(\d{4})")
 _SLUG_RE_NUM = re.compile(r"thang-(\d{1,2})-nam-(\d{4})")
 _SLUG_RE_NUM_FALLBACK = re.compile(r"-(\d{1,2})-nam-(\d{4})")
+# "...-thang-9-quy-iii-va-9-thang-nam-2025/": the month comes first, the year last.
+_SLUG_RE_NUM_LOOSE = re.compile(r"thang-(\d{1,2})-.*?nam-(\d{4})")
 _GDP_RE = re.compile(
     r"Tổng sản phẩm trong nước \(GDP\) quý (I{1,3}|IV)(?:/| năm )(\d{4}).{0,150}?([\d,]+)%\s*(?:\[\d+\]\s*)?so với cùng kỳ năm trước"
 )
@@ -158,10 +182,21 @@ _INVESTMENT_RE = re.compile(
     r"(?: theo giá hiện hành)?"
     r".{0,150}?(tăng|giảm|đạt mức tăng) ([\d,]+)%"
 )
+# Half-year and 9-month releases lead with the cumulative figure and give the
+# quarter in brackets: "... chín tháng năm 2026, ước đạt 3.109,6 nghìn tỷ đồng,
+# tăng 15,1% (quý III/2026 ước đạt 1.291,2 nghìn tỷ đồng, tăng 16,7%)".
+_INVESTMENT_RE_QUARTER = re.compile(
+    r"Vốn đầu tư thực hiện toàn xã hội.{0,250}?\(quý (I{1,3}|IV)/(\d{4}) ước đạt [\d.,]+ nghìn tỷ đồng, "
+    r"(tăng|giảm) ([\d,]+)%"
+)
 
 # Quarterly labor market press releases ("lao động, việc làm quý X/YYYY").
 _LABOR_UNEMPLOYMENT_RE = re.compile(
     r"Tỷ lệ thất nghiệp trong độ tuổi lao động quý (I{1,3}|IV)(?:/| năm )(\d{4}) là ([\d,]+)%"
+)
+# Q2/Q3 2026 wording: "Trong quý III/2026, tỷ lệ thất nghiệp trong độ tuổi lao động là 2,22%".
+_LABOR_UNEMPLOYMENT_RE_ALT = re.compile(
+    r"Trong quý (I{1,3}|IV)(?:/| năm )(\d{4}), tỷ lệ thất nghiệp trong độ tuổi lao động là ([\d,]+)%"
 )
 # The quarter/year is sometimes omitted here (annual releases) — reuses the
 # unemployment sentence's period as a fallback when its own groups are empty.
@@ -169,7 +204,7 @@ _LABOR_UNDEREMPLOYMENT_RE = re.compile(
     r"Tỷ lệ thiếu việc làm trong độ tuổi lao động(?: quý (I{1,3}|IV)(?:/| năm )(\d{4}))? là ([\d,]+)%"
 )
 _LABOR_FORCE_RE = re.compile(
-    r"Lực lượng lao động từ 15 tuổi trở lên.{0,30}?quý (I{1,3}|IV)(?:/| năm )(\d{4}) ước tính là ([\d,]+) triệu người"
+    r"Lực lượng lao động từ 15 tuổi trở lên.{0,30}?quý (I{1,3}|IV)(?:/| năm )(\d{4}) ước (?:tính là|tính đạt|đạt) ([\d,]+) triệu người"
 )
 # Primary: quarter and year explicit ("quý I/2024" or "quý I năm 2024")
 _LABOR_INCOME_RE = re.compile(
@@ -241,7 +276,7 @@ def discover_cpi_article_urls(max_pages: int = 10) -> list[str]:
             logger.warning(f"Failed to fetch {list_url}: {e}")
             break
         found = re.findall(
-            r'href="(https://www\.nso\.gov\.vn/du-lieu-va-so-lieu-thong-ke/[^"]*chi-so-gia-tieu-dung[^"]*)"',
+            r'href="(https://www\.nso\.gov\.vn/(?:du-lieu-va-so-lieu-thong-ke|tin-tuc-thong-ke)/[^"]*chi-so-gia-tieu-dung[^"]*)"',
             resp.text,
         )
         if not found:
@@ -257,9 +292,10 @@ def _parse_period(url: str) -> date | None:
     m = _SLUG_RE_NUM.search(url)
     if m:
         return date(int(m.group(2)), int(m.group(1)), 1)
-    m = _SLUG_RE_NUM_FALLBACK.search(url)
-    if m:
-        return date(int(m.group(2)), int(m.group(1)), 1)
+    for rx in (_SLUG_RE_NUM_FALLBACK, _SLUG_RE_NUM_LOOSE):
+        m = rx.search(url)
+        if m and 1 <= int(m.group(1)) <= 12:
+            return date(int(m.group(2)), int(m.group(1)), 1)
     return None
 
 
@@ -303,31 +339,48 @@ def parse_cpi_article(url: str) -> list[dict]:
 
     # The following indicators (core inflation, food/transport sub-groups) appear later
     # in the article, sometimes after the gold-price section that `_cpi_window` cuts off
-    # at — search the full text instead.
+    # at — search the full text instead. Anything the page lacks is looked up in
+    # the attached PDF (the only place it lives since May 2026).
+    extras = _cpi_extras(text)
+    if len(extras) < 3:
+        pdf = _CPI_PDF_RE.search(resp.text)
+        if pdf:
+            for k, v in _cpi_extras(_pdf_text(pdf.group(1))).items():
+                extras.setdefault(k, v)
+    for k in ("core_inflation_yoy", "cpi_food", "cpi_transport"):
+        if k in extras:
+            rows.append({"indicator": k, "period": period, "value": extras[k], "unit": "%", "source_url": url})
+    return rows
+
+
+def _cpi_extras(text: str) -> dict[str, float]:
+    """Core inflation (YoY) and the food/transport groups' monthly change, where found."""
+    out: dict[str, float] = {}
     core = _CORE_INFLATION_RE.search(text)
     if core:
-        rows.append({
-            "indicator": "core_inflation_yoy", "period": period,
-            "value": _to_float(core.group(3), core.group(4)),
-            "unit": "%", "source_url": url,
-        })
-
-    food = _CPI_FOOD_RE.search(text)
+        out["core_inflation_yoy"] = _to_float(core.group(3), core.group(4))
+    food = _CPI_FOOD_RE_MOM.search(text) or _CPI_FOOD_RE_ANCHORED.search(text) or _CPI_FOOD_RE.search(text)
     if food:
-        rows.append({
-            "indicator": "cpi_food", "period": period,
-            "value": _to_float(food.group(1), food.group(2)),
-            "unit": "%", "source_url": url,
-        })
-
-    transport = _CPI_TRANSPORT_RE_ANCHORED.search(text) or _CPI_TRANSPORT_RE_FALLBACK.search(text)
+        out["cpi_food"] = _to_float(food.group(1), food.group(2))
+    transport = (_CPI_TRANSPORT_RE_MOM.search(text) or _CPI_TRANSPORT_RE_ANCHORED.search(text)
+                 or _CPI_TRANSPORT_RE_FALLBACK.search(text))
     if transport:
-        rows.append({
-            "indicator": "cpi_transport", "period": period,
-            "value": _to_float(transport.group(1), transport.group(2)),
-            "unit": "%", "source_url": url,
-        })
-    return rows
+        out["cpi_transport"] = _to_float(transport.group(1), transport.group(2))
+    return out
+
+
+def _pdf_text(url: str) -> str:
+    """Whitespace-collapsed text of a PDF, or "" if it can't be fetched/read."""
+    try:
+        r = requests.get(url, headers=_HEADERS, timeout=60)
+        r.raise_for_status()
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(r.content)) as pdf:
+            text = " ".join((p.extract_text() or "") for p in pdf.pages)
+    except Exception as e:  # network, or a malformed PDF
+        logger.warning(f"Failed to read PDF {url}: {e}")
+        return ""
+    return re.sub(r"\s+", " ", text)
 
 
 def discover_gdp_article_urls(max_pages: int = 3) -> list[str]:
@@ -444,8 +497,13 @@ def parse_gdp_article(url: str) -> list[dict]:
             })
 
     investment = _INVESTMENT_RE.search(text)
-    if investment:
+    if not investment and (iq := _INVESTMENT_RE_QUARTER.search(text)):
+        investment = iq
+        q, qy, verb, val = iq.groups()
+        ay = None
+    elif investment:
         q, qy, ay, verb, val = investment.groups()
+    if investment:
         if q:
             inv_period = date(int(qy), _QUARTER_END_MONTH[q], 1)
         else:
@@ -750,7 +808,7 @@ def parse_labor_article(url: str) -> list[dict]:
     rows: list[dict] = []
     shared_period: date | None = None
 
-    m = _LABOR_UNEMPLOYMENT_RE.search(text)
+    m = _LABOR_UNEMPLOYMENT_RE.search(text) or _LABOR_UNEMPLOYMENT_RE_ALT.search(text)
     if m:
         quarter, year, value = m.group(1), int(m.group(2)), _vn_num(m.group(3))
         shared_period = date(year, _QUARTER_END_MONTH[quarter], 1)
