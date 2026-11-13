@@ -31,12 +31,16 @@ steps = [
     ("NSO labour", lambda: collect_labor(max_pages=1)),
 ]
 
-failed = 0
+failed = rows = 0
 for name, fn in steps:
     try:
-        logger.info(f"{name}: {fn()} rows upserted")
+        n = fn() or 0
+        rows += n
+        logger.info(f"{name}: {n} rows upserted")
     except Exception as e:  # one source failing shouldn't stop the others
         failed += 1
         logger.warning(f"{name} failed: {e}")
-logger.info(f"=== Local macro collection done, {failed} step(s) failed ===")
-sys.exit(1 if failed == len(steps) else 0)
+logger.info(f"=== NSO macro collection done: {rows} rows, {failed} step(s) failed ===")
+# Each run re-reads the newest articles, so a healthy run always upserts rows.
+# Zero means every page was refused or unparseable -- fail so CI shows it red.
+sys.exit(1 if failed == len(steps) or rows == 0 else 0)
