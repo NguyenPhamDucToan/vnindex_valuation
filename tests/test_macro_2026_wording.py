@@ -62,3 +62,22 @@ def test_investment_quarter_in_brackets_of_a_9_month_release():
             "tỷ đồng, tăng 15,1% (quý III/2026 ước đạt 1.291,2 nghìn tỷ đồng, tăng 16,7% ) so với cùng kỳ")
     assert _INVESTMENT_RE.search(text) is None          # the cumulative figure is not taken
     assert _INVESTMENT_RE_QUARTER.search(text).groups() == ("III", "2026", "tăng", "16,7")
+
+
+def test_monthly_report_trade_with_imports_derived():
+    from collectors.macro_collector import parse_ktxh_trade
+    text = ("Xuất khẩu hàng hóa tháng Mười đạt 64,67 tỷ USD, tăng 8,7% so với tháng trước ... "
+            "cán cân thương mại hàng hóa tháng Mười xuất siêu 7,31 tỷ USD, sau khi xuất siêu 1,30 tỷ USD")
+    got = {r["indicator"]: r["value"] for r in parse_ktxh_trade(text, date(2026, 10, 1), "u")}
+    assert got == {"exports": 64.67, "imports": 57.36, "trade_balance": 7.31}
+    deficit = text.replace("xuất siêu 7,31", "nhập siêu 2,5")
+    assert {r["indicator"]: r["value"] for r in parse_ktxh_trade(deficit, date(2026, 10, 1), "u")}["imports"] == 67.17
+
+
+def test_january_compares_with_december_not_the_gold_sentence():
+    from collectors.macro_collector import _MOM_RE_JAN
+    jan = ("chỉ số giá tiêu dùng (CPI) tháng 1/2020 tăng 1,23% so với tháng 12/2019 ... "
+           "Chỉ số giá vàng tháng 1/2020 tăng 4,37% so với tháng trước")
+    assert _MOM_RE_JAN.search(jan).groups() == ("tăng", "1,23")
+    group = "nhóm giao thông giảm 2,12% so với tháng 12/2022"         # a group, not CPI
+    assert _MOM_RE_JAN.search(group) is None

@@ -56,6 +56,9 @@ _YOY_RE_OLD = re.compile(r"[Ss]o với cùng kỳ năm trước,.{0,80}?(tăng|g
 # can't isolate the CPI paragraph (see its docstring), they can match the gold/USD
 # sentence instead. These anchored variants are safe to search on the full article
 # text precisely because they require "Giá tiêu dùng tháng" as a prefix.
+_MOM_RE_JAN = re.compile(
+    r"(?:CPI\)?|[Gg]iá tiêu dùng) tháng 0?1(?:/| năm )\d{4} (tăng|giảm) ([\d,]+)% so với tháng 12(?:/| năm )\d{4}")
+_MOM_RE_JAN2 = re.compile(r"[Tt]rong mức (tăng|giảm) ([\d,]+)% của chỉ số giá tiêu dùng")
 _MOM_RE_ANCHORED = re.compile(r"Giá tiêu dùng tháng \S+/\d{4} so với tháng trước (tăng|giảm) ([\d,]+)%")
 _YOY_RE_ANCHORED_OLD = re.compile(r"Giá tiêu dùng tháng \S+/\d{4}.{0,80}?so với cùng kỳ năm trước (tăng|giảm) ([\d,]+)%")
 
@@ -316,13 +319,27 @@ def parse_cpi_article(url: str) -> list[dict]:
     text = re.sub(r"<[^>]+>", " ", resp.text)
     text = text.replace("&#8211;", "-").replace("&nbsp;", " ")
     text = re.sub(r"\s+", " ", text)
+    # A typo'd decimal ("tăng 0, 45% so với tháng trước", July 2023) let the
+    # optional word in _MOM_RE swallow "0," and read 45%. Rejoin it.
+    text = re.sub(r"(\d), (\d{1,2})%", r"\1,\2%", text)
     cpi_text = _cpi_window(text)
 
     rows = []
     # _MOM_RE_ANCHORED/_YOY_RE_ANCHORED_OLD search the full (unwindowed) text — safe
     # because they require the "Giá tiêu dùng tháng" prefix, so they can't cross over
     # into the gold/USD-price paragraphs the way the unanchored regexes can.
-    mom = _MOM_RE.search(cpi_text) or _MOM_RE_ANCHORED.search(text)
+    # January releases compare with "tháng 12/<prior year>", not "tháng trước";
+    # without this the first "so với tháng trước" is the GOLD price sentence
+    # (Jan 2020 read 4.37%, Jan 2021 2.17%, both gold).
+    mom = None
+    if period.month == 1:
+        body = text[:min((i for i in (text.find("Giá vàng"), text.find("giá vàng tháng"), text.find("Chỉ số giá vàng tháng"))
+                          if i > 0), default=len(text))]
+        mom = _MOM_RE_JAN.search(cpi_text) or _MOM_RE_JAN.search(body) or _MOM_RE_JAN2.search(body)
+    mom = mom or _MOM_RE.search(cpi_text) or _MOM_RE_ANCHORED.search(text)
+    if mom and abs(_to_float(mom.group(1), mom.group(2))) > 10:
+        logger.warning(f"Implausible CPI MoM {mom.group(2)}% in {url}; skipped")
+        mom = None                                # Vietnam's worst month on record is ~4%
     if mom:
         rows.append({
             "indicator": "cpi_mom", "period": period,
@@ -752,7 +769,65 @@ def collect_trade(max_pages: int = 8) -> int:
         _upsert(rows)
         total += len(rows)
     logger.info(f"Upserted {total} trade balance data points")
+    total += collect_trade_monthly_report()
     return total
+
+
+# The monthly socio-economic report ("Báo cáo tình hình kinh tế - xã hội tháng
+# X") carries the month's preliminary trade figures about a week after month
+# end, while the yearly XLS table (above) is often a month or more behind.
+_KTXH_SEARCH = ("https://www.nso.gov.vn/wp-json/wp/v2/posts?search=b%C3%A1o%20c%C3%A1o%20t%C3%ACnh%20h%C3%ACnh"
+                "%20kinh%20t%E1%BA%BF%20x%C3%A3%20h%E1%BB%99i%20th%C3%A1ng&per_page=30&_fields=link")
+_KTXH_SLUG_RE = re.compile(r"/bao-cao-tinh-hinh-kinh-te-xa-hoi-thang-")
+_KTXH_EXPORT_RE = re.compile(r"Xuất khẩu hàng hóa tháng [^,.]{1,15}? (?:ước |sơ bộ )?đạt ([\d,]+) tỷ USD")
+_KTXH_BALANCE_RE = re.compile(
+    r"[Cc]án cân thương mại hàng hóa tháng [^,.]{1,15}? (?:ước tính |sơ bộ )?(xuất siêu|nhập siêu) ([\d,]+) tỷ USD")
+
+
+def parse_ktxh_trade(text: str, period: date, url: str) -> list[dict]:
+    """Exports, imports (= exports - balance) and balance for the report's month."""
+    ex, bal = _KTXH_EXPORT_RE.search(text), _KTXH_BALANCE_RE.search(text)
+    if not (ex and bal):
+        return []
+    exports = _vn_num(ex.group(1))
+    balance = _vn_num(bal.group(2)) * (1 if bal.group(1) == "xuất siêu" else -1)
+    return [{"indicator": k, "period": period, "value": round(v, 3), "unit": "tỷ USD", "source_url": url}
+            for k, v in (("exports", exports), ("imports", exports - balance), ("trade_balance", balance))]
+
+
+def collect_trade_monthly_report() -> int:
+    """Fill months the XLS table doesn't have yet from the monthly reports.
+    Months already in the DB are left alone: the XLS figure is the revised one,
+    and when the XLS catches up it overwrites these preliminary values."""
+    from sqlalchemy import text as _text
+    try:
+        links = [p.get("link", "") for p in requests.get(_KTXH_SEARCH, headers=_HEADERS, timeout=30).json()]
+    except (requests.RequestException, ValueError) as e:
+        logger.warning(f"Monthly report search failed: {e}")
+        return 0
+    with get_session() as s:
+        have = {r[0] for r in s.execute(_text(
+            "SELECT DISTINCT period FROM macro_indicators WHERE indicator = 'exports'")).all()}
+    rows: list[dict] = []
+    for url in dict.fromkeys(u for u in links if _KTXH_SLUG_RE.search(u)):
+        period = _parse_period(url)
+        if period is None or period in have:
+            continue
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=30)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            logger.warning(f"Failed to fetch {url}: {e}")
+            continue
+        text = re.sub(r"\s+", " ", unicodedata.normalize("NFC", re.sub(r"<[^>]+>", " ", resp.text)
+                                                          .replace("&nbsp;", " ")))
+        got = parse_ktxh_trade(text, period, url)
+        if not got:
+            logger.warning(f"Could not parse trade figures from {url}")
+        rows += got
+    _upsert(rows)
+    logger.info(f"Upserted {len(rows)} preliminary monthly trade points from the monthly reports")
+    return len(rows)
 
 
 _LABOR_CAT_ID = 72  # WordPress category "Lao động" on nso.gov.vn (464 posts)
@@ -895,7 +970,10 @@ def collect_exchange_rate(days: int = 1825) -> int:
             "unit": "VND",
             "source_url": "https://api-finfo.vndirect.com.vn/v4/currencies (USD_VND)",
         }
-        for _, row in df.iterrows() if pd.notna(row["close"])
+        # VNDirect sometimes returns 0 or a stray small number for a day
+        # (0.0 on 2026-09-20 and 09-25, 6.7 on 09-22); a USD/VND rate outside
+        # 15,000-50,000 is a feed glitch, not a price.
+        for _, row in df.iterrows() if pd.notna(row["close"]) and 15_000 <= float(row["close"]) <= 50_000
     ]
     _upsert(rows)
     logger.info(f"Upserted {len(rows)} USD/VND exchange rate data points")
