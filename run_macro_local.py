@@ -1,9 +1,10 @@
-"""Collect the nso.gov.vn macro series from THIS machine.
+"""Collect the nso.gov.vn macro series: CPI, GDP, investment, retail, FDI,
+trade and labour. (SBV, exchange rate and World Bank are run_macro.py.)
 
-nso.gov.vn blocks cloud IPs, so the GitHub workflow (run_macro.py) only covers
-SBV, exchange rate and World Bank. CPI, GDP, investment, retail, FDI, trade and
-labour come from here, run daily by a Windows scheduled task
-("vnindex-macro-nso", 18:00 ICT) so the web deploy at 19:30 ICT picks them up.
+Runs in .github/workflows/macro_refresh.yml, job "nso", weekdays 11:00 UTC,
+before the web deploy at 12:30 UTC reads the database. nso.gov.vn refused
+cloud IPs in July 2026; the job probes first, and if the runner is refused
+again this can still be run by hand from a home connection.
 
 Each step only scans the newest listing pages and the upsert is idempotent,
 so a daily run costs a few dozen requests and re-reading old articles is

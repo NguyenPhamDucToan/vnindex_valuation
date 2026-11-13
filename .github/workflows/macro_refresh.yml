@@ -2,12 +2,24 @@ name: Weekly macro data refresh
 
 on:
   schedule:
-    # 02:00 UTC Sunday = 09:00 ICT Sunday
+    # 02:00 UTC Sunday = 09:00 ICT Sunday: SBV, exchange rate, World Bank
     - cron: "0 2 * * 0"
+    # 11:00 UTC Mon-Fri = 18:00 ICT: nso.gov.vn (CPI, GDP, trade, labour), before
+    # the web deploy at 12:30 UTC reads the database
+    - cron: "0 11 * * 1-5"
   workflow_dispatch: {}
+  # Re-run the NSO job when its collector changes, so a fix is checked on a
+  # GitHub runner right away rather than on the next schedule.
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/macro_refresh.yml
+      - run_macro_local.py
+      - collectors/macro_collector.py
 
 jobs:
   macro:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 2 * * 0'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -26,3 +38,33 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONIOENCODING: utf-8
         run: python run_macro.py
+
+  # nso.gov.vn refused cloud IPs in July 2026 (commit c303dd8), so this ran on
+  # a home machine for a while. Probe first: the step fails, visibly, if the
+  # runner is refused again, and the collection is skipped.
+  nso:
+    if: github.event_name != 'schedule' || github.event.schedule == '0 11 * * 1-5'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Can this runner reach nso.gov.vn?
+        run: |
+          code=$(curl -s -o /dev/null -m 40 -w '%{http_code}' -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' https://www.nso.gov.vn/cpi-vi/ || true)
+          echo "nso.gov.vn answered: $code"
+          test "$code" = "200"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Collect NSO series
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONIOENCODING: utf-8
+        run: python run_macro_local.py
