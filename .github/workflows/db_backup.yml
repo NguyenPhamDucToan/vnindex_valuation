@@ -1,0 +1,83 @@
+name: Weekly database backup (encrypted)
+
+# Everything the site shows lives in one Supabase free-tier database (prices,
+# financials, valuations, macro, model snapshots, ~165 MB). A paused or lost
+# project would mean re-collecting years of history, so a compressed pg_dump
+# is kept here every Sunday.
+#
+# The repository is public, and anyone signed in to GitHub can download a
+# public repo's artifacts, so the dump is encrypted (AES-256, gpg symmetric)
+# with the BACKUP_PASSPHRASE secret before it is uploaded; without that secret
+# the job fails rather than upload anything readable. Artifacts are kept 90
+# days (GitHub's maximum), i.e. roughly the last 12 weekly backups.
+#
+# Restore (on any machine with gpg and PostgreSQL 17 client tools):
+#   1. Actions > this workflow > a run > download "db-backup-<date>", unzip
+#   2. gpg --batch --passphrase '<passphrase>' -d vnindex-<date>.dump.gpg > vnindex.dump
+#   3. pg_restore --no-owner --no-privileges --clean --if-exists -d "<new DATABASE_URL>" vnindex.dump
+on:
+  schedule:
+    - cron: "0 3 * * 0"      # Sunday 03:00 UTC, before the Sunday refreshes start writing
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Require the passphrase
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::error::Secret BACKUP_PASSPHRASE is not set; refusing to upload an unencrypted dump."
+            exit 1
+          fi
+
+      # The server is PostgreSQL 17; Ubuntu 24.04 ships client 16, and pg_dump
+      # refuses to dump a newer server. PGDG has the matching client.
+      - name: PostgreSQL 17 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: Dump, check and encrypt
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          D=$(date -u +%F)
+          echo "D=$D" >> "$GITHUB_ENV"
+          # libpq wants a plain postgresql:// URL (no SQLAlchemy driver suffix)
+          URL=$(printf '%s' "$DATABASE_URL" | sed -E 's#^postgres(ql)?(\+[a-z0-9]+)?://#postgresql://#')
+          BIN=/usr/lib/postgresql/17/bin
+          # public schema only: Supabase's own schemas (auth, storage...) are
+          # recreated by Supabase and can't be restored by a normal role anyway.
+          $BIN/pg_dump --format=custom --compress=9 --no-owner --no-privileges --schema=public \
+            --file="vnindex-$D.dump" "$URL"
+          # A dump that lists no table data is not a backup.
+          n=$($BIN/pg_restore --list "vnindex-$D.dump" | grep -c "TABLE DATA" || true)
+          echo "tables with data: $n"
+          [ "$n" -ge 5 ] || { echo "::error::dump has only $n tables with data"; exit 1; }
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$BACKUP_PASSPHRASE" \
+            --symmetric --cipher-algo AES256 --output "vnindex-$D.dump.gpg" "vnindex-$D.dump"
+          rm -f "vnindex-$D.dump"
+          ls -lh "vnindex-$D.dump.gpg"
+          echo "### DB backup $D: $(du -h vnindex-$D.dump.gpg | cut -f1), $n tables (encrypted)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ env.D }}
+          path: vnindex-${{ env.D }}.dump.gpg
+          retention-days: 90
+          compression-level: 0      # already compressed and encrypted
+          if-no-files-found: error
