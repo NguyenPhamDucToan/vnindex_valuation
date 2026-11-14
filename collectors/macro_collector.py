@@ -816,6 +816,11 @@ _KTXH_VISITORS_RE = re.compile(
     r" (?:ước (?:tính )?)?đạt (?:gần |hơn |trên )?([\d.,]+) (triệu|nghìn) lượt")
 _KTXH_FIRMS_RE = re.compile(
     r"Trong tháng [^,]{1,20}, cả nước có (?:gần |hơn |trên )?([\d.,]+)( nghìn)? doanh nghiệp thành lập mới")
+_KTXH_BUDGET_RE = {
+    k: re.compile(w + r" ngân sách [Nn]hà nước " + _M + r" (?:ước (?:tính )?)?đạt (?:gần |hơn |trên |khoảng )?([\d.,]+) nghìn tỷ đồng")
+    for k, w in (("budget_revenue", "Tổng thu"), ("budget_spending", "Tổng chi"),
+                 # public investment disbursed (state budget), the construction stocks' order book
+                 ("public_investment", "Vốn đầu tư thực hiện từ nguồn"))}
 _QMONTH = {"i": 3, "ii": 6, "iii": 9, "iv": 12}
 
 
@@ -847,6 +852,9 @@ def parse_ktxh_activity(text: str, period: date, url: str) -> list[dict]:
     if m := _KTXH_VISITORS_RE.search(text):
         v = _vn_num(m.group(1))
         add("intl_visitors", v if m.group(2) == "triệu" else v / 1000, "tr lượt")
+    for key, rx in _KTXH_BUDGET_RE.items():
+        if m := rx.search(text):
+            add(key, _vn_num(m.group(1)), "nghìn tỷ")
     if m := _KTXH_FIRMS_RE.search(text):
         v = _vn_num(m.group(1))
         add("new_firms", v if m.group(2) else v / 1000, "nghìn DN")

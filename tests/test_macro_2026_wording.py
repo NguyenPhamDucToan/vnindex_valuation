@@ -128,3 +128,13 @@ def test_report_month_from_slug_and_posting_date():
     assert ktxh_period(b + "2026/04/bao-cao-tinh-hinh-kinh-te-xa-hoi-quy-i-nam-2026/") == date(2026, 3, 1)
     # posted 2026/06, slug wrongly says 2025: it is the May 2026 report
     assert ktxh_period(b + "2026/06/bao-cao-tinh-hinh-kinh-te-xa-hoi-thang-nam-va-5-thang-dau-nam-2025-2/") == date(2026, 5, 1)
+
+
+def test_monthly_report_budget():
+    from collectors.macro_collector import parse_ktxh_activity
+    text = ("Tổng thu ngân sách nhà nước tháng Mười ước đạt 251,5 nghìn tỷ đồng. Lũy kế tổng thu ngân sách nhà nước "
+            "mười tháng năm 2026 ước đạt 2.438,9 nghìn tỷ đồng ... Tổng chi ngân sách nhà nước tháng Mười ước đạt "
+            "gần 235,0 nghìn tỷ đồng. Vốn đầu tư thực hiện từ nguồn ngân sách Nhà nước tháng 4/2024 ước đạt gần "
+            "44 nghìn tỷ đồng")
+    got = {r["indicator"]: r["value"] for r in parse_ktxh_activity(text, date(2026, 10, 1), "u")}
+    assert got == {"budget_revenue": 251.5, "budget_spending": 235.0, "public_investment": 44.0}
