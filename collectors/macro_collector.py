@@ -1115,6 +1115,40 @@ def collect_bank_deposit_rates() -> int:
     return len(rows)
 
 
+# SJC gold bar price (1 lượng, Ho Chi Minh City board), the domestic gold
+# price the market quotes; the gap to the world price measures how tight the
+# domestic gold market is. Public JSON behind sjc.com.vn's price board.
+SJC_URL = "https://sjc.com.vn/GoldPrice/Services/PriceService.ashx"
+
+
+def parse_sjc(payload: dict) -> list[dict]:
+    """sjc_gold_buy / sjc_gold_sell in million VND per lượng, dated by the board's update."""
+    m = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", str(payload.get("latestDate") or ""))
+    if not (payload.get("success") and m):
+        return []
+    when = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    for r in payload.get("data") or []:
+        if str(r.get("TypeName", "")).startswith("Vàng SJC 1L") and "Chí Minh" in str(r.get("BranchName", "")):
+            buy, sell = r.get("BuyValue"), r.get("SellValue")
+            if isinstance(buy, (int, float)) and isinstance(sell, (int, float)) and 10e6 < buy <= sell < 1e9:
+                return [{"indicator": k, "period": when, "value": round(v / 1e6, 2), "unit": "tr/lượng",
+                         "source_url": SJC_URL} for k, v in (("sjc_gold_buy", buy), ("sjc_gold_sell", sell))]
+    return []
+
+
+def collect_sjc_gold() -> int:
+    try:
+        r = requests.get(SJC_URL, headers=_HEADERS, timeout=30)
+        r.raise_for_status()
+        rows = parse_sjc(r.json())
+    except (requests.RequestException, ValueError) as e:
+        logger.warning(f"SJC gold failed: {e}")
+        return 0
+    _upsert(rows)
+    logger.info(f"Upserted {len(rows)} SJC gold prices")
+    return len(rows)
+
+
 def collect_sbv_interest_rates() -> int:
     """Collect monthly VND lending/deposit rates from SBV PDF bulletins.
 

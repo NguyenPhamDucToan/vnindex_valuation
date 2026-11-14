@@ -94,3 +94,14 @@ def test_cafef_bank_rate_table_and_summary():
     got = {r["indicator"]: r["value"] for r in summarize_rates(banks, date(2026, 11, 14))}
     assert not any(k.startswith("deposit_12m") for k in got)          # only 4 banks quote 12m (< 5)
     assert (got["deposit_6m_max"], got["deposit_6m_min"], got["deposit_6m_avg"]) == (6.0, 3.0, 4.7)
+
+
+def test_sjc_board():
+    from collectors.macro_collector import parse_sjc
+    payload = {"success": True, "latestDate": "08:31 14/11/2026", "data": [
+        {"TypeName": "Vàng nhẫn SJC 99,99%", "BranchName": "Hồ Chí Minh", "BuyValue": 133.3e6, "SellValue": 137.3e6},
+        {"TypeName": "Vàng SJC 1L, 10L, 1KG", "BranchName": "Hà Nội", "BuyValue": 1.0e8, "SellValue": 1.1e8},
+        {"TypeName": "Vàng SJC 1L, 10L, 1KG", "BranchName": "Hồ Chí Minh", "BuyValue": 134.5e6, "SellValue": 137.5e6}]}
+    got = {r["indicator"]: (r["value"], r["period"]) for r in parse_sjc(payload)}
+    assert got == {"sjc_gold_buy": (134.5, date(2026, 11, 14)), "sjc_gold_sell": (137.5, date(2026, 11, 14))}
+    assert parse_sjc({"success": False}) == []

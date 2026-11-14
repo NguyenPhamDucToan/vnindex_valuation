@@ -23,7 +23,7 @@ from loguru import logger
 logger.add("run_macro_local.log", rotation="2 MB", retention=5, encoding="utf-8", level="INFO")
 
 from collectors.macro_collector import (collect_cpi, collect_gdp, collect_labor, collect_trade,
-                                        collect_bank_deposit_rates)
+                                        collect_bank_deposit_rates, collect_sjc_gold)
 
 steps = [
     ("NSO CPI", lambda: collect_cpi(max_pages=2)),
@@ -31,6 +31,7 @@ steps = [
     ("NSO trade", lambda: collect_trade(max_pages=1)),
     ("NSO labour", lambda: collect_labor(max_pages=1)),
     ("Bank deposit rates (CafeF)", collect_bank_deposit_rates),
+    ("SJC gold", collect_sjc_gold),
 ]
 
 failed = rows = 0
