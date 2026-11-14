@@ -105,3 +105,26 @@ def test_sjc_board():
     got = {r["indicator"]: (r["value"], r["period"]) for r in parse_sjc(payload)}
     assert got == {"sjc_gold_buy": (134.5, date(2026, 11, 14)), "sjc_gold_sell": (137.5, date(2026, 11, 14))}
     assert parse_sjc({"success": False}) == []
+
+
+def test_monthly_report_activity_figures():
+    from collectors.macro_collector import parse_ktxh_activity
+    text = ("Chỉ số sản xuất công nghiệp (IIP) tháng Mười ước tăng 2,3% so với tháng trước và tăng 15,0% so với "
+            "cùng kỳ năm trước. Tính chung mười tháng năm 2026, chỉ số IIP tăng 12,4% ... Tổng mức bán lẻ hàng hóa "
+            "và doanh thu dịch vụ tiêu dùng theo giá hiện hành tháng Mười ước đạt 695,5 nghìn tỷ đồng, giảm nhẹ 0,2% "
+            "so với tháng trước và tăng 14,7% so với cùng kỳ năm trước. ... Trong tháng Tám, khách quốc tế đến nước "
+            "ta ước đạt 1,99 triệu lượt người ... Trong tháng Mười, cả nước có gần 12,6 nghìn doanh nghiệp thành lập mới")
+    got = {r["indicator"]: r["value"] for r in parse_ktxh_activity(text, date(2026, 10, 1), "u")}
+    assert got == {"iip_yoy": 15.0, "retail_month": 695.5, "retail_yoy": 14.7,
+                   "intl_visitors": 1.99, "new_firms": 12.6}
+    plain = "Trong tháng Mười, cả nước có 4.726 doanh nghiệp thành lập mới"     # no "nghìn": a count
+    assert parse_ktxh_activity(plain, date(2026, 10, 1), "u")[0]["value"] == 4.726
+
+
+def test_report_month_from_slug_and_posting_date():
+    from collectors.macro_collector import ktxh_period
+    b = "https://www.nso.gov.vn/bai-top/"
+    assert ktxh_period(b + "2026/10/bao-cao-tinh-hinh-kinh-te-xa-hoi-quy-iii-va-9-thang-nam-2026/") == date(2026, 9, 1)
+    assert ktxh_period(b + "2026/04/bao-cao-tinh-hinh-kinh-te-xa-hoi-quy-i-nam-2026/") == date(2026, 3, 1)
+    # posted 2026/06, slug wrongly says 2025: it is the May 2026 report
+    assert ktxh_period(b + "2026/06/bao-cao-tinh-hinh-kinh-te-xa-hoi-thang-nam-va-5-thang-dau-nam-2025-2/") == date(2026, 5, 1)

@@ -795,6 +795,109 @@ def parse_ktxh_trade(text: str, period: date, url: str) -> list[dict]:
             for k, v in (("exports", exports), ("imports", exports - balance), ("trade_balance", balance))]
 
 
+# Activity figures from the same monthly report: industrial production (IIP),
+# retail sales, international arrivals, newly registered firms. Each is the
+# report month's own number (not the year-to-date one that follows it).
+_KTXH_ALL_SEARCH = ("https://www.nso.gov.vn/wp-json/wp/v2/posts?search=b%C3%A1o%20c%C3%A1o%20t%C3%ACnh%20h%C3%ACnh"
+                    "%20kinh%20t%E1%BA%BF%20x%C3%A3%20h%E1%BB%99i&per_page=100&_fields=link&page=")
+_KTXH_ANY_RE = re.compile(r"/bao-cao-tinh-hinh-kinh-te-xa-hoi-(?:thang|quy)-")
+_KTXH_QUARTER_SLUG = re.compile(r"-quy-(i|ii|iii|iv)-(?:.*-)?nam-(\d{4})")
+_KTXH_POSTED = re.compile(r"/(\d{4})/(\d{2})/")
+_M = r"tháng [^,.(]{1,20}?(?:\s*năm \d{4})?(?:\s*\[\d+\])?"
+_KTXH_IIP_RE = re.compile(
+    r"\(IIP\) " + _M + r" (?:ước (?:tính )?)?(?:(?:tăng|giảm)(?: nhẹ| mạnh)? [\d,]+% so với tháng trước(?:,| và) )?"
+    r"(tăng|giảm) ([\d,]+)% so với cùng kỳ")
+_KTXH_RETAIL_RE = re.compile(
+    r"Tổng mức bán lẻ hàng hóa và doanh thu dịch vụ tiêu dùng(?: theo giá hiện hành)? " + _M +
+    r" (?:ước (?:tính )?)?đạt ([\d.,]+) nghìn tỷ đồng, (?:(?:tăng|giảm)(?: nhẹ| mạnh)? [\d,]+% so với tháng trước(?:,| và) )?"
+    r"(tăng|giảm) ([\d,]+)% so với cùng kỳ")
+_KTXH_VISITORS_RE = re.compile(
+    r"(?:Khách quốc tế đến Việt Nam (?:trong )?" + _M + r"|Trong " + _M + r", khách quốc tế đến (?:nước ta|Việt Nam))"
+    r" (?:ước (?:tính )?)?đạt (?:gần |hơn |trên )?([\d.,]+) (triệu|nghìn) lượt")
+_KTXH_FIRMS_RE = re.compile(
+    r"Trong tháng [^,]{1,20}, cả nước có (?:gần |hơn |trên )?([\d.,]+)( nghìn)? doanh nghiệp thành lập mới")
+_QMONTH = {"i": 3, "ii": 6, "iii": 9, "iv": 12}
+
+
+def ktxh_period(url: str) -> date | None:
+    """Report month from the slug, checked against the posting month in the path
+    (one slug posted in 2026/06 says '...-nam-2025-2' for the May 2026 report)."""
+    q = _KTXH_QUARTER_SLUG.search(url)
+    period = date(int(q.group(2)), _QMONTH[q.group(1)], 1) if q else _parse_period(url)
+    m = _KTXH_POSTED.search(url)
+    if m:
+        posted = date(int(m.group(1)), int(m.group(2)), 1)
+        lag = (posted.year - period.year) * 12 + posted.month - period.month if period else -1
+        if not 0 <= lag <= 2:
+            y, mo = (posted.year, posted.month - 1) if posted.month > 1 else (posted.year - 1, 12)
+            period = date(y, mo, 1)
+    return period
+
+
+def parse_ktxh_activity(text: str, period: date, url: str) -> list[dict]:
+    out = []
+
+    def add(ind, val, unit):
+        out.append({"indicator": ind, "period": period, "value": round(val, 3), "unit": unit, "source_url": url})
+    if m := _KTXH_IIP_RE.search(text):
+        add("iip_yoy", _to_float(*m.groups()), "%")
+    if m := _KTXH_RETAIL_RE.search(text):
+        add("retail_month", _vn_num(m.group(1)), "nghìn tỷ")
+        add("retail_yoy", _to_float(m.group(2), m.group(3)), "%")
+    if m := _KTXH_VISITORS_RE.search(text):
+        v = _vn_num(m.group(1))
+        add("intl_visitors", v if m.group(2) == "triệu" else v / 1000, "tr lượt")
+    if m := _KTXH_FIRMS_RE.search(text):
+        v = _vn_num(m.group(1))
+        add("new_firms", v if m.group(2) else v / 1000, "nghìn DN")
+    return out
+
+
+def _ktxh_text(url: str) -> str | None:
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=30)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning(f"Failed to fetch {url}: {e}")
+        return None
+    import html as _html
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", _html.unescape(re.sub(r"<[^>]+>", " ", resp.text))))
+
+
+def collect_ktxh_activity(pages: int = 1, refetch: bool = False) -> int:
+    """IIP / retail / arrivals / new firms from the monthly reports. pages=7
+    reaches back to mid-2023; months already stored are skipped unless refetch."""
+    from sqlalchemy import text as _text
+    links: list[str] = []
+    for pg in range(1, pages + 1):
+        try:
+            r = requests.get(_KTXH_ALL_SEARCH + str(pg), headers=_HEADERS, timeout=40)
+            if r.status_code != 200:
+                break
+            links += [p.get("link", "") for p in r.json()]
+        except (requests.RequestException, ValueError) as e:
+            logger.warning(f"Monthly report search failed: {e}")
+            break
+    with get_session() as s:
+        have = {r[0] for r in s.execute(_text(
+            "SELECT DISTINCT period FROM macro_indicators WHERE indicator = 'iip_yoy'")).all()}
+    rows: list[dict] = []
+    for url in dict.fromkeys(u for u in links if _KTXH_ANY_RE.search(u)):
+        period = ktxh_period(url)
+        if period is None or (period in have and not refetch):
+            continue
+        text = _ktxh_text(url)
+        if text is None:
+            continue
+        got = parse_ktxh_activity(text, period, url)
+        if len(got) < 3:
+            logger.warning(f"Monthly report {period}: only {[r['indicator'] for r in got]} parsed ({url})")
+        rows += got
+    _upsert(rows)
+    logger.info(f"Upserted {len(rows)} monthly activity points (IIP, retail, arrivals, new firms)")
+    return len(rows)
+
+
 def collect_trade_monthly_report() -> int:
     """Fill months the XLS table doesn't have yet from the monthly reports.
     Months already in the DB are left alone: the XLS figure is the revised one,

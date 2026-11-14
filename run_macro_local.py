@@ -23,13 +23,17 @@ from loguru import logger
 logger.add("run_macro_local.log", rotation="2 MB", retention=5, encoding="utf-8", level="INFO")
 
 from collectors.macro_collector import (collect_cpi, collect_gdp, collect_labor, collect_trade,
-                                        collect_bank_deposit_rates, collect_sjc_gold)
+                                        collect_bank_deposit_rates, collect_sjc_gold,
+                                        collect_ktxh_activity, collect_exchange_rate)
 
 steps = [
     ("NSO CPI", lambda: collect_cpi(max_pages=2)),
     ("NSO GDP/investment/FDI/retail", lambda: collect_gdp(max_pages=2)),
     ("NSO trade", lambda: collect_trade(max_pages=1)),
     ("NSO labour", lambda: collect_labor(max_pages=1)),
+    ("NSO monthly report: IIP/retail/arrivals/new firms", collect_ktxh_activity),
+    # Daily rather than only in the Sunday job, so the FX chart is never a week behind.
+    ("USD/VND (VNDirect)", lambda: collect_exchange_rate(days=14)),
     ("Bank deposit rates (CafeF)", collect_bank_deposit_rates),
     ("SJC gold", collect_sjc_gold),
 ]
