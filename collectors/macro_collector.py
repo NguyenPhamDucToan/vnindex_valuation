@@ -1036,6 +1036,85 @@ def _parse_sbv_rate_pdf(pdf_url: str, period: date) -> list[dict]:
     return rows
 
 
+# Retail savings rates of ~28 banks, from CafeF's comparison table (counter
+# rates, interest at maturity). SBV's monthly average-rate PDF stopped being
+# reachable in June 2026 (WAF, and file names now carry a random id), so this
+# is the live deposit-rate series. The page has no history: each run stores
+# that day's average, highest and lowest per tenor, and the series builds up.
+# The full table (bank by bank) is exported by the web repo for the macro page.
+CAFEF_RATES_URL = "https://cafef.vn/du-lieu/lai-suat-ngan-hang.chn"
+_TENOR_KEYS = {"Không kỳ hạn": "demand", "1 Tháng": "1m", "3 Tháng": "3m", "6 Tháng": "6m",
+               "9 Tháng": "9m", "12 Tháng": "12m", "18 Tháng": "18m", "24 Tháng": "24m"}
+_SERIES_TENORS = ("6m", "12m")
+
+
+def _cell(s: str) -> str:
+    import html as _html
+    return re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", " ", s))).strip()
+
+
+def parse_cafef_rates(page: str) -> list[dict]:
+    """[{bank, rates: {tenor_key: %/year}}] from the comparison table; "--" = not offered."""
+    i = page.find("<table")
+    if i < 0:
+        return []
+    table = page[i:page.find("</table>", i)]
+    rows = [[_cell(c) for c in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", tr, re.S)]
+            for tr in re.findall(r"<tr.*?</tr>", table, re.S)]
+    if not rows or rows[0][:1] != ["Ngân hàng"]:
+        return []
+    keys = [_TENOR_KEYS.get(h) for h in rows[0][1:]]
+    out = []
+    for r in rows[1:]:
+        if len(r) != len(rows[0]) or not r[0]:
+            continue
+        rates = {}
+        for k, v in zip(keys, r[1:]):
+            m = re.fullmatch(r"([\d.]+)\s*%", v)
+            if k and m and 0 < float(m.group(1)) < 20:
+                rates[k] = float(m.group(1))
+        if rates:
+            out.append({"bank": r[0], "rates": rates})
+    return out
+
+
+def summarize_rates(banks: list[dict], when: date) -> list[dict]:
+    """deposit_<tenor>_avg / _max / _min rows for the tenors kept as series."""
+    rows = []
+    for t in _SERIES_TENORS:
+        vals = [b["rates"][t] for b in banks if t in b["rates"]]
+        if len(vals) < 5:
+            continue
+        for kind, v in (("avg", sum(vals) / len(vals)), ("max", max(vals)), ("min", min(vals))):
+            rows.append({"indicator": f"deposit_{t}_{kind}", "period": when, "value": round(v, 2),
+                         "unit": "%/năm", "source_url": CAFEF_RATES_URL})
+    return rows
+
+
+def fetch_cafef_rates() -> list[dict] | None:
+    try:
+        r = requests.get(CAFEF_RATES_URL, headers=_HEADERS, timeout=30)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        logger.warning(f"CafeF bank rates failed: {e}")
+        return None
+    banks = parse_cafef_rates(r.text)
+    if len(banks) < 10:
+        logger.warning(f"CafeF bank rates: only {len(banks)} banks parsed")
+        return None
+    return banks
+
+
+def collect_bank_deposit_rates() -> int:
+    banks = fetch_cafef_rates()
+    if not banks:
+        return 0
+    rows = summarize_rates(banks, date.today())
+    _upsert(rows)
+    logger.info(f"Upserted {len(rows)} deposit-rate summary points from {len(banks)} banks")
+    return len(rows)
+
+
 def collect_sbv_interest_rates() -> int:
     """Collect monthly VND lending/deposit rates from SBV PDF bulletins.
 

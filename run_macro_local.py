@@ -22,13 +22,15 @@ from loguru import logger
 
 logger.add("run_macro_local.log", rotation="2 MB", retention=5, encoding="utf-8", level="INFO")
 
-from collectors.macro_collector import collect_cpi, collect_gdp, collect_labor, collect_trade
+from collectors.macro_collector import (collect_cpi, collect_gdp, collect_labor, collect_trade,
+                                        collect_bank_deposit_rates)
 
 steps = [
     ("NSO CPI", lambda: collect_cpi(max_pages=2)),
     ("NSO GDP/investment/FDI/retail", lambda: collect_gdp(max_pages=2)),
     ("NSO trade", lambda: collect_trade(max_pages=1)),
     ("NSO labour", lambda: collect_labor(max_pages=1)),
+    ("Bank deposit rates (CafeF)", collect_bank_deposit_rates),
 ]
 
 failed = rows = 0

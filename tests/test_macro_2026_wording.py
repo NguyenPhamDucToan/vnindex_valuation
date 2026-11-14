@@ -81,3 +81,16 @@ def test_january_compares_with_december_not_the_gold_sentence():
     assert _MOM_RE_JAN.search(jan).groups() == ("tăng", "1,23")
     group = "nhóm giao thông giảm 2,12% so với tháng 12/2022"         # a group, not CPI
     assert _MOM_RE_JAN.search(group) is None
+
+
+def test_cafef_bank_rate_table_and_summary():
+    from collectors.macro_collector import parse_cafef_rates, summarize_rates
+    head = "<tr><th>Ngân hàng</th><th>Không kỳ hạn</th><th>6 Tháng</th><th>12 Tháng</th></tr>"
+    body = "".join(f"<tr><td>{b}</td><td>--</td><td>{r6} %</td><td>{r12} %</td></tr>"
+                   for b, r6, r12 in (("A", "5", "6.9"), ("B", "3", "5.4"), ("C", "4", "--"),
+                                      ("D", "5.5", "4.3"), ("E", "6", "6")))
+    banks = parse_cafef_rates(f"<div><table class=x>{head}{body}</table></div>")
+    assert banks[2] == {"bank": "C", "rates": {"6m": 4.0}}          # "--" = not offered
+    got = {r["indicator"]: r["value"] for r in summarize_rates(banks, date(2026, 11, 14))}
+    assert not any(k.startswith("deposit_12m") for k in got)          # only 4 banks quote 12m (< 5)
+    assert (got["deposit_6m_max"], got["deposit_6m_min"], got["deposit_6m_avg"]) == (6.0, 3.0, 4.7)
