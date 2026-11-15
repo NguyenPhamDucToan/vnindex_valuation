@@ -26,13 +26,14 @@ Banking stocks use completely different item_ids (detected by presence of
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 import warnings
 import pandas as pd
 from loguru import logger
 from sqlalchemy import select
 
 from models.database import get_session
-from models.schema import Financial
+from models.schema import Financial, FinancialRevision
 
 
 _QUARTER_RE = re.compile(r'^\d{4}-Q[1-4]$')
@@ -332,6 +333,29 @@ def fetch_financials(ticker: str, n_periods: int = 8, freq: str = "quarter") -> 
     return pd.DataFrame(rows)
 
 
+# Figures whose change counts as a restatement, and how big a change must be
+# to count: VCI returns the same number on every fetch, so anything that moves
+# was changed by the company, but a 0.3bn rounding of a 50,000bn balance sheet
+# is not news. Both bars must be cleared.
+REVISION_FIELDS = ("revenue", "net_income", "equity", "total_assets", "operating_cf")
+REVISION_MIN_REL = 0.01      # 1% of the larger of old and new
+REVISION_MIN_ABS = 1.0       # VND billions
+
+
+def find_revisions(old: dict, new: dict) -> list[tuple[str, float, float]]:
+    """(field, old, new) for each tracked figure that changed materially.
+    A value appearing where there was none is a backfill, not a restatement."""
+    out = []
+    for f in REVISION_FIELDS:
+        a, b = old.get(f), new.get(f)
+        if a is None or b is None or a != a or b != b:
+            continue
+        diff = abs(b - a)
+        if diff >= REVISION_MIN_ABS and diff >= REVISION_MIN_REL * max(abs(a), abs(b)):
+            out.append((f, float(a), float(b)))
+    return out
+
+
 def upsert_financials(ticker: str, df: pd.DataFrame) -> int:
     if df.empty:
         return 0
@@ -348,11 +372,14 @@ def upsert_financials(ticker: str, df: pd.DataFrame) -> int:
     # not have this number" means in a database.
     df = df.astype(object).where(pd.notna(df), None)
 
+    tracked = [getattr(Financial, f) for f in REVISION_FIELDS]
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     with get_session() as session:
+        FinancialRevision.__table__.create(bind=session.get_bind(), checkfirst=True)
         existing = {
-            (r[0], r[1])
+            (r[0], r[1]): dict(zip(REVISION_FIELDS, r[2:]))
             for r in session.execute(
-                select(Financial.period, Financial.period_type)
+                select(Financial.period, Financial.period_type, *tracked)
                 .where(Financial.ticker == ticker)
             )
         }
@@ -360,6 +387,11 @@ def upsert_financials(ticker: str, df: pd.DataFrame) -> int:
             key = (row["period"], row["period_type"])
             values = {c: row.get(c) for c in value_cols}
             if key in existing:
+                for field, a, b in find_revisions(existing[key], values):
+                    session.add(FinancialRevision(
+                        detected_at=now, ticker=ticker, period=key[0], period_type=key[1],
+                        field=field, old_value=a, new_value=b))
+                    logger.info(f"{ticker} {key[0]} {field} restated: {a:,.1f} -> {b:,.1f}")
                 session.execute(
                     Financial.__table__.update()
                     .where(

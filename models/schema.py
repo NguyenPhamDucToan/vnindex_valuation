@@ -224,3 +224,25 @@ class DataQualityLog(Base):
     __table_args__ = (
         Index("ix_dq_run_at", "run_at"),
     )
+
+
+class FinancialRevision(Base):
+    """A reported figure that changed after it was first stored: a company
+    restating a quarter (audit or review adjustments, a merger booked back).
+    upsert_financials() overwrites the row in `financials`, so without this the
+    old number is gone and nobody sees that the history moved."""
+    __tablename__ = "financial_revisions"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    detected_at = Column(DateTime, nullable=False)
+    ticker      = Column(String(12), nullable=False)
+    period      = Column(String(10), nullable=False)    # "2026-Q2" or "2025"
+    period_type = Column(String(1), nullable=False)
+    field       = Column(String(30), nullable=False)    # e.g. "net_income"
+    old_value   = Column(Float)
+    new_value   = Column(Float)
+
+    __table_args__ = (
+        Index("ix_rev_ticker", "ticker", "period"),
+        Index("ix_rev_detected", "detected_at"),
+    )
