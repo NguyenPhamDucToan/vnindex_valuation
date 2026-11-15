@@ -40,6 +40,39 @@ def fetch_ticker_list() -> pd.DataFrame:
 _MIN_LISTED_STOCKS = 300
 
 
+# VCI now serves ICB industry names, but every stored ticker and the dashboard's
+# sector logic use the older house names. A new listing would otherwise sit
+# alone in an ICB sector (ECO in "Hóa chất", DSH in "Xây dựng và Vật liệu")
+# with no peers to compare against. Map each ICB name to its house sector;
+# names with no clear house equivalent ("Truyền thông", "Dịch vụ tài chính")
+# stay as they are.
+ICB_TO_HOUSE = {
+    "Hóa chất": "SX Nhựa - Hóa chất",
+    "Xây dựng và Vật liệu": "Xây dựng",
+    "Tài nguyên Cơ bản": "Vật liệu xây dựng",      # steel and sheet, as HPG/HSG/NKG
+    "Hàng cá nhân & Gia dụng": "SX Hàng gia dụng",
+    "Thực phẩm và đồ uống": "Thực phẩm - Đồ uống",
+    "Y tế": "Chăm sóc sức khỏe",
+    "Du lịch và Giải trí": "Dịch vụ lưu trú, ăn uống, giải trí",
+    "Công nghệ Thông tin": "Công nghệ và thông tin",
+    "Viễn thông": "Công nghệ và thông tin",
+    "Bảo hiểm nhân thọ": "Bảo hiểm",
+    "Bảo hiểm phi nhân thọ": "Bảo hiểm",
+    "Điện, nước & xăng dầu khí đốt": "Tiện ích",
+}
+# Where the ICB default is wrong for the business.
+TICKER_SECTOR = {
+    "MZG": "SX Phụ trợ",   # Miza: paper packaging, as DHC
+    "CLC": "SX Phụ trợ",   # Cát Lợi: cigarette filter materials
+}
+
+
+def house_sector(ticker: str, icb: str | None) -> str | None:
+    if ticker in TICKER_SECTOR:
+        return TICKER_SECTOR[ticker]
+    return ICB_TO_HOUSE.get(icb, icb) if icb else None
+
+
 def upsert_companies(df: pd.DataFrame) -> int:
     """Upsert ticker rows into the companies table. Returns count of upserted rows.
 
@@ -61,12 +94,15 @@ def upsert_companies(df: pd.DataFrame) -> int:
                 added += 1
             company.name = row.get("organ_name") or row.get("short_name") or ticker
             company.exchange = row.get("exchange", EXCHANGE)
-            # Only fill a blank sector. The stored names ("SX Nhựa - Hóa chất",
-            # "Chứng khoán", ...) predate the ICB names VCI now serves, and the
-            # dashboard's sector logic keys on them; overwriting would re-sector
-            # tickers that are already right.
-            if not company.sector:
-                company.sector = row.get("industry_name") or row.get("sector") or None
+            # Only fill a blank sector, or one still holding a raw ICB name
+            # that has a house equivalent. The stored house names predate the
+            # ICB names and the dashboard keys on them; overwriting those would
+            # re-sector tickers that are already right.
+            if (not company.sector or company.sector in ICB_TO_HOUSE
+                    or (ticker in TICKER_SECTOR and company.sector != TICKER_SECTOR[ticker])):
+                company.sector = house_sector(
+                    ticker, company.sector if company.sector in ICB_TO_HOUSE
+                    else row.get("industry_name") or row.get("sector") or None)
             if not company.industry:
                 company.industry = row.get("industry_name") or row.get("industry") or None
             company.is_active = True
